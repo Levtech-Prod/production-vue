@@ -1,0 +1,33 @@
+{
+  "name": "prodtrack-backend",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'"
+  },
+  "dependencies": {
+    "bcryptjs": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "jsonwebtoken": "latest",
+    "pg": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "latest",
+    "@types/cors": "latest",
+    "@types/express": "latest",
+    "@types/jsonwebtoken": "latest",
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "dotenv-cli": "^11.0.0",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
+
+
