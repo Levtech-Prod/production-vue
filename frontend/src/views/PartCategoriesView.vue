@@ -10,18 +10,17 @@
     </div>
     <form class="card mt-6 p-6" @submit.prevent="save">
       <div class="grid gap-4 md:grid-cols-2">
+        <input v-model="form.name" class="input" placeholder="Category name" />
         <input
-          v-model="form.name"
-          class="input"
-          placeholder="Category name"
-        /><input
-          v-model="form.image"
-          class="input"
-          placeholder="Image URL"
-        /><input
           v-model="form.description"
           class="input md:col-span-2"
           placeholder="Description"
+        />
+        <FileUploader
+          label="Category image"
+          target="part-categories"
+          :is-file-uploaded="!!form.image"
+          @uploaded="handleImageUploaded"
         />
       </div>
       <div
@@ -111,6 +110,7 @@
 import { onMounted, reactive, computed } from 'vue';
 import { usePartCategoryStore } from '../stores/partCategoriesStore.ts';
 import type { PartCategoryParameter } from '../types/partCategories.ts';
+import FileUploader from '../components/uploader/FileUploader.vue';
 
 const partCategoryStore = usePartCategoryStore();
 const categories = computed(() => partCategoryStore.categories);
@@ -133,6 +133,11 @@ async function save() {
   form.parameters = [];
   await partCategoryStore.loadCategories();
 }
+
+function handleImageUploaded(url: string) {
+  form.image = url;
+}
+
 onMounted(() => {
   partCategoryStore.loadCategories();
 });

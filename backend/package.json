@@ -14,6 +14,7 @@
     "dotenv": "latest",
     "express": "latest",
     "jsonwebtoken": "latest",
+    "multer": "^2.2.0",
     "pg": "latest",
     "zod": "latest"
   },
@@ -22,6 +23,7 @@
     "@types/cors": "latest",
     "@types/express": "latest",
     "@types/jsonwebtoken": "latest",
+    "@types/multer": "^2.1.0",
     "@types/node": "latest",
     "@types/pg": "latest",
     "dotenv-cli": "^11.0.0",
@@ -29,5 +31,3 @@
     "typescript": "latest"
   }
 }
-
-
