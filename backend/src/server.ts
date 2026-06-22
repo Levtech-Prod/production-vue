@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-import categoryRoutes from './routes/categories.js';
+import categoryRoutes from './routes/partCategories.js';
 import partRoutes from './routes/parts.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadFiles';
