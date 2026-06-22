@@ -7,7 +7,6 @@
           Define dynamic parameter templates for parts.
         </p>
       </div>
-      <button class="btn-primary" @click="addParam">+ Parameter</button>
     </div>
     <form class="card mt-6 p-6" @submit.prevent="save">
       <div class="grid gap-4 md:grid-cols-2">
@@ -25,8 +24,38 @@
           placeholder="Description"
         />
       </div>
-      <h2 class="mt-6 font-semibold">Parameters</h2>
+      <div
+        class="flex items-center justify-between px-5 py-4 border-b border-gray-200"
+      >
+        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+          Paraméterek
+        </h3>
+        <button
+          @click="addParam"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-md transition-colors"
+        >
+          Paraméter hozzáadása
+        </button>
+      </div>
+
+      <!-- Empty State -->
+      <div
+        v-if="form.parameters.length === 0"
+        class="flex flex-col items-center justify-center py-2 text-center"
+      >
+        <div
+          class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mb-3"
+        ></div>
+        <p class="text-sm font-medium text-gray-500">
+          Nincs megadott paraméter
+        </p>
+        <p class="text-xs text-gray-400 mt-1">
+          Kattints a gombra az első hozzáadásához.
+        </p>
+      </div>
+
       <div class="mt-3 space-y-3">
+        <div class="flex items-right justify-end gap-3"></div>
         <div
           v-for="(p, i) in form.parameters"
           :key="i"
@@ -79,28 +108,32 @@
   </div>
 </template>
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
-import { api } from '../api/client';
-const categories = ref<any[]>([]);
+import { onMounted, reactive, computed } from 'vue';
+import { usePartCategoryStore } from '../stores/partCategoriesStore.ts';
+import type { PartCategoryParameter } from '../types/partCategories.ts';
+
+const partCategoryStore = usePartCategoryStore();
+const categories = computed(() => partCategoryStore.categories);
 const form = reactive({
   name: '',
   description: '',
   image: '',
-  parameters: [] as any[],
+  parameters: [] as PartCategoryParameter[],
 });
+
 function addParam() {
   form.parameters.push({ name: '', type: 'text', unit: '', required: false });
 }
-async function load() {
-  categories.value = (await api.get('/part-categories')).data;
-}
+
 async function save() {
-  await api.post('/part-categories', form);
+  await partCategoryStore.saveCategory(form);
   form.name = '';
   form.description = '';
   form.image = '';
   form.parameters = [];
-  await load();
+  await partCategoryStore.loadCategories();
 }
-onMounted(load);
+onMounted(() => {
+  partCategoryStore.loadCategories();
+});
 </script>

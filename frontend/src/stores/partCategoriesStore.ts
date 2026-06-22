@@ -1,0 +1,52 @@
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import { partCategoriesApi } from '../api/partCategoriesAPI.ts';
+import type {
+  CreatePartCategoryPayload,
+  PartCategory,
+} from '../types/partCategories.ts';
+
+export const usePartCategoryStore = defineStore('partCategory', () => {
+  const categories = ref<PartCategory[]>([]);
+  const loading = ref(false);
+  const error = ref<string | null>(null);
+
+  async function loadCategories() {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await partCategoriesApi.getAll();
+      categories.value = response.data;
+    } catch (err) {
+      error.value = 'Failed to load categories';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function saveCategory(
+    category: Omit<CreatePartCategoryPayload, 'id' | 'created_at'>,
+  ) {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      return await partCategoriesApi.create(category);
+    } catch (err) {
+      error.value = 'Failed to save category';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  return {
+    categories,
+    loading,
+    error,
+    loadCategories,
+    saveCategory,
+  };
+});

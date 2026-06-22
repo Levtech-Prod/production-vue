@@ -22,7 +22,36 @@ PORT=4000
 FRONTEND_URL="http://localhost:5173"
 ```
 
-## 3. Create database tables
+## 3. Create database
+
+Install PostgreSQL
+
+```bash
+brew install postgresql@16
+```
+
+After installation, add it to your PATH (Homebrew will show you the exact command, but it's usually):
+
+```bash
+bashecho 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Start PostgreSQL
+
+```bash
+brew services start postgresql@16
+```
+
+To check it's running:
+
+```bash
+brew services list
+```
+
+You should see postgresql@16 with status started.
+
+## 4. Create database tables
 
 Make sure the `levtechproduction` database exists, then run:
 
@@ -38,13 +67,13 @@ This runs `backend/database/schema.sql` and creates:
 - `parts`
 - `stock_parameters`
 
-## 4. Start backend
+## 5. Start backend
 
 ```bash
 npm run dev
 ```
 
-## 5. Start frontend
+## 6. Start frontend
 
 ```bash
 cd ../frontend
@@ -52,7 +81,7 @@ cp .env.example .env
 npm run dev
 ```
 
-## 6. Test flow
+## 7. Test flow
 
 1. Open `http://localhost:5173/signup`.
 2. Create an admin user by checking `Admin user`.
