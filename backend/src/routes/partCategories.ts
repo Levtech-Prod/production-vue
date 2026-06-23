@@ -227,4 +227,79 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+router.delete('/:id', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const categoryId = Number(req.params.id);
+
+    if (!categoryId || Number.isNaN(categoryId)) {
+      return res.status(400).json({
+        message: 'Érvénytelen kategória azonosító.',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const linkedPartsResult = await client.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM parts
+      WHERE category_id = $1
+      `,
+      [categoryId],
+    );
+
+    if (linkedPartsResult.rows[0].count > 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(409).json({
+        message:
+          'A kategória nem törölhető, mert már tartozik hozzá létrehozott alkatrész.',
+      });
+    }
+
+    await client.query(
+      `
+      DELETE FROM part_category_parameters
+      WHERE category_id = $1
+      `,
+      [categoryId],
+    );
+
+    const deleteResult = await client.query(
+      `
+      DELETE FROM part_categories
+      WHERE id = $1
+      RETURNING id
+      `,
+      [categoryId],
+    );
+
+    if (deleteResult.rowCount === 0) {
+      await client.query('ROLLBACK');
+
+      return res.status(404).json({
+        message: 'A kategória nem található.',
+      });
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: 'Kategória sikeresen törölve.',
+      id: categoryId,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+
+    res.status(500).json({
+      message: 'Hiba történt a kategória törlése közben.',
+    });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
