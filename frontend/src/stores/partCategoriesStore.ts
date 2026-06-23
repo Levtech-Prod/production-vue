@@ -4,6 +4,7 @@ import { partCategoriesApi } from '../api/partCategoriesAPI.ts';
 import type {
   CreatePartCategoryPayload,
   PartCategory,
+  UpdatePartCategoryPayload,
 } from '../types/partCategories.ts';
 
 export const usePartCategoryStore = defineStore('partCategory', () => {
@@ -42,11 +43,40 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
     }
   }
 
+  async function updateCategory(
+    id: number,
+    payload: UpdatePartCategoryPayload,
+  ) {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await partCategoriesApi.update(id, payload);
+
+      const index = categories.value.findIndex(
+        (category) => category.id === id,
+      );
+
+      if (index !== -1) {
+        categories.value[index] = response.data;
+      }
+
+      return response.data;
+    } catch (err) {
+      console.error(err);
+      error.value = 'Failed to update category';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     categories,
     loading,
     error,
     loadCategories,
     saveCategory,
+    updateCategory,
   };
 });
