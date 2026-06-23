@@ -23,3 +23,9 @@ export interface CreatePartCategoryPayload {
   image?: string | null;
   parameters: PartCategoryParameter[];
 }
+
+export interface UpdatePartCategoryPayload {
+  name: string;
+  image?: string | null;
+  parameters: PartCategoryParameter[];
+}
