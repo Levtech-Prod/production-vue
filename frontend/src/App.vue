@@ -5,6 +5,9 @@
     <main class="pl-64">
       <Topbar />
       <div class="p-6"><router-view /></div>
+
+      <Toast />
+      <AlertModal />
     </main>
   </div>
 </template>
@@ -13,6 +16,9 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
+import Toast from './components/notification/Toast.vue';
+import AlertModal from './components/notification/AlertModal.vue';
+
 const route = useRoute();
 const isAuthPage = computed(() => ['/login', '/signup'].includes(route.path));
 </script>
