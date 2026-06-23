@@ -110,16 +110,35 @@
               </div>
             </td>
             <td class="p-4">
-              <button
-                class="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium hover:bg-slate-200 transition-colors"
-                @click="openEdit(category)"
-              >
-                Szerkesztés
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+                  title="Szerkesztés"
+                  @click="openEdit(category)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  title="Törlés"
+                  @click="openDeleteConfirm(category)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
+      <div
+        v-if="deleteError"
+        class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
+        {{ deleteError }}
+      </div>
     </div>
 
     <!-- Modal -->
@@ -127,6 +146,17 @@
       v-model="modalOpen"
       :category="editingCategory"
       @saved="onSaved"
+    />
+
+    <ConfirmModal
+      :visible="isDeleteConfirmVisible"
+      title="Kategória törlése"
+      :message="`Biztosan törölni szeretnéd ezt a kategóriát: ${categoryToDelete?.name}?`"
+      confirm-text="Törlés"
+      cancel-text="Mégse"
+      :loading="partCategoryStore.loading"
+      @confirm="confirmDeleteCategory"
+      @cancel="closeDeleteConfirm"
     />
   </div>
 </template>
@@ -136,9 +166,17 @@ import { onMounted, ref, computed } from 'vue';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
 import CategoryFormModal from './PartCategoryModal.vue';
+import { Pencil, Trash2 } from 'lucide-vue-next';
+import ConfirmModal from '../../components/notification/ConfirmModal.vue';
+import { useNotificationStore } from '../../stores/notificationStore';
 
-const store = usePartCategoryStore();
-const categories = computed(() => store.categories);
+const partCategoryStore = usePartCategoryStore();
+const notificationStore = useNotificationStore();
+
+const categories = computed(() => partCategoryStore.categories);
+const deleteError = ref<string | null>(null);
+const isDeleteConfirmVisible = ref(false);
+const categoryToDelete = ref<PartCategory | null>(null);
 
 // Search
 const searchQuery = ref('');
@@ -174,12 +212,58 @@ async function onSaved(payload: {
   parameters: PartCategory['parameters'];
 }) {
   if (editingCategory.value) {
-    await store.updateCategory(editingCategory.value.id, payload);
+    await partCategoryStore.updateCategory(editingCategory.value.id, payload);
   } else {
-    await store.saveCategory(payload);
+    await partCategoryStore.saveCategory(payload);
   }
-  await store.loadCategories();
+  await partCategoryStore.loadCategories();
 }
 
-onMounted(() => store.loadCategories());
+async function confirmDelete(categoryId: number) {
+  deleteError.value = null;
+
+  const confirmed = window.confirm(
+    'Biztosan törölni szeretnéd ezt a kategóriát?',
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await partCategoryStore.deleteCategory(categoryId);
+  } catch (err: any) {
+    deleteError.value =
+      err.response?.data?.message || 'A kategória törlése nem sikerült.';
+  }
+}
+
+function openDeleteConfirm(category: PartCategory) {
+  categoryToDelete.value = category;
+  isDeleteConfirmVisible.value = true;
+}
+
+function closeDeleteConfirm() {
+  isDeleteConfirmVisible.value = false;
+  categoryToDelete.value = null;
+}
+
+async function confirmDeleteCategory() {
+  if (!categoryToDelete.value) return;
+
+  try {
+    await partCategoryStore.deleteCategory(categoryToDelete.value.id);
+
+    notificationStore.showToast('A kategória sikeresen törölve.', 'success');
+
+    closeDeleteConfirm();
+  } catch (err: any) {
+    closeDeleteConfirm();
+
+    notificationStore.showModal(
+      'A törlés nem lehetséges',
+      err.response?.data?.message || 'A kategória törlése nem sikerült.',
+    );
+  }
+}
+
+onMounted(() => partCategoryStore.loadCategories());
 </script>

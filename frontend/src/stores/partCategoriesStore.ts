@@ -70,6 +70,27 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
       loading.value = false;
     }
   }
+  async function deleteCategory(id: number) {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      await partCategoriesApi.delete(id);
+
+      categories.value = categories.value.filter(
+        (category) => category.id !== id,
+      );
+    } catch (err: any) {
+      console.error(err);
+
+      error.value =
+        err.response?.data?.message || 'Nem sikerült törölni a kategóriát.';
+
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
 
   return {
     categories,
@@ -78,5 +99,6 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
     loadCategories,
     saveCategory,
     updateCategory,
+    deleteCategory,
   };
 });
