@@ -3,10 +3,7 @@
     <!-- Page header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-3xl font-bold">Alkatrész kategóriák</h1>
-        <p class="mt-1 text-slate-500">
-          Define dynamic parameter templates for parts.
-        </p>
+        <h1 class="text-3xl font-bold">{{ t('part_categories_title') }}</h1>
       </div>
       <button
         class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
@@ -24,7 +21,7 @@
             clip-rule="evenodd"
           />
         </svg>
-        Kategória hozzáadása
+        {{ t('add_part_category') }}
       </button>
     </div>
 
@@ -52,29 +49,29 @@
           />
         </div>
         <span class="text-sm text-slate-400">
-          {{ filteredCategories.length }} / {{ categories.length }} kategória
+          {{ filteredCategories.length }} / {{ categories.length }}
+          {{ t('category') }}
         </span>
       </div>
 
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th class="p-4">Név</th>
-            <th class="p-4">Kép</th>
-            <th class="p-4">Leírás</th>
-            <th class="p-4">Paraméterek</th>
-            <th class="p-4">Műveletek</th>
+            <th class="p-4">{{ t('name') }}</th>
+            <th class="p-4">{{ t('image') }}</th>
+            <th class="p-4">{{ t('description') }}</th>
+            <th class="p-4">{{ t('parameters') }}</th>
+            <th class="p-4">{{ t('actions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filteredCategories.length === 0">
             <td colspan="5" class="py-12 text-center text-sm text-slate-400">
               <template v-if="searchQuery">
-                Nincs találat a(z) „{{ searchQuery }}" keresésre.
+                {{ t('no_search_results') }}: "{{ searchQuery }}".
               </template>
               <template v-else>
-                Még nincs kategória. Kattints a „Kategória hozzáadása" gombra az
-                első létrehozásához.
+                {{ t('no_categories_msg') }}
               </template>
             </td>
           </tr>
@@ -114,7 +111,7 @@
                 <button
                   type="button"
                   class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                  title="Szerkesztés"
+                  title="{{ t('edit') }}"
                   @click="openEdit(category)"
                 >
                   <Pencil class="h-4 w-4" />
@@ -123,7 +120,7 @@
                 <button
                   type="button"
                   class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                  title="Törlés"
+                  title="{{ t('delete') }}"
                   @click="openDeleteConfirm(category)"
                 >
                   <Trash2 class="h-4 w-4" />
@@ -151,9 +148,9 @@
     <ConfirmModal
       :visible="isDeleteConfirmVisible"
       title="Kategória törlése"
-      :message="`Biztosan törölni szeretnéd ezt a kategóriát: ${categoryToDelete?.name}?`"
-      confirm-text="Törlés"
-      cancel-text="Mégse"
+      :message="`${t('confirm_delete_category_msg')} ${categoryToDelete?.name}?`"
+      confirm-text="t('delete')"
+      cancel-text="t('cancel')"
       :loading="partCategoryStore.loading"
       @confirm="confirmDeleteCategory"
       @cancel="closeDeleteConfirm"
@@ -169,6 +166,9 @@ import CategoryFormModal from './PartCategoryModal.vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
@@ -222,9 +222,7 @@ async function onSaved(payload: {
 async function confirmDelete(categoryId: number) {
   deleteError.value = null;
 
-  const confirmed = window.confirm(
-    'Biztosan törölni szeretnéd ezt a kategóriát?',
-  );
+  const confirmed = window.confirm(t('confirm_delete_category_msg'));
 
   if (!confirmed) return;
 
@@ -232,7 +230,7 @@ async function confirmDelete(categoryId: number) {
     await partCategoryStore.deleteCategory(categoryId);
   } catch (err: any) {
     deleteError.value =
-      err.response?.data?.message || 'A kategória törlése nem sikerült.';
+      err.response?.data?.message || t('delete_part_category_error');
   }
 }
 
@@ -252,15 +250,15 @@ async function confirmDeleteCategory() {
   try {
     await partCategoryStore.deleteCategory(categoryToDelete.value.id);
 
-    notificationStore.showToast('A kategória sikeresen törölve.', 'success');
+    notificationStore.showToast(t('delete_part_category_success'), 'success');
 
     closeDeleteConfirm();
   } catch (err: any) {
     closeDeleteConfirm();
 
     notificationStore.showModal(
-      'A törlés nem lehetséges',
-      err.response?.data?.message || 'A kategória törlése nem sikerült.',
+      t('delete_part_category_error_title'),
+      err.response?.data?.message || t('delete_part_category_error'),
     );
   }
 }
