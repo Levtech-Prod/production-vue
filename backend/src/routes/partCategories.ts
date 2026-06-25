@@ -12,9 +12,10 @@ const schema = z.object({
     .array(
       z.object({
         name: z.string().min(1),
-        type: z.enum(['text', 'number', 'boolean']).default('text'),
+        type: z.enum(['text', 'number', 'boolean', 'dropdown']).default('text'),
         unit: z.string().optional().nullable(),
         required: z.boolean().default(false),
+        options: z.array(z.string().min(1)).optional().default([]), // Only for dropdown type
       }),
     )
     .optional()
@@ -38,6 +39,7 @@ router.get('/', requireAuth, async (_req, res) => {
             'type', pcp.type,
             'unit', pcp.unit,
             'required', pcp.required,
+            'options', COALESCE(pcp.options, ARRAY[]::text[]),
             'createdAt', pcp.created_at
           ) ORDER BY pcp.id
         ) FILTER (WHERE pcp.id IS NOT NULL),
@@ -66,10 +68,19 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const parameters = [];
     for (const p of data.parameters) {
       const pResult = await client.query(
-        `INSERT INTO part_category_parameters (category_id, name, type, unit, required)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, category_id AS "categoryId", name, type, unit, required, created_at AS "createdAt"`,
-        [category.id, p.name, p.type, p.unit || null, p.required],
+        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, options)
+         VALUES ($1, $2, $3, $4, $5, $6::text[])
+         RETURNING id, category_id AS "categoryId", name, type, unit, required, options, created_at AS "createdAt"`,
+        [
+          category.id,
+          p.name,
+          p.type,
+          p.unit || null,
+          p.required || false,
+          p.type === 'dropdown'
+            ? (p.options || []).filter((option: string) => option.trim() !== '')
+            : [],
+        ],
       );
       parameters.push(pResult.rows[0]);
     }
@@ -144,7 +155,7 @@ router.put('/:id', async (req, res) => {
         [idsToDelete],
       );
 
-      if (usedResult.rowCount > 0) {
+      if (usedResult.rowCount && usedResult.rowCount > 0) {
         await client.query('ROLLBACK');
 
         return res.status(409).json({
@@ -170,13 +181,19 @@ router.put('/:id', async (req, res) => {
         await client.query(
           `
           UPDATE part_category_parameters
-          SET name = $1, type = $2, required = $3
-          WHERE id = $4 AND category_id = $5
+          SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
+          WHERE id = $6 AND category_id = $7
           `,
           [
             parameter.name.trim(),
             parameter.type,
+            parameter.unit || null,
             parameter.required || false,
+            parameter.type === 'dropdown'
+              ? (parameter.options || []).filter(
+                  (option: string) => option.trim() !== '',
+                )
+              : [],
             parameter.id,
             categoryId,
           ],
@@ -185,15 +202,21 @@ router.put('/:id', async (req, res) => {
         await client.query(
           `
           INSERT INTO part_category_parameters
-            (category_id, name, type, required)
+            (category_id, name, type, unit, required, options)
           VALUES
-            ($1, $2, $3, $4)
+            ($1, $2, $3, $4, $5, $6::text[])
           `,
           [
             categoryId,
             parameter.name.trim(),
             parameter.type,
+            parameter.unit || null,
             parameter.required || false,
+            parameter.type === 'dropdown'
+              ? (parameter.options || []).filter(
+                  (option: string) => option.trim() !== '',
+                )
+              : [],
           ],
         );
       }
@@ -201,7 +224,7 @@ router.put('/:id', async (req, res) => {
 
     const updatedParametersResult = await client.query(
       `
-      SELECT id, name, type, required
+      SELECT id, name, type, unit, required, COALESCE(options, ARRAY[]::text[]) AS options
       FROM part_category_parameters
       WHERE category_id = $1
       ORDER BY id ASC
