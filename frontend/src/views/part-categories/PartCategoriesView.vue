@@ -184,7 +184,6 @@ const deleteError = ref<string | null>(null);
 const isDeleteConfirmVisible = ref(false);
 const categoryToDelete = ref<PartCategory | null>(null);
 
-const categoryModalOpen = ref(false);
 const categorySaveError = ref<string | null>(null);
 const categorySaving = ref(false);
 
@@ -224,11 +223,13 @@ async function onSaved(payload: CreatePartCategoryPayload) {
   try {
     if (editingCategory.value) {
       await partCategoryStore.updateCategory(editingCategory.value.id, payload);
+      notificationStore.showToast(t('update_part_category_success'), 'success');
     } else {
       await partCategoryStore.saveCategory(payload);
+      notificationStore.showToast(t('save_part_category_success'), 'success');
     }
 
-    categoryModalOpen.value = false;
+    modalOpen.value = false;
   } catch (err: any) {
     console.error('Error saving part category:', err);
     categorySaveError.value = `${t('save_part_category_error')}: 
