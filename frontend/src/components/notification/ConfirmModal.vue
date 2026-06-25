@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+
 defineProps<{
   visible: boolean;
   title?: string;
@@ -12,6 +14,8 @@ const emit = defineEmits<{
   confirm: [];
   cancel: [];
 }>();
+
+const { t } = useI18n();
 </script>
 
 <template>
@@ -22,11 +26,11 @@ const emit = defineEmits<{
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="mb-3 text-lg font-semibold text-gray-900">
-          {{ title || 'Megerősítés' }}
+          {{ title || t('confirm') }}
         </h3>
 
         <p class="mb-6 text-sm text-gray-600">
-          {{ message || 'Biztosan végrehajtod ezt a műveletet?' }}
+          {{ message || t('confirm_action_msg') }}
         </p>
 
         <div class="flex justify-end gap-3">
@@ -36,7 +40,7 @@ const emit = defineEmits<{
             :disabled="loading"
             @click="$emit('cancel')"
           >
-            {{ cancelText || 'Mégse' }}
+            {{ cancelText || t('cancel') }}
           </button>
 
           <button
@@ -45,7 +49,7 @@ const emit = defineEmits<{
             :disabled="loading"
             @click="$emit('confirm')"
           >
-            {{ loading ? 'Folyamatban...' : confirmText || 'Törlés' }}
+            {{ loading ? t('in-progress') : confirmText || t('delete') }}
           </button>
         </div>
       </div>

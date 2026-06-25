@@ -8,30 +8,35 @@
       </div>
       <div>
         <div class="font-bold tracking-wide text-white">Production</div>
-        <div class="text-xs text-slate-400">Gyártáskövető rendszer</div>
+        <div class="text-xs text-slate-400">
+          {{ t('production_tracking_system') }}
+        </div>
       </div>
     </div>
     <nav class="px-3 text-sm">
-      <RouterLink class="nav" to="/dashboard">Dashboard</RouterLink>
+      <RouterLink class="nav" to="/dashboard">{{ t('dashboard') }}</RouterLink>
       <div class="section">Rendszer</div>
-      <RouterLink class="nav" to="/users">Felhasználók</RouterLink>
+      <RouterLink class="nav" to="/users">{{ t('users') }}</RouterLink>
       <div class="section">Raktár</div>
-      <RouterLink class="nav" to="/stock/categories"
-        >Alkatrész kategóriák</RouterLink
-      >
-      <RouterLink class="nav" to="/stock/parts">Alkatrészek</RouterLink>
+      <RouterLink class="nav" to="/stock/categories">{{
+        t('part_categories_title')
+      }}</RouterLink>
+      <RouterLink class="nav" to="/stock/parts">{{ t('parts') }}</RouterLink>
     </nav>
     <button
       class="absolute bottom-4 left-3 right-3 rounded-xl px-4 py-3 text-left text-sm hover:bg-slate-900"
       @click="logout"
     >
-      Kijelentkezés
+      {{ t('logout') }}
     </button>
   </aside>
 </template>
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 function logout() {

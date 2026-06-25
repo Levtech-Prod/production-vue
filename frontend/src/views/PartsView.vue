@@ -1,30 +1,34 @@
 <template>
   <div>
-    <h1 class="text-3xl font-bold">Alkatrészek</h1>
+    <h1 class="text-3xl font-bold">{{ t('parts') }}</h1>
     <form class="card mt-6 p-6" @submit.prevent="save">
       <div class="grid gap-4 md:grid-cols-2">
         <select v-model.number="form.categoryId" class="input">
-          <option :value="0">Select category</option>
+          <option :value="0">{{ t('select_category') }}</option>
           <option v-for="c in categories" :key="c.id" :value="c.id">
             {{ c.name }}
           </option>
         </select>
-        <input v-model="form.name" class="input" placeholder="Name" />
+        <input v-model="form.name" class="input" :placeholder="t('name')" />
         <input
           v-model.number="form.pricePerPiece"
           type="number"
           step="0.01"
           class="input"
-          placeholder="Price per piece"
+          :placeholder="t('price_per_piece')"
         />
-        <input v-model="form.location" class="input" placeholder="Location" />
+        <input
+          v-model="form.location"
+          class="input"
+          :placeholder="t('location')"
+        />
         <textarea
           v-model="form.description"
           class="input md:col-span-2"
-          placeholder="Description"
+          :placeholder="t('description')"
         ></textarea>
       </div>
-      <h2 class="mt-6 font-semibold">Parameters</h2>
+      <h2 class="mt-6 font-semibold">{{ t('parameters') }}</h2>
       <div class="mt-3 grid gap-3 md:grid-cols-2">
         <label
           v-for="p in selectedCategory?.parameters || []"
@@ -37,17 +41,17 @@
             :required="p.required"
         /></label>
       </div>
-      <button class="btn-primary mt-6">Save part</button>
+      <button class="btn-primary mt-6">{{ t('save_part') }}</button>
     </form>
     <div class="card mt-6 overflow-hidden">
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th class="p-4">Name</th>
-            <th>Category</th>
-            <th>Price / piece</th>
-            <th>Location</th>
-            <th>Parameters</th>
+            <th class="p-4">{{ t('name') }}</th>
+            <th>{{ t('category') }}</th>
+            <th>{{ t('price_per_piece') }}</th>
+            <th>{{ t('location') }}</th>
+            <th>{{ t('parameters') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -77,6 +81,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { api } from '../api/client';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 const categories = ref<any[]>([]);
 const parts = ref<any[]>([]);
 const parameterValues = reactive<Record<number, string>>({});

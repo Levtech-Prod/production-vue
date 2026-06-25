@@ -6,7 +6,7 @@
       Production / <span class="font-semibold text-slate-800">{{ title }}</span>
     </div>
     <div class="flex items-center gap-4">
-      <input class="input w-72" placeholder="Keresés..." />
+      <input class="input w-72" :placeholder="t('search')" />
       <div
         class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold text-white"
       >
@@ -15,7 +15,7 @@
       <div class="text-sm">
         <div class="font-semibold">{{ auth.user?.username }}</div>
         <div class="text-xs text-slate-500">
-          {{ auth.user?.admin ? 'Admin' : 'Client' }}
+          {{ auth.user?.admin ? t('admin') : t('client') }}
         </div>
       </div>
     </div>
@@ -25,6 +25,8 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { useI18n } from 'vue-i18n';
+const { t } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
 const title = computed(

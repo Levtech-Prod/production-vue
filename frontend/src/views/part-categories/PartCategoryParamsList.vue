@@ -2,7 +2,7 @@
   <div>
     <div class="flex items-center justify-between mb-3">
       <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-        Paraméterek
+        {{ t('parameters') }}
       </h3>
       <button
         type="button"
@@ -21,7 +21,7 @@
             clip-rule="evenodd"
           />
         </svg>
-        Paraméter hozzáadása
+        {{ t('add_parameter') }}
       </button>
     </div>
 
@@ -30,7 +30,7 @@
       v-if="parameters.length === 0"
       class="rounded-xl border-2 border-dashed border-slate-200 py-8 text-center"
     >
-      <p class="text-sm text-slate-400">Még nincs paraméter megadva.</p>
+      <p class="text-sm text-slate-400">{{ t('no_parameters_msg') }}</p>
     </div>
 
     <!-- Rows -->
@@ -40,16 +40,24 @@
         :key="i"
         class="grid gap-2 rounded-xl bg-slate-50 p-3 md:grid-cols-5"
       >
-        <input v-model="p.name" class="input text-sm" placeholder="Név" />
+        <input
+          v-model="p.name"
+          class="input text-sm"
+          :placeholder="t('name')"
+        />
         <select v-model="p.type" class="input text-sm">
           <option value="text">Text</option>
           <option value="number">Number</option>
           <option value="boolean">Boolean</option>
         </select>
-        <input v-model="p.unit" class="input text-sm" placeholder="Egység" />
+        <input
+          v-model="p.unit"
+          class="input text-sm"
+          :placeholder="t('unit')"
+        />
         <label class="flex items-center gap-2 text-sm text-slate-600">
           <input v-model="p.required" type="checkbox" class="rounded" />
-          Kötelező
+          {{ t('required') }}
         </label>
         <button
           type="button"
@@ -76,8 +84,11 @@
 
 <script setup lang="ts">
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
+import { useI18n } from 'vue-i18n';
 
 const parameters = defineModel<PartCategoryParameter[]>({ required: true });
+
+const { t } = useI18n();
 
 function addParam() {
   parameters.value.push({ name: '', type: 'text', unit: '', required: false });

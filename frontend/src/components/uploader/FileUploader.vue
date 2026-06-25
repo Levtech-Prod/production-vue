@@ -2,6 +2,9 @@
 import { ref, watch } from 'vue';
 import { useUploadStore } from '../../stores/uploadStore';
 import type { UploadTarget } from '../../api/uploadApi';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   label?: string;
@@ -48,7 +51,7 @@ async function handleFileChange(event: Event) {
 <template>
   <div class="space-y-3">
     <label class="block text-sm font-medium text-gray-700">
-      {{ label || 'Upload file' }}
+      {{ label || t('upload_file') }}
     </label>
 
     <input
@@ -60,7 +63,7 @@ async function handleFileChange(event: Event) {
     />
 
     <p v-if="uploadStore.uploading" class="text-sm text-gray-500">
-      Uploading...
+      {{ t('in-progress') }}
     </p>
 
     <p v-if="uploadStore.error" class="text-sm text-red-500">
