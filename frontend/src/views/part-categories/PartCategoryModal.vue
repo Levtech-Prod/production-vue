@@ -83,6 +83,13 @@
         </div>
       </div>
 
+      <div
+        v-if="saveError"
+        class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
+        {{ saveError }}
+      </div>
+
       <PartCategoryParameterList v-model="form.parameters" />
     </form>
 
@@ -97,10 +104,13 @@
       </button>
       <button
         type="button"
-        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
+        class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:opacity-60"
+        :disabled="saving"
         @click="save"
       >
-        {{ category ? t('save') : t('add_part_category') }}
+        {{
+          saving ? t('saving') : category ? t('save') : t('add_part_category')
+        }}
       </button>
     </template>
   </BaseModal>
@@ -123,6 +133,8 @@ const { t } = useI18n();
 const props = defineProps<{
   modelValue: boolean;
   category?: PartCategory | null; // null = add mode, PartCategory = edit mode
+  saveError?: string | null;
+  saving?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -135,6 +147,7 @@ const emit = defineEmits<{
       parameters: PartCategoryParameter[];
     },
   ];
+  clearError: [];
 }>();
 
 // Two-way binding for the open state — pass through to BaseModal
@@ -163,6 +176,7 @@ watch(
             type: p.type,
             unit: p.unit ?? '',
             required: p.required,
+            options: p.options || [],
           }))
         : [];
     } else {
@@ -180,12 +194,21 @@ function resetForm() {
 }
 
 function save() {
+  emit('clearError');
+
   emit('saved', {
     name: form.name,
     description: form.description,
     image: form.image || null,
-    parameters: form.parameters.filter((p) => p.name.trim() !== ''),
+    parameters: form.parameters
+      .filter((p) => p.name.trim() !== '')
+      .map((p) => ({
+        ...p,
+        options:
+          p.type === 'dropdown'
+            ? (p.options || []).filter((option) => option.trim() !== '')
+            : [],
+      })),
   });
-  isOpen.value = false;
 }
 </script>

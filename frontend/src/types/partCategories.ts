@@ -1,11 +1,17 @@
+export type PartCategoryParameterType =
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'dropdown';
 export interface PartCategoryParameter {
   id?: number;
   category_id?: number;
   name: string;
-  type: string;
+  type: PartCategoryParameterType;
   unit?: string;
   required: boolean;
   created_at?: string;
+  options: string[]; // Only for dropdown type
 }
 
 export interface PartCategory {
