@@ -45,7 +45,7 @@
           <input
             v-model="searchQuery"
             class="input !pl-9"
-            placeholder="Keresés név, leírás, paraméter alapján…"
+            :placeholder="t('search_part_categories_placeholder')"
           />
         </div>
         <span class="text-sm text-slate-400">
@@ -147,7 +147,7 @@
 
     <ConfirmModal
       :visible="isDeleteConfirmVisible"
-      title="Kategória törlése"
+      title="t('delete_part_category')"
       :message="`${t('confirm_delete_category_msg')} ${categoryToDelete?.name}?`"
       confirm-text="t('delete')"
       cancel-text="t('cancel')"

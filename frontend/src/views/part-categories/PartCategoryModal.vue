@@ -1,7 +1,11 @@
 <template>
   <BaseModal
     v-model="isOpen"
-    :title="category ? `Szerkesztés: ${form.name || '…'}` : 'Új kategória'"
+    :title="
+      category
+        ? `${t('edit')} ${form.name || '…'}`
+        : `${t('add_part_category')}`
+    "
     size="lg"
   >
     <!-- Form body -->
@@ -10,31 +14,31 @@
         <div class="flex flex-col gap-1">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >Név</label
+            >{{ t('name') }}</label
           >
           <input
             v-model="form.name"
             class="input"
-            placeholder="Kategória neve"
+            :placeholder="t('name')"
             required
           />
         </div>
         <div class="flex flex-col gap-1">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >Leírás</label
+            >{{ t('description') }}</label
           >
           <input
             v-model="form.description"
             class="input"
-            placeholder="Rövid leírás"
+            :placeholder="t('description')"
           />
         </div>
 
         <div class="flex flex-col gap-1 md:col-span-2">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >Kép</label
+            >{{ t('image') }}</label
           >
 
           <!-- Existing image preview -->
@@ -45,7 +49,7 @@
             <img
               :src="form.image"
               class="h-16 w-16 rounded-lg border border-slate-200 object-cover shrink-0"
-              alt="Category image preview"
+              :alt="t('category_image_preview')"
             />
             <button
               type="button"
@@ -64,14 +68,14 @@
                   clip-rule="evenodd"
                 />
               </svg>
-              Kép eltávolítása
+              {{ t('remove_image') }}
             </button>
           </div>
 
           <!-- Uploader — shown when no image is set -->
           <FileUploader
             v-else
-            label="Category image"
+            :label="t('category_image')"
             target="part-categories"
             :is-file-uploaded="false"
             @uploaded="(url: string) => (form.image = url)"
@@ -89,14 +93,14 @@
         class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 transition-colors"
         @click="isOpen = false"
       >
-        Mégsem
+        {{ t('cancel') }}
       </button>
       <button
         type="button"
         class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
         @click="save"
       >
-        {{ category ? 'Mentés' : 'Kategória létrehozása' }}
+        {{ category ? t('save') : t('add_part_category') }}
       </button>
     </template>
   </BaseModal>
@@ -111,6 +115,10 @@ import type {
   PartCategory,
   PartCategoryParameter,
 } from '../../types/partCategories.ts';
+
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   modelValue: boolean;

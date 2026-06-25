@@ -4,22 +4,22 @@
       class="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
       @submit.prevent="submit"
     >
-      <h1 class="text-2xl font-bold">Login</h1>
-      <p class="mt-1 text-sm text-slate-500">Sign in to Production</p>
+      <h1 class="text-2xl font-bold">{{ t('login') }}</h1>
+      <p class="mt-1 text-sm text-slate-500">{{ t('login_description') }}</p>
       <div class="mt-6 space-y-4">
-        <input v-model="email" class="input" placeholder="Email" /><input
+        <input v-model="email" class="input" :placeholder="t('email')" /><input
           v-model="password"
           type="password"
           class="input"
-          placeholder="Password"
+          :placeholder="t('password')"
         />
       </div>
       <p v-if="error" class="mt-4 text-sm text-red-600">{{ error }}</p>
-      <button class="btn-primary mt-6 w-full">Login</button>
+      <button class="btn-primary mt-6 w-full">{{ t('login') }}</button>
       <RouterLink
         class="mt-4 block text-center text-sm text-blue-600"
         to="/signup"
-        >Create account</RouterLink
+        >{{ t('create_account') }}</RouterLink
       >
     </form>
   </div>
@@ -28,17 +28,21 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { useI18n } from 'vue-i18n';
+
 const email = ref('');
 const password = ref('');
 const error = ref('');
 const router = useRouter();
 const auth = useAuthStore();
+const { t } = useI18n();
+
 async function submit() {
   try {
     await auth.login(email.value, password.value);
     router.push('/dashboard');
   } catch {
-    error.value = 'Invalid login data';
+    error.value = t('invalid_login_data');
   }
 }
 </script>
