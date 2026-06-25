@@ -99,7 +99,7 @@ router.put('/:id', async (req, res) => {
 
   try {
     const categoryId = Number(req.params.id);
-    const { name, image, parameters = [] } = req.body;
+    const { name, image, description, parameters = [] } = req.body;
 
     if (!categoryId || Number.isNaN(categoryId)) {
       return res.status(400).json({ message: 'Invalid category id' });
@@ -109,16 +109,22 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Category name is required' });
     }
 
+    if (!description?.trim()) {
+      return res
+        .status(400)
+        .json({ message: 'Category description is required' });
+    }
+
     await client.query('BEGIN');
 
     const categoryResult = await client.query(
       `
       UPDATE part_categories
-      SET name = $1, image = $2
-      WHERE id = $3
-      RETURNING id, name, image, created_at
+      SET name = $1, image = $2, description = $3
+      WHERE id = $4
+      RETURNING id, name, image, description, created_at
       `,
-      [name.trim(), image || null, categoryId],
+      [name.trim(), image || null, description.trim(), categoryId],
     );
 
     if (categoryResult.rowCount === 0) {
