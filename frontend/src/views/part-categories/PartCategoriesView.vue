@@ -142,15 +142,18 @@
     <CategoryFormModal
       v-model="modalOpen"
       :category="editingCategory"
+      :save-error="categorySaveError"
+      :saving="categorySaving"
       @saved="onSaved"
+      @clear-error="clearCategorySaveError"
     />
 
     <ConfirmModal
       :visible="isDeleteConfirmVisible"
-      title="t('delete_part_category')"
-      :message="`${t('confirm_delete_category_msg')} ${categoryToDelete?.name}?`"
-      confirm-text="t('delete')"
-      cancel-text="t('cancel')"
+      :title="t('delete_part_category')"
+      :message="`${t('confirm_delete_category_msg')}: ${categoryToDelete?.name}?`"
+      :confirm-text="t('delete')"
+      :cancel-text="t('cancel')"
       :loading="partCategoryStore.loading"
       @confirm="confirmDeleteCategory"
       @cancel="closeDeleteConfirm"
@@ -161,7 +164,10 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
-import type { PartCategory } from '../../types/partCategories.ts';
+import type {
+  PartCategory,
+  CreatePartCategoryPayload,
+} from '../../types/partCategories.ts';
 import CategoryFormModal from './PartCategoryModal.vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
@@ -177,6 +183,9 @@ const categories = computed(() => partCategoryStore.categories);
 const deleteError = ref<string | null>(null);
 const isDeleteConfirmVisible = ref(false);
 const categoryToDelete = ref<PartCategory | null>(null);
+
+const categorySaveError = ref<string | null>(null);
+const categorySaving = ref(false);
 
 // Search
 const searchQuery = ref('');
@@ -197,41 +206,42 @@ const editingCategory = ref<PartCategory | null>(null);
 
 function openAdd() {
   editingCategory.value = null;
+  categorySaveError.value = null;
   modalOpen.value = true;
 }
 
 function openEdit(category: PartCategory) {
   editingCategory.value = category;
+  categorySaveError.value = null;
   modalOpen.value = true;
 }
 
-async function onSaved(payload: {
-  name: string;
-  description: string;
-  image: string | null;
-  parameters: PartCategory['parameters'];
-}) {
-  if (editingCategory.value) {
-    await partCategoryStore.updateCategory(editingCategory.value.id, payload);
-  } else {
-    await partCategoryStore.saveCategory(payload);
-  }
-  await partCategoryStore.loadCategories();
-}
-
-async function confirmDelete(categoryId: number) {
-  deleteError.value = null;
-
-  const confirmed = window.confirm(t('confirm_delete_category_msg'));
-
-  if (!confirmed) return;
+async function onSaved(payload: CreatePartCategoryPayload) {
+  categorySaving.value = true;
+  categorySaveError.value = null;
 
   try {
-    await partCategoryStore.deleteCategory(categoryId);
+    if (editingCategory.value) {
+      await partCategoryStore.updateCategory(editingCategory.value.id, payload);
+      notificationStore.showToast(t('update_part_category_success'), 'success');
+    } else {
+      await partCategoryStore.saveCategory(payload);
+      notificationStore.showToast(t('save_part_category_success'), 'success');
+    }
+
+    modalOpen.value = false;
   } catch (err: any) {
-    deleteError.value =
-      err.response?.data?.message || t('delete_part_category_error');
+    console.error('Error saving part category:', err);
+    categorySaveError.value = `${t('save_part_category_error')}: 
+      ${err.response?.data?.message || err.response?.data?.details?.message} `;
+  } finally {
+    categorySaving.value = false;
+    await partCategoryStore.loadCategories();
   }
+}
+
+function clearCategorySaveError() {
+  categorySaveError.value = null;
 }
 
 function openDeleteConfirm(category: PartCategory) {

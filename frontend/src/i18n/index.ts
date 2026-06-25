@@ -24,7 +24,7 @@ const messages = {
     delete_part_category_success: 'The part category was deleted successfully.',
     delete_part_category_error_title: 'Deletion not possible',
     confirm_delete_category_msg:
-      'Are you sure you want to delete this category?',
+      'Are you sure you want to delete this category',
     confirm: 'Confirm',
     confirm_action_msg: 'Are you sure you want to perform this action?',
     'in-progress': 'In Progress...',
@@ -63,6 +63,14 @@ const messages = {
     add_parameter: 'Add Parameter',
     save_part: 'Save Part',
     admin_user: 'Admin User',
+    dropdown: 'Dropdown',
+    text: 'Text',
+    number: 'Number',
+    boolean: 'Boolean',
+    unit: 'Unit',
+    save_part_category_error: 'The part category could not be saved',
+    save_part_category_success: 'The part category was saved successfully',
+    update_part_category_success: 'The part category was updated successfully',
   },
   hu: {
     welcome: 'Üdvözöljük',
@@ -86,7 +94,7 @@ const messages = {
     delete_part_category_error: 'A kategória törlése nem sikerült.',
     delete_part_category_success: 'A kategória sikeresen törölve.',
     delete_part_category_error_title: 'Törlés nem lehetséges',
-    confirm_delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát?',
+    confirm_delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
     confirm: 'Megerősítés',
     confirm_action_msg: 'Biztosan végrehajtod ezt a műveletet?',
     'in-progress': 'Folyamatban...',
@@ -126,6 +134,16 @@ const messages = {
     add_parameter: 'Paraméter hozzáadása',
     save_part: 'Alkatrész mentése',
     admin_user: 'Admin User',
+    dropdown: 'Legördülő',
+    text: 'Szöveg',
+    number: 'Szám',
+    boolean: 'Logikai',
+    unit: 'Mértékegység',
+    save_part_category_error: 'Az alkatrész kategória mentése nem sikerült',
+    save_part_category_success:
+      'Az alkatrész kategória mentése sikeresen megtörtént',
+    update_part_category_success:
+      'Az alkatrész kategória módosítása sikeresen megtörtént',
   },
 };
 
