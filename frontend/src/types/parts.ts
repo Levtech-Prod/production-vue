@@ -47,3 +47,13 @@ export interface CreatePartPayload {
 }
 
 export type UpdatePartPayload = CreatePartPayload;
+
+// Per-parameter filter state used by the parts table.
+// text/dropdown/boolean -> `value`; number -> `min`/`max` interval.
+export interface ParameterFilterValue {
+  value?: string;
+  min?: string;
+  max?: string;
+}
+
+export type ParameterFilters = Record<number, ParameterFilterValue>;
