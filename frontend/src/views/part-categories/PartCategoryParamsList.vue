@@ -41,23 +41,26 @@
       >
         <div class="grid gap-2 md:grid-cols-[1.4fr_1fr_1.2fr_0.8fr_40px]">
           <input
+            id="part-category-param-name-{{ i }}"
             v-model="p.name"
             class="input text-sm"
             :placeholder="t('name')"
           />
 
           <select
+            id="part-category-param-type-{{ i }}"
             v-model="p.type"
             class="input text-sm"
             @change="handleTypeChange(p)"
           >
-            <option value="text">Text</option>
-            <option value="number">Number</option>
-            <option value="boolean">Boolean</option>
-            <option value="dropdown">Dropdown</option>
+            <option value="text">{{ t('text') }}</option>
+            <option value="number">{{ t('number') }}</option>
+            <option value="boolean">{{ t('boolean') }}</option>
+            <option value="dropdown">{{ t('dropdown') }}</option>
           </select>
 
           <input
+            id="part-category-param-unit-{{ i }}"
             v-model="p.unit"
             class="input text-sm"
             :placeholder="t('unit')"
@@ -96,13 +99,13 @@
           <label
             class="text-xs font-semibold text-slate-500 uppercase tracking-wide"
           >
-            Dropdown options
+            {{ t('dropdown_options_title') }}
           </label>
 
           <div
             v-for="(_option, optionIndex) in p.options"
             :key="optionIndex"
-            class="grid grid-cols-[1fr_40px] gap-2"
+            class="grid grid-cols-[1fr_40px] gap-2 mt-2"
           >
             <input
               v-model="p.options![optionIndex]"
@@ -135,7 +138,7 @@
             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
             @click="addDropdownOption(p)"
           >
-            + Add option
+            + {{ t('add_dropdown_option') }}
           </button>
         </div>
       </div>

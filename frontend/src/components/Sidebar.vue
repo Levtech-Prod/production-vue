@@ -21,7 +21,7 @@
       <RouterLink class="nav" to="/stock/categories">{{
         t('part_categories_title')
       }}</RouterLink>
-      <RouterLink class="nav" to="/stock/parts">{{ t('parts') }}</RouterLink>
+      <RouterLink class="nav" to="/stock/parts">{{ t('stock') }}</RouterLink>
     </nav>
     <button
       class="absolute bottom-4 left-3 right-3 rounded-xl px-4 py-3 text-left text-sm hover:bg-slate-900"

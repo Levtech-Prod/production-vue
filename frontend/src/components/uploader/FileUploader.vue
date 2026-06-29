@@ -50,10 +50,6 @@ async function handleFileChange(event: Event) {
 
 <template>
   <div class="space-y-3">
-    <label class="block text-sm font-medium text-gray-700">
-      {{ label || t('upload_file') }}
-    </label>
-
     <input
       ref="fileInput"
       type="file"
