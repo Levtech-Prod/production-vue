@@ -4,7 +4,7 @@ import SignupView from '../views/SignupView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import UsersView from '../views/UsersView.vue';
 import PartCategoriesView from '../views/part-categories/PartCategoriesView.vue';
-import PartsView from '../views/PartsView.vue';
+import PartsView from '../views/parts/PartsView.vue';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
