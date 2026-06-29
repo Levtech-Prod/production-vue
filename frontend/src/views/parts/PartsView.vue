@@ -69,6 +69,13 @@
         </button>
       </div>
 
+      <!-- Dynamic parameter filters (shown when a category is selected) -->
+      <PartParameterFilters
+        v-if="selectedCategory && selectedCategory.parameters?.length"
+        v-model="paramFilters"
+        :parameters="selectedCategory.parameters"
+      />
+
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
@@ -166,16 +173,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import PartModal from './PartModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import CategoryCards from './CategoryCards.vue';
+import PartParameterFilters from './PartParameterFilters.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
-import type { Part, CreatePartPayload } from '../../types/parts.ts';
+import type {
+  Part,
+  CreatePartPayload,
+  ParameterFilters,
+} from '../../types/parts.ts';
 
 const { t } = useI18n();
 
@@ -188,8 +200,60 @@ const categories = computed(() => partCategoryStore.categories);
 
 const selectedCategoryId = ref(0);
 
+const selectedCategory = computed(() =>
+  categories.value.find((c) => c.id === selectedCategoryId.value),
+);
+
 // ---- Parts table filters ----
 const partNameSearch = ref('');
+
+// Per-parameter filter state, reset whenever the category changes since
+// parameters are category-specific.
+const paramFilters = ref<ParameterFilters>({});
+
+watch(selectedCategoryId, () => {
+  paramFilters.value = {};
+});
+
+function matchesParamFilters(part: Part): boolean {
+  const filters = Object.entries(paramFilters.value);
+  if (filters.length === 0) return true;
+
+  const params = selectedCategory.value?.parameters || [];
+
+  for (const [parameterIdStr, filter] of filters) {
+    const parameterId = Number(parameterIdStr);
+    const definition = params.find((p) => p.id === parameterId);
+    if (!definition) continue;
+
+    const entry = part.parameters?.find((v) => v.parameterId === parameterId);
+    const rawValue = entry?.value ?? '';
+
+    if (definition.type === 'number') {
+      const min = filter.min?.trim();
+      const max = filter.max?.trim();
+      if (!min && !max) continue;
+
+      const value = Number(rawValue);
+      if (rawValue === '' || Number.isNaN(value)) return false;
+      if (min !== undefined && min !== '' && value < Number(min)) return false;
+      if (max !== undefined && max !== '' && value > Number(max)) return false;
+    } else if (
+      definition.type === 'dropdown' ||
+      definition.type === 'boolean'
+    ) {
+      const wanted = (filter.value ?? '').trim();
+      if (!wanted) continue;
+      if (rawValue !== wanted) return false;
+    } else {
+      const wanted = (filter.value ?? '').trim().toLowerCase();
+      if (!wanted) continue;
+      if (!rawValue.toLowerCase().includes(wanted)) return false;
+    }
+  }
+
+  return true;
+}
 
 const filteredParts = computed(() => {
   const q = partNameSearch.value.trim().toLowerCase();
@@ -200,7 +264,7 @@ const filteredParts = computed(() => {
       p.code.toLowerCase().includes(q);
     const matchesCategory =
       !selectedCategoryId.value || p.categoryId === selectedCategoryId.value;
-    return matchesName && matchesCategory;
+    return matchesName && matchesCategory && matchesParamFilters(p);
   });
 });
 

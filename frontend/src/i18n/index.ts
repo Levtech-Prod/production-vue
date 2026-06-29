@@ -91,6 +91,12 @@ const messages = {
     delete_part_success: 'The part was deleted successfully.',
     delete_part_error: 'The part could not be deleted.',
     delete_part_error_title: 'Deletion not possible',
+    parameter_filters: 'Parameter filters',
+    clear_filters: 'Clear filters',
+    all: 'All',
+    no: 'No',
+    min: 'Min',
+    max: 'Max',
   },
   hu: {
     welcome: 'Üdvözöljük',
@@ -184,6 +190,12 @@ const messages = {
     delete_part_success: 'Az alkatrész sikeresen törölve.',
     delete_part_error: 'Az alkatrész törlése nem sikerült.',
     delete_part_error_title: 'Törlés nem lehetséges',
+    parameter_filters: 'Paraméter szűrők',
+    clear_filters: 'Szűrők törlése',
+    all: 'Mind',
+    no: 'Nem',
+    min: 'Min',
+    max: 'Max',
   },
 };
 
