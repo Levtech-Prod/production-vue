@@ -143,6 +143,7 @@
       v-model="modalOpen"
       :category="editingCategory"
       :save-error="categorySaveError"
+      :save-errors="categorySaveErrors"
       :saving="categorySaving"
       @saved="onSaved"
       @clear-error="clearCategorySaveError"
@@ -172,6 +173,10 @@ import CategoryFormModal from './PartCategoryModal.vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
+import {
+  localizeZodIssues,
+  extractZodIssues,
+} from '../../utils/zodErrors.ts';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -185,6 +190,7 @@ const isDeleteConfirmVisible = ref(false);
 const categoryToDelete = ref<PartCategory | null>(null);
 
 const categorySaveError = ref<string | null>(null);
+const categorySaveErrors = ref<string[]>([]);
 const categorySaving = ref(false);
 
 // Search
@@ -218,7 +224,7 @@ function openEdit(category: PartCategory) {
 
 async function onSaved(payload: CreatePartCategoryPayload) {
   categorySaving.value = true;
-  categorySaveError.value = null;
+  clearCategorySaveError();
 
   try {
     if (editingCategory.value) {
@@ -232,8 +238,16 @@ async function onSaved(payload: CreatePartCategoryPayload) {
     modalOpen.value = false;
   } catch (err: any) {
     console.error('Error saving part category:', err);
-    categorySaveError.value = `${t('save_part_category_error')}: 
-      ${err.response?.data?.message || err.response?.data?.details?.message} `;
+
+    const issues = extractZodIssues(err);
+    if (issues) {
+      categorySaveError.value = t('validation_failed');
+      categorySaveErrors.value = localizeZodIssues(issues, t);
+    } else {
+      categorySaveError.value = `${t('save_part_category_error')}: ${
+        err.response?.data?.message || err.response?.data?.details?.message || ''
+      }`;
+    }
   } finally {
     categorySaving.value = false;
     await partCategoryStore.loadCategories();
@@ -242,6 +256,7 @@ async function onSaved(payload: CreatePartCategoryPayload) {
 
 function clearCategorySaveError() {
   categorySaveError.value = null;
+  categorySaveErrors.value = [];
 }
 
 function openDeleteConfirm(category: PartCategory) {
