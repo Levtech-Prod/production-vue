@@ -97,6 +97,13 @@ const messages = {
     no: 'No',
     min: 'Min',
     max: 'Max',
+    validation_failed: 'Please fix the following errors:',
+    zod_too_small_string: 'must be at least {min} character(s)',
+    zod_too_small_number: 'must be at least {min}',
+    zod_too_big_string: 'must be at most {max} character(s)',
+    zod_too_big_number: 'must be at most {max}',
+    zod_required: 'is required',
+    zod_invalid: 'is invalid',
   },
   hu: {
     welcome: 'Üdvözöljük',
@@ -196,6 +203,13 @@ const messages = {
     no: 'Nem',
     min: 'Min',
     max: 'Max',
+    validation_failed: 'Kérlek javítsd a következő hibákat:',
+    zod_too_small_string: 'legalább {min} karakter hosszúnak kell lennie',
+    zod_too_small_number: 'legalább {min} kell legyen',
+    zod_too_big_string: 'legfeljebb {max} karakter hosszú lehet',
+    zod_too_big_number: 'legfeljebb {max} lehet',
+    zod_required: 'megadása kötelező',
+    zod_invalid: 'érvénytelen',
   },
 };
 

@@ -102,17 +102,19 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 });
 
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+  const partId = Number(req.params.id);
+
+  if (!partId || Number.isNaN(partId)) {
+    return res.status(400).json({ message: 'Invalid part id' });
+  }
+
+  // Validate before opening a connection so ZodErrors reach the global
+  // error handler and are returned as structured validation issues.
+  const data = schema.parse(req.body);
+
   const client = await pool.connect();
 
   try {
-    const partId = Number(req.params.id);
-
-    if (!partId || Number.isNaN(partId)) {
-      return res.status(400).json({ message: 'Invalid part id' });
-    }
-
-    const data = schema.parse(req.body);
-
     await client.query('BEGIN');
 
     const partResult = await client.query(

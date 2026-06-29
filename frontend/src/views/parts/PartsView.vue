@@ -154,6 +154,7 @@
       :part="editingPart"
       :categories="categories"
       :save-error="partSaveError"
+      :save-errors="partSaveErrors"
       :saving="partSaving"
       @saved="onSaved"
       @clear-error="clearPartSaveError"
@@ -183,6 +184,10 @@ import PartParameterFilters from './PartParameterFilters.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
+import {
+  localizeZodIssues,
+  extractZodIssues,
+} from '../../utils/zodErrors.ts';
 import type {
   Part,
   CreatePartPayload,
@@ -272,23 +277,24 @@ const filteredParts = computed(() => {
 const modalOpen = ref(false);
 const editingPart = ref<Part | null>(null);
 const partSaveError = ref<string | null>(null);
+const partSaveErrors = ref<string[]>([]);
 const partSaving = ref(false);
 
 function openAdd() {
   editingPart.value = null;
-  partSaveError.value = null;
+  clearPartSaveError();
   modalOpen.value = true;
 }
 
 function openEdit(part: Part) {
   editingPart.value = part;
-  partSaveError.value = null;
+  clearPartSaveError();
   modalOpen.value = true;
 }
 
 async function onSaved(payload: CreatePartPayload) {
   partSaving.value = true;
-  partSaveError.value = null;
+  clearPartSaveError();
 
   try {
     if (editingPart.value) {
@@ -302,9 +308,17 @@ async function onSaved(payload: CreatePartPayload) {
     modalOpen.value = false;
   } catch (err: any) {
     console.error('Error saving part:', err);
-    partSaveError.value = `${t('save_part_error')}: ${
-      err.response?.data?.message || err.response?.data?.details?.message || ''
-    }`;
+
+    const issues = extractZodIssues(err);
+    if (issues) {
+      // Localized, field-level validation messages from the backend.
+      partSaveError.value = t('validation_failed');
+      partSaveErrors.value = localizeZodIssues(issues, t);
+    } else {
+      partSaveError.value = `${t('save_part_error')}: ${
+        err.response?.data?.message || err.response?.data?.details?.message || ''
+      }`;
+    }
   } finally {
     partSaving.value = false;
     await partsStore.loadParts();
@@ -313,6 +327,7 @@ async function onSaved(payload: CreatePartPayload) {
 
 function clearPartSaveError() {
   partSaveError.value = null;
+  partSaveErrors.value = [];
 }
 
 // ---- Delete ----

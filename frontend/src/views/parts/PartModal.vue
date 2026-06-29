@@ -81,10 +81,18 @@
       </div>
 
       <div
-        v-if="saveError"
+        v-if="saveError || saveErrors?.length"
         class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
       >
-        {{ saveError }}
+        <p v-if="saveError" :class="{ 'mb-1 font-medium': saveErrors?.length }">
+          {{ saveError }}
+        </p>
+        <ul
+          v-if="saveErrors?.length"
+          class="list-disc space-y-0.5 pl-5"
+        >
+          <li v-for="(msg, i) in saveErrors" :key="i">{{ msg }}</li>
+        </ul>
       </div>
 
       <PartParameterValueList
@@ -129,6 +137,7 @@ const props = defineProps<{
   part?: Part | null; // null = add mode, Part = edit mode
   categories: PartCategory[];
   saveError?: string | null;
+  saveErrors?: string[];
   saving?: boolean;
 }>();
 
