@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS parts (
   id SERIAL PRIMARY KEY,
   category_id INTEGER NOT NULL REFERENCES part_categories(id),
   name VARCHAR(180) NOT NULL,
+  code VARCHAR(120) NOT NULL UNIQUE,
   price_per_piece NUMERIC(12, 2) NOT NULL DEFAULT 0,
   location VARCHAR(180),
   description TEXT,
@@ -50,3 +51,31 @@ CREATE TABLE IF NOT EXISTS stock_parameters (
 CREATE INDEX IF NOT EXISTS idx_part_category_parameters_category_id ON part_category_parameters(category_id);
 CREATE INDEX IF NOT EXISTS idx_parts_category_id ON parts(category_id);
 CREATE INDEX IF NOT EXISTS idx_stock_parameters_part_id ON stock_parameters(part_id);
+
+-- Idempotent migrations (safe to re-run on existing databases) ---------------
+
+-- Dropdown options for category parameters
+ALTER TABLE part_category_parameters
+  ADD COLUMN IF NOT EXISTS options TEXT[] NOT NULL DEFAULT ARRAY[]::text[];
+
+-- Allow 'dropdown' as a parameter type
+ALTER TABLE part_category_parameters
+  DROP CONSTRAINT IF EXISTS part_category_parameters_type_check;
+ALTER TABLE part_category_parameters
+  ADD CONSTRAINT part_category_parameters_type_check
+  CHECK (type IN ('text', 'number', 'boolean', 'dropdown'));
+
+-- Part code (required + unique). Added nullable, backfilled, then constrained
+-- so the migration also works on databases that already contain parts.
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS code VARCHAR(120);
+UPDATE parts SET code = 'PART-' || id WHERE code IS NULL;
+ALTER TABLE parts ALTER COLUMN code SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'parts_code_key'
+  ) THEN
+    ALTER TABLE parts ADD CONSTRAINT parts_code_key UNIQUE (code);
+  END IF;
+END $$;
