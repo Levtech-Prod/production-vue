@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { query } from '../db.js';
+import { ErrorCodes } from '../errorCodes.js';
 
 const router = Router();
 
@@ -37,7 +38,7 @@ router.post('/signup', async (req, res) => {
     const token = signToken({ id: user.id, email: user.email, admin: user.admin });
     res.json({ user, token });
   } catch (err: any) {
-    if (err.code === '23505') return res.status(409).json({ message: 'Email already exists' });
+    if (err.code === '23505') return res.status(409).json({ code: ErrorCodes.EMAIL_ALREADY_EXISTS });
     throw err;
   }
 });
@@ -50,9 +51,9 @@ router.post('/login', async (req, res) => {
     [data.email]
   );
   const user = result.rows[0];
-  if (!user) return res.status(401).json({ message: 'Invalid email or password' });
+  if (!user) return res.status(401).json({ code: ErrorCodes.INVALID_CREDENTIALS });
   const ok = await bcrypt.compare(data.password, user.passwordHash);
-  if (!ok) return res.status(401).json({ message: 'Invalid email or password' });
+  if (!ok) return res.status(401).json({ code: ErrorCodes.INVALID_CREDENTIALS });
   const safeUser = { id: user.id, username: user.username, email: user.email, phone: user.phone, admin: user.admin, createdAt: user.createdAt };
   res.json({ user: safeUser, token: signToken({ id: user.id, email: user.email, admin: user.admin }) });
 });

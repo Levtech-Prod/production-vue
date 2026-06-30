@@ -163,7 +163,7 @@
     <ConfirmModal
       :visible="isDeleteConfirmVisible"
       :title="t('delete_part')"
-      :message="`${t('confirm_delete_part_msg')}: ${partToDelete?.name}?`"
+      :message="`${t('confirmations.delete_part_msg')}: ${partToDelete?.name}?`"
       :confirm-text="t('delete')"
       :cancel-text="t('cancel')"
       :loading="partsStore.loading"
@@ -185,13 +185,14 @@ import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
+import { translateApiError } from '../../utils/apiError.ts';
 import type {
   Part,
   CreatePartPayload,
   ParameterFilters,
 } from '../../types/parts.ts';
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 const partsStore = usePartsStore();
 const partCategoryStore = usePartCategoryStore();
@@ -296,10 +297,10 @@ async function onSaved(payload: CreatePartPayload) {
   try {
     if (editingPart.value) {
       await partsStore.updatePart(editingPart.value.id, payload);
-      notificationStore.showToast(t('update_part_success'), 'success');
+      notificationStore.showToast(t('success.update_part'), 'success');
     } else {
       await partsStore.savePart(payload);
-      notificationStore.showToast(t('save_part_success'), 'success');
+      notificationStore.showToast(t('success.save_part'), 'success');
     }
 
     modalOpen.value = false;
@@ -309,14 +310,10 @@ async function onSaved(payload: CreatePartPayload) {
     const issues = extractZodIssues(err);
     if (issues) {
       // Localized, field-level validation messages from the backend.
-      partSaveError.value = t('validation_failed');
+      partSaveError.value = t('validation.failed');
       partSaveErrors.value = localizeZodIssues(issues, t);
     } else {
-      partSaveError.value = `${t('save_part_error')}: ${
-        err.response?.data?.message ||
-        err.response?.data?.details?.message ||
-        ''
-      }`;
+      partSaveError.value = translateApiError(err, { t, te }, 'errors.save_part_failed');
     }
   } finally {
     partSaving.value = false;
@@ -348,13 +345,13 @@ async function confirmDeletePart() {
 
   try {
     await partsStore.deletePart(partToDelete.value.id);
-    notificationStore.showToast(t('delete_part_success'), 'success');
+    notificationStore.showToast(t('success.delete_part'), 'success');
     closeDeleteConfirm();
   } catch (err: any) {
     closeDeleteConfirm();
     notificationStore.showModal(
-      t('delete_part_error_title'),
-      err.response?.data?.message || t('delete_part_error'),
+      t('errors.deletion_not_possible_title'),
+      translateApiError(err, { t, te }, 'errors.delete_part_failed'),
     );
   }
 }

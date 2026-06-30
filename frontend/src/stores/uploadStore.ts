@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { uploadService } from '../services/upload/uploadFile';
+import { i18n } from '../i18n';
+import { translateApiError } from '../utils/apiError';
 import type { UploadTarget } from '../api/uploadApi';
 
 export const useUploadStore = defineStore('upload', () => {
@@ -15,7 +17,11 @@ export const useUploadStore = defineStore('upload', () => {
       return await uploadService.uploadFile(target, file);
     } catch (err) {
       console.error(err);
-      error.value = 'File upload failed';
+      error.value = translateApiError(
+        err,
+        { t: i18n.global.t, te: i18n.global.te },
+        'errors.file_upload_failed',
+      );
       throw err;
     } finally {
       uploading.value = false;

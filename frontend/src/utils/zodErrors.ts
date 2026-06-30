@@ -39,18 +39,18 @@ function reason(issue: ZodIssue, t: TranslateFn): string {
   switch (issue.code) {
     case 'too_small':
       return issue.origin === 'string'
-        ? t('zod_too_small_string', { min: issue.minimum })
-        : t('zod_too_small_number', { min: issue.minimum });
+        ? t('validation.too_small_string', { min: issue.minimum })
+        : t('validation.too_small_number', { min: issue.minimum });
     case 'too_big':
       return issue.origin === 'string'
-        ? t('zod_too_big_string', { max: issue.maximum })
-        : t('zod_too_big_number', { max: issue.maximum });
+        ? t('validation.too_big_string', { max: issue.maximum })
+        : t('validation.too_big_number', { max: issue.maximum });
     case 'invalid_type':
       // For form submissions this is almost always a missing required field.
-      return t('zod_required');
+      return t('validation.required');
     default:
       // Fall back to Zod's own (English) message if we have no mapping.
-      return issue.message || t('zod_invalid');
+      return issue.message || t('validation.invalid');
   }
 }
 

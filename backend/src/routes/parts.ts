@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { ErrorCodes } from '../errorCodes.js';
 
 const router = Router();
 const schema = z.object({
@@ -92,7 +93,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res.status(409).json({
-        message: 'A megadott alkatrész kód már létezik.',
+        code: ErrorCodes.PART_CODE_ALREADY_EXISTS,
       });
     }
     throw err;
@@ -105,7 +106,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   const partId = Number(req.params.id);
 
   if (!partId || Number.isNaN(partId)) {
-    return res.status(400).json({ message: 'Invalid part id' });
+    return res.status(400).json({ code: ErrorCodes.INVALID_PART_ID });
   }
 
   // Validate before opening a connection so ZodErrors reach the global
@@ -140,7 +141,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     if (partResult.rowCount === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Part not found' });
+      return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
     }
 
     const existingResult = await client.query(
@@ -217,11 +218,11 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res.status(409).json({
-        message: 'A megadott alkatrész kód már létezik.',
+        code: ErrorCodes.PART_CODE_ALREADY_EXISTS,
       });
     }
     console.error(err);
-    res.status(500).json({ message: 'Failed to update part' });
+    res.status(500).json({ code: ErrorCodes.PART_UPDATE_FAILED });
   } finally {
     client.release();
   }
@@ -234,7 +235,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     const partId = Number(req.params.id);
 
     if (!partId || Number.isNaN(partId)) {
-      return res.status(400).json({ message: 'Érvénytelen alkatrész azonosító.' });
+      return res.status(400).json({ code: ErrorCodes.INVALID_PART_ID });
     }
 
     await client.query('BEGIN');
@@ -246,7 +247,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     if (deleteResult.rowCount === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Az alkatrész nem található.' });
+      return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
     }
 
     await client.query('COMMIT');
@@ -255,7 +256,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error(error);
-    res.status(500).json({ message: 'Hiba történt az alkatrész törlése közben.' });
+    res.status(500).json({ code: ErrorCodes.PART_DELETE_FAILED });
   } finally {
     client.release();
   }

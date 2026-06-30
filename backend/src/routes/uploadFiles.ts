@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ErrorCodes } from '../errorCodes.js';
 
 const router = express.Router();
 
@@ -77,13 +78,13 @@ router.post('/upload/:target', upload.single('file'), (req, res) => {
 
   if (!allowedTargets.includes(target)) {
     return res.status(400).json({
-      message: 'Invalid upload target',
+      code: ErrorCodes.INVALID_UPLOAD_TARGET,
     });
   }
 
   if (!req.file) {
     return res.status(400).json({
-      message: 'No file uploaded',
+      code: ErrorCodes.NO_FILE_UPLOADED,
     });
   }
 

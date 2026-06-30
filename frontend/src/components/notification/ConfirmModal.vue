@@ -30,7 +30,7 @@ const { t } = useI18n();
         </h3>
 
         <p class="mb-6 text-sm text-gray-600">
-          {{ message || t('confirm_action_msg') }}
+          {{ message || t('confirmations.action_msg') }}
         </p>
 
         <div class="flex justify-end gap-3">

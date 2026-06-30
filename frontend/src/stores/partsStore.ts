@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { partsApi } from '../api/partsAPI.ts';
+import { i18n } from '../i18n';
+import { translateApiError } from '../utils/apiError.ts';
 import type {
   CreatePartPayload,
   Part,
@@ -20,7 +22,7 @@ export const usePartsStore = defineStore('parts', () => {
       const response = await partsApi.getAll();
       parts.value = response.data;
     } catch (err) {
-      error.value = 'Failed to load parts';
+      error.value = i18n.global.t('errors.load_parts_failed');
       throw err;
     } finally {
       loading.value = false;
@@ -34,7 +36,7 @@ export const usePartsStore = defineStore('parts', () => {
     try {
       return await partsApi.create(payload);
     } catch (err) {
-      error.value = 'Failed to save part';
+      error.value = i18n.global.t('errors.save_part_failed');
       throw err;
     } finally {
       loading.value = false;
@@ -57,7 +59,7 @@ export const usePartsStore = defineStore('parts', () => {
       return response.data;
     } catch (err) {
       console.error(err);
-      error.value = 'Failed to update part';
+      error.value = i18n.global.t('errors.PART_UPDATE_FAILED');
       throw err;
     } finally {
       loading.value = false;
@@ -75,8 +77,11 @@ export const usePartsStore = defineStore('parts', () => {
     } catch (err: any) {
       console.error(err);
 
-      error.value =
-        err.response?.data?.message || 'Nem sikerült törölni az alkatrészt.';
+      error.value = translateApiError(
+        err,
+        { t: i18n.global.t, te: i18n.global.te },
+        'errors.delete_part_failed',
+      );
 
       throw err;
     } finally {

@@ -1,5 +1,15 @@
 import { createI18n } from 'vue-i18n';
 
+// Keys are grouped by purpose instead of one long flat list:
+//  - errors: SCREAMING_SNAKE_CASE keys mirror the `code` returned by the
+//    backend API (see backend/src/errorCodes.ts) so a failed request can be
+//    translated directly via `t('errors.' + code)`. snake_case keys in the
+//    same object are frontend-only error copy (titles, generic fallbacks)
+//    that isn't tied to a single backend error code.
+//  - success: toast/snackbar messages shown after a successful action.
+//  - validation: messages used to render Zod validation issues.
+//  - confirmations: body copy for confirmation dialogs.
+// Everything else is a general-purpose UI label and stays at the top level.
 const messages = {
   en: {
     welcome: 'Welcome',
@@ -17,16 +27,11 @@ const messages = {
     no_categories_msg:
       'No categories yet. Click the "Add Category" button to create the first one.',
     no_search_results: 'No results found for',
+    search: 'Search',
     cancel: 'Cancel',
     edit: 'Edit',
     delete: 'Delete',
-    delete_part_category_error: 'The part category could not be deleted.',
-    delete_part_category_success: 'The part category was deleted successfully.',
-    delete_part_category_error_title: 'Deletion not possible',
-    confirm_delete_category_msg:
-      'Are you sure you want to delete this category',
     confirm: 'Confirm',
-    confirm_action_msg: 'Are you sure you want to perform this action?',
     'in-progress': 'In Progress...',
     upload_file: 'Upload file',
     production_tracking_system: 'Production Tracking System',
@@ -45,11 +50,10 @@ const messages = {
     required: 'Required',
     login_description: 'Sign in to Production',
     create_account: 'Create account',
-    invalid_login_data: 'Invalid login data',
     select_category: 'Select category',
     price_per_piece: 'Price per piece',
     location: 'Location',
-    could_not_create_user: 'Could not create user',
+    password: 'Password',
     already_registered: 'Already registered?',
     create_user_description: 'Create admin or client user',
     admin: 'Admin',
@@ -68,9 +72,6 @@ const messages = {
     number: 'Number',
     boolean: 'Boolean',
     unit: 'Unit',
-    save_part_category_error: 'The part category could not be saved',
-    save_part_category_success: 'The part category was saved successfully',
-    update_part_category_success: 'The part category was updated successfully',
     dropdown_options_title: 'Dropdown Options',
     add_dropdown_option: 'Add Option',
     save: 'Save',
@@ -84,26 +85,80 @@ const messages = {
     no_parts_msg:
       'No parts yet. Click the "Add Part" button to create the first one.',
     delete_part: 'Delete Part',
-    confirm_delete_part_msg: 'Are you sure you want to delete this part',
-    save_part_success: 'The part was saved successfully',
-    update_part_success: 'The part was updated successfully',
-    save_part_error: 'The part could not be saved',
-    delete_part_success: 'The part was deleted successfully.',
-    delete_part_error: 'The part could not be deleted.',
-    delete_part_error_title: 'Deletion not possible',
     parameter_filters: 'Parameter filters',
     clear_filters: 'Clear filters',
     all: 'All',
     no: 'No',
     min: 'Min',
     max: 'Max',
-    validation_failed: 'Please fix the following errors:',
-    zod_too_small_string: 'must be at least {min} character(s)',
-    zod_too_small_number: 'must be at least {min}',
-    zod_too_big_string: 'must be at most {max} character(s)',
-    zod_too_big_number: 'must be at most {max}',
-    zod_required: 'is required',
-    zod_invalid: 'is invalid',
+
+    errors: {
+      // Mirror the `code` field returned by the backend (see
+      // backend/src/errorCodes.ts) so a failed request can be translated
+      // directly via `errors.<code>`.
+      EMAIL_ALREADY_EXISTS: 'Email already exists',
+      INVALID_CREDENTIALS: 'Invalid email or password',
+      MISSING_TOKEN: 'Missing authentication token',
+      INVALID_TOKEN: 'Invalid or expired session',
+      ADMIN_ACCESS_REQUIRED: 'Admin access required',
+      INVALID_CATEGORY_ID: 'Invalid category id',
+      CATEGORY_NAME_REQUIRED: 'Category name is required',
+      CATEGORY_DESCRIPTION_REQUIRED: 'Category description is required',
+      CATEGORY_NOT_FOUND: 'Part category not found',
+      CATEGORY_PARAMETERS_IN_USE:
+        'One or more removed parameters are already used by parts and cannot be deleted.',
+      CATEGORY_UPDATE_FAILED: 'Failed to update part category',
+      CATEGORY_HAS_PARTS:
+        'This category cannot be deleted because it already has parts assigned to it.',
+      CATEGORY_DELETE_FAILED: 'An error occurred while deleting the category.',
+      PART_CODE_ALREADY_EXISTS: 'The provided part code already exists.',
+      INVALID_PART_ID: 'Invalid part id',
+      PART_NOT_FOUND: 'Part not found',
+      PART_UPDATE_FAILED: 'Failed to update part',
+      PART_DELETE_FAILED: 'An error occurred while deleting the part.',
+      INVALID_UPLOAD_TARGET: 'Invalid upload target',
+      NO_FILE_UPLOADED: 'No file uploaded',
+      VALIDATION_FAILED: 'Validation failed',
+      REQUEST_FAILED: 'The request could not be completed.',
+      UNKNOWN: 'An unexpected error occurred. Please try again.',
+
+      // Frontend-only error copy not tied to a single backend code.
+      deletion_not_possible_title: 'Deletion not possible',
+      delete_part_category_failed: 'The part category could not be deleted.',
+      save_part_category_failed: 'The part category could not be saved',
+      save_part_failed: 'The part could not be saved',
+      delete_part_failed: 'The part could not be deleted.',
+      could_not_create_user: 'Could not create user',
+      invalid_login_data: 'Invalid login data',
+      file_upload_failed: 'File upload failed',
+      load_categories_failed: 'Failed to load categories',
+      load_parts_failed: 'Failed to load parts',
+    },
+
+    success: {
+      delete_part_category: 'The part category was deleted successfully.',
+      save_part_category: 'The part category was saved successfully',
+      update_part_category: 'The part category was updated successfully',
+      save_part: 'The part was saved successfully',
+      update_part: 'The part was updated successfully',
+      delete_part: 'The part was deleted successfully.',
+    },
+
+    validation: {
+      failed: 'Please fix the following errors:',
+      too_small_string: 'must be at least {min} character(s)',
+      too_small_number: 'must be at least {min}',
+      too_big_string: 'must be at most {max} character(s)',
+      too_big_number: 'must be at most {max}',
+      required: 'is required',
+      invalid: 'is invalid',
+    },
+
+    confirmations: {
+      action_msg: 'Are you sure you want to perform this action?',
+      delete_category_msg: 'Are you sure you want to delete this category',
+      delete_part_msg: 'Are you sure you want to delete this part',
+    },
   },
   hu: {
     welcome: 'Üdvözöljük',
@@ -121,15 +176,11 @@ const messages = {
     no_categories_msg:
       'Még nincs kategória. Kattints a „Kategória hozzáadása" gombra az első létrehozásához.',
     no_search_results: 'Nincs találat erre a keresésre:',
+    search: 'Keresés',
     cancel: 'Mégse',
     edit: 'Szerkesztés',
     delete: 'Törlés',
-    delete_part_category_error: 'A kategória törlése nem sikerült.',
-    delete_part_category_success: 'A kategória sikeresen törölve.',
-    delete_part_category_error_title: 'Törlés nem lehetséges',
-    confirm_delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
     confirm: 'Megerősítés',
-    confirm_action_msg: 'Biztosan végrehajtod ezt a műveletet?',
     'in-progress': 'Folyamatban...',
     upload_file: 'Fájl feltöltése',
     production_tracking_system: 'Gyártáskövető rendszer',
@@ -142,18 +193,16 @@ const messages = {
     category_image: 'Kategória képe',
     category_image_preview: 'Kategória kép előnézete',
     dashboard: 'Főoldal',
-    dashboard_description: 'User management and stock foundation MVP.',
     stock: 'Készlet',
     categories: 'Kategóriák',
     dynamic_parameters: 'Dinamikus paraméterek',
     required: 'Kötelező',
     login_description: 'Jelentkezz be a Production rendszerbe',
     create_account: 'Fiók létrehozása',
-    invalid_login_data: 'Érvénytelen bejelentkezési adatok',
     select_category: 'Kategória kiválasztása',
     price_per_piece: 'Egységár',
     location: 'Helyszín',
-    could_not_create_user: 'Nem sikerült felhasználót létrehozni',
+    password: 'Jelszó',
     already_registered: 'Már regisztrált?',
     create_user_description: 'Admin vagy ügyfél felhasználó létrehozása',
     admin: 'Admin',
@@ -172,11 +221,6 @@ const messages = {
     number: 'Szám',
     boolean: 'Igen/Nem',
     unit: 'Mértékegység',
-    save_part_category_error: 'Az alkatrész kategória mentése nem sikerült',
-    save_part_category_success:
-      'Az alkatrész kategória mentése sikeresen megtörtént',
-    update_part_category_success:
-      'Az alkatrész kategória módosítása sikeresen megtörtént',
     dropdown_options_title: 'Dropdown Opciók',
     add_dropdown_option: 'Opció hozzáadása',
     save: 'Mentés',
@@ -190,26 +234,77 @@ const messages = {
     no_parts_msg:
       'Még nincs alkatrész. Kattints az „Alkatrész hozzáadása" gombra az első létrehozásához.',
     delete_part: 'Alkatrész törlése',
-    confirm_delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
-    save_part_success: 'Az alkatrész mentése sikeresen megtörtént',
-    update_part_success: 'Az alkatrész módosítása sikeresen megtörtént',
-    save_part_error: 'Az alkatrész mentése nem sikerült',
-    delete_part_success: 'Az alkatrész sikeresen törölve.',
-    delete_part_error: 'Az alkatrész törlése nem sikerült.',
-    delete_part_error_title: 'Törlés nem lehetséges',
     parameter_filters: 'Paraméter szűrők',
     clear_filters: 'Szűrők törlése',
     all: 'Mind',
     no: 'Nem',
     min: 'Min',
     max: 'Max',
-    validation_failed: 'Kérlek javítsd a következő hibákat:',
-    zod_too_small_string: 'legalább {min} karakter hosszúnak kell lennie',
-    zod_too_small_number: 'legalább {min} kell legyen',
-    zod_too_big_string: 'legfeljebb {max} karakter hosszú lehet',
-    zod_too_big_number: 'legfeljebb {max} lehet',
-    zod_required: 'megadása kötelező',
-    zod_invalid: 'érvénytelen',
+
+    errors: {
+      EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
+      INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
+      MISSING_TOKEN: 'Hiányzó hitelesítési token',
+      INVALID_TOKEN: 'Érvénytelen vagy lejárt munkamenet',
+      ADMIN_ACCESS_REQUIRED: 'Admin jogosultság szükséges',
+      INVALID_CATEGORY_ID: 'Érvénytelen kategória azonosító',
+      CATEGORY_NAME_REQUIRED: 'A kategória neve kötelező',
+      CATEGORY_DESCRIPTION_REQUIRED: 'A kategória leírása kötelező',
+      CATEGORY_NOT_FOUND: 'A kategória nem található',
+      CATEGORY_PARAMETERS_IN_USE:
+        'Egy vagy több eltávolított paramétert már használnak alkatrészek, ezért nem törölhetők.',
+      CATEGORY_UPDATE_FAILED: 'Nem sikerült módosítani a kategóriát',
+      CATEGORY_HAS_PARTS:
+        'A kategória nem törölhető, mert már tartozik hozzá létrehozott alkatrész.',
+      CATEGORY_DELETE_FAILED: 'Hiba történt a kategória törlése közben.',
+      PART_CODE_ALREADY_EXISTS: 'A megadott alkatrész kód már létezik.',
+      INVALID_PART_ID: 'Érvénytelen alkatrész azonosító',
+      PART_NOT_FOUND: 'Az alkatrész nem található',
+      PART_UPDATE_FAILED: 'Nem sikerült módosítani az alkatrészt',
+      PART_DELETE_FAILED: 'Hiba történt az alkatrész törlése közben.',
+      INVALID_UPLOAD_TARGET: 'Érvénytelen feltöltési cél',
+      NO_FILE_UPLOADED: 'Nincs feltöltött fájl',
+      VALIDATION_FAILED: 'A validálás sikertelen',
+      REQUEST_FAILED: 'A kérést nem sikerült végrehajtani.',
+      UNKNOWN: 'Váratlan hiba történt. Kérlek, próbáld újra.',
+
+      deletion_not_possible_title: 'Törlés nem lehetséges',
+      delete_part_category_failed: 'A kategória törlése nem sikerült.',
+      save_part_category_failed: 'Az alkatrész kategória mentése nem sikerült',
+      save_part_failed: 'Az alkatrész mentése nem sikerült',
+      delete_part_failed: 'Az alkatrész törlése nem sikerült.',
+      could_not_create_user: 'Nem sikerült felhasználót létrehozni',
+      invalid_login_data: 'Érvénytelen bejelentkezési adatok',
+      file_upload_failed: 'A fájl feltöltése sikertelen',
+      load_categories_failed: 'Nem sikerült betölteni a kategóriákat',
+      load_parts_failed: 'Nem sikerült betölteni az alkatrészeket',
+    },
+
+    success: {
+      delete_part_category: 'A kategória sikeresen törölve.',
+      save_part_category: 'Az alkatrész kategória mentése sikeresen megtörtént',
+      update_part_category:
+        'Az alkatrész kategória módosítása sikeresen megtörtént',
+      save_part: 'Az alkatrész mentése sikeresen megtörtént',
+      update_part: 'Az alkatrész módosítása sikeresen megtörtént',
+      delete_part: 'Az alkatrész sikeresen törölve.',
+    },
+
+    validation: {
+      failed: 'Kérlek javítsd a következő hibákat:',
+      too_small_string: 'legalább {min} karakter hosszúnak kell lennie',
+      too_small_number: 'legalább {min} kell legyen',
+      too_big_string: 'legfeljebb {max} karakter hosszú lehet',
+      too_big_number: 'legfeljebb {max} lehet',
+      required: 'megadása kötelező',
+      invalid: 'érvénytelen',
+    },
+
+    confirmations: {
+      action_msg: 'Biztosan végrehajtod ezt a műveletet?',
+      delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
+      delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
+    },
   },
 };
 
