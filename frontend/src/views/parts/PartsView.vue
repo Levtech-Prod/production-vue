@@ -110,7 +110,7 @@
             <td class="p-4">{{ part.pricePerPiece }}</td>
             <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
             <td class="p-4">
-              <div class="flex flex-wrap gap-1">
+              <div class="flex flex-col gap-1">
                 <span
                   v-for="v in part.parameters"
                   :key="v.id"
@@ -184,10 +184,7 @@ import PartParameterFilters from './PartParameterFilters.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
-import {
-  localizeZodIssues,
-  extractZodIssues,
-} from '../../utils/zodErrors.ts';
+import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
 import type {
   Part,
   CreatePartPayload,
@@ -316,7 +313,9 @@ async function onSaved(payload: CreatePartPayload) {
       partSaveErrors.value = localizeZodIssues(issues, t);
     } else {
       partSaveError.value = `${t('save_part_error')}: ${
-        err.response?.data?.message || err.response?.data?.details?.message || ''
+        err.response?.data?.message ||
+        err.response?.data?.details?.message ||
+        ''
       }`;
     }
   } finally {
