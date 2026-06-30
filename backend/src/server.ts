@@ -8,6 +8,7 @@ import categoryRoutes from './routes/partCategories.js';
 import partRoutes from './routes/parts.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadFiles';
+import { ErrorCodes } from './errorCodes.js';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
@@ -33,7 +34,7 @@ app.use(
     // frontend can render localized, field-level messages.
     if (err instanceof ZodError) {
       return res.status(422).json({
-        message: 'Validation failed',
+        code: ErrorCodes.VALIDATION_FAILED,
         issues: err.issues.map((issue) => ({
           path: issue.path,
           code: issue.code,
@@ -47,7 +48,7 @@ app.use(
     }
 
     console.error(err);
-    res.status(400).json({ message: 'Request failed', details: err });
+    res.status(400).json({ code: ErrorCodes.REQUEST_FAILED });
   },
 );
 

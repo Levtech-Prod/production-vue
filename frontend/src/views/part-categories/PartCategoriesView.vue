@@ -152,7 +152,7 @@
     <ConfirmModal
       :visible="isDeleteConfirmVisible"
       :title="t('delete_part_category')"
-      :message="`${t('confirm_delete_category_msg')}: ${categoryToDelete?.name}?`"
+      :message="`${t('confirmations.delete_category_msg')}: ${categoryToDelete?.name}?`"
       :confirm-text="t('delete')"
       :cancel-text="t('cancel')"
       :loading="partCategoryStore.loading"
@@ -177,9 +177,10 @@ import {
   localizeZodIssues,
   extractZodIssues,
 } from '../../utils/zodErrors.ts';
+import { translateApiError } from '../../utils/apiError.ts';
 import { useI18n } from 'vue-i18n';
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
@@ -229,10 +230,10 @@ async function onSaved(payload: CreatePartCategoryPayload) {
   try {
     if (editingCategory.value) {
       await partCategoryStore.updateCategory(editingCategory.value.id, payload);
-      notificationStore.showToast(t('update_part_category_success'), 'success');
+      notificationStore.showToast(t('success.update_part_category'), 'success');
     } else {
       await partCategoryStore.saveCategory(payload);
-      notificationStore.showToast(t('save_part_category_success'), 'success');
+      notificationStore.showToast(t('success.save_part_category'), 'success');
     }
 
     modalOpen.value = false;
@@ -241,12 +242,14 @@ async function onSaved(payload: CreatePartCategoryPayload) {
 
     const issues = extractZodIssues(err);
     if (issues) {
-      categorySaveError.value = t('validation_failed');
+      categorySaveError.value = t('validation.failed');
       categorySaveErrors.value = localizeZodIssues(issues, t);
     } else {
-      categorySaveError.value = `${t('save_part_category_error')}: ${
-        err.response?.data?.message || err.response?.data?.details?.message || ''
-      }`;
+      categorySaveError.value = translateApiError(
+        err,
+        { t, te },
+        'errors.save_part_category_failed',
+      );
     }
   } finally {
     categorySaving.value = false;
@@ -275,15 +278,15 @@ async function confirmDeleteCategory() {
   try {
     await partCategoryStore.deleteCategory(categoryToDelete.value.id);
 
-    notificationStore.showToast(t('delete_part_category_success'), 'success');
+    notificationStore.showToast(t('success.delete_part_category'), 'success');
 
     closeDeleteConfirm();
   } catch (err: any) {
     closeDeleteConfirm();
 
     notificationStore.showModal(
-      t('delete_part_category_error_title'),
-      err.response?.data?.message || t('delete_part_category_error'),
+      t('errors.deletion_not_possible_title'),
+      translateApiError(err, { t, te }, 'errors.delete_part_category_failed'),
     );
   }
 }

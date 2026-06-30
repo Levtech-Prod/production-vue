@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { ErrorCodes } from '../errorCodes.js';
 
 const router = Router();
 const schema = z.object({
@@ -102,17 +103,17 @@ router.put('/:id', async (req, res) => {
     const { name, image, description, parameters = [] } = req.body;
 
     if (!categoryId || Number.isNaN(categoryId)) {
-      return res.status(400).json({ message: 'Invalid category id' });
+      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
     }
 
     if (!name?.trim()) {
-      return res.status(400).json({ message: 'Category name is required' });
+      return res.status(400).json({ code: ErrorCodes.CATEGORY_NAME_REQUIRED });
     }
 
     if (!description?.trim()) {
       return res
         .status(400)
-        .json({ message: 'Category description is required' });
+        .json({ code: ErrorCodes.CATEGORY_DESCRIPTION_REQUIRED });
     }
 
     await client.query('BEGIN');
@@ -129,7 +130,7 @@ router.put('/:id', async (req, res) => {
 
     if (categoryResult.rowCount === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Part category not found' });
+      return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
     }
 
     const existingResult = await client.query(
@@ -165,8 +166,7 @@ router.put('/:id', async (req, res) => {
         await client.query('ROLLBACK');
 
         return res.status(409).json({
-          message:
-            'One or more removed parameters are already used by parts and cannot be deleted.',
+          code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
           usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
         });
       }
@@ -249,7 +249,7 @@ router.put('/:id', async (req, res) => {
     console.error(error);
 
     res.status(500).json({
-      message: 'Failed to update part category',
+      code: ErrorCodes.CATEGORY_UPDATE_FAILED,
     });
   } finally {
     client.release();
@@ -264,7 +264,7 @@ router.delete('/:id', async (req, res) => {
 
     if (!categoryId || Number.isNaN(categoryId)) {
       return res.status(400).json({
-        message: 'Érvénytelen kategória azonosító.',
+        code: ErrorCodes.INVALID_CATEGORY_ID,
       });
     }
 
@@ -283,8 +283,7 @@ router.delete('/:id', async (req, res) => {
       await client.query('ROLLBACK');
 
       return res.status(409).json({
-        message:
-          'A kategória nem törölhető, mert már tartozik hozzá létrehozott alkatrész.',
+        code: ErrorCodes.CATEGORY_HAS_PARTS,
       });
     }
 
@@ -309,7 +308,7 @@ router.delete('/:id', async (req, res) => {
       await client.query('ROLLBACK');
 
       return res.status(404).json({
-        message: 'A kategória nem található.',
+        code: ErrorCodes.CATEGORY_NOT_FOUND,
       });
     }
 
@@ -324,7 +323,7 @@ router.delete('/:id', async (req, res) => {
     console.error(error);
 
     res.status(500).json({
-      message: 'Hiba történt a kategória törlése közben.',
+      code: ErrorCodes.CATEGORY_DELETE_FAILED,
     });
   } finally {
     client.release();

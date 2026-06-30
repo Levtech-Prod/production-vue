@@ -42,8 +42,9 @@ import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useI18n } from 'vue-i18n';
+import { translateApiError } from '../utils/apiError';
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 const error = ref('');
@@ -58,8 +59,8 @@ async function submit() {
   try {
     await auth.signup(form);
     router.push('/dashboard');
-  } catch {
-    error.value = t('could_not_create_user');
+  } catch (err: any) {
+    error.value = translateApiError(err, { t, te }, 'errors.could_not_create_user');
   }
 }
 </script>

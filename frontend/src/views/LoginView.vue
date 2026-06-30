@@ -29,20 +29,21 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useI18n } from 'vue-i18n';
+import { translateApiError } from '../utils/apiError';
 
 const email = ref('');
 const password = ref('');
 const error = ref('');
 const router = useRouter();
 const auth = useAuthStore();
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 async function submit() {
   try {
     await auth.login(email.value, password.value);
     router.push('/dashboard');
-  } catch {
-    error.value = t('invalid_login_data');
+  } catch (err: any) {
+    error.value = translateApiError(err, { t, te }, 'errors.invalid_login_data');
   }
 }
 </script>
