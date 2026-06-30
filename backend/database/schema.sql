@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS parts (
   price_per_piece NUMERIC(12, 2) NOT NULL DEFAULT 0,
   location VARCHAR(180),
   description TEXT,
+  image TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -79,3 +80,6 @@ BEGIN
     ALTER TABLE parts ADD CONSTRAINT parts_code_key UNIQUE (code);
   END IF;
 END $$;
+
+-- Part image (uploaded file URL, stored in uploads/parts)
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
