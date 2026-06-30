@@ -79,6 +79,7 @@
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
+            <th class="p-4">{{ t('image') }}</th>
             <th class="p-4">{{ t('code') }}</th>
             <th class="p-4">{{ t('name') }}</th>
             <th class="p-4">{{ t('category') }}</th>
@@ -90,7 +91,7 @@
         </thead>
         <tbody>
           <tr v-if="filteredParts.length === 0">
-            <td colspan="7" class="py-12 text-center text-sm text-slate-400">
+            <td colspan="8" class="py-12 text-center text-sm text-slate-400">
               <template v-if="partNameSearch || selectedCategoryId">
                 {{ t('no_search_results') }}.
               </template>
@@ -102,6 +103,27 @@
             :key="part.id"
             class="border-t border-slate-100 hover:bg-slate-50 transition-colors"
           >
+            <td class="p-4">
+              <button
+                v-if="part.image"
+                type="button"
+                class="block"
+                :title="t('view_image')"
+                @click="openImagePreview(part)"
+              >
+                <img
+                  :src="part.image"
+                  class="h-12 w-12 rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105"
+                  :alt="part.name"
+                />
+              </button>
+              <div
+                v-else
+                class="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
+              >
+                ▣
+              </div>
+            </td>
             <td class="p-4 font-mono text-xs text-slate-600">
               {{ part.code }}
             </td>
@@ -170,6 +192,13 @@
       @confirm="confirmDeletePart"
       @cancel="closeDeleteConfirm"
     />
+
+    <!-- Image lightbox -->
+    <ImagePreviewModal
+      v-model="imagePreviewOpen"
+      :image="previewPart?.image"
+      :title="previewPart?.name"
+    />
   </div>
 </template>
 
@@ -178,6 +207,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import PartModal from './PartModal.vue';
+import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import CategoryCards from './CategoryCards.vue';
 import PartParameterFilters from './PartParameterFilters.vue';
@@ -324,6 +354,15 @@ async function onSaved(payload: CreatePartPayload) {
 function clearPartSaveError() {
   partSaveError.value = null;
   partSaveErrors.value = [];
+}
+
+// ---- Image lightbox ----
+const imagePreviewOpen = ref(false);
+const previewPart = ref<Part | null>(null);
+
+function openImagePreview(part: Part) {
+  previewPart.value = part;
+  imagePreviewOpen.value = true;
 }
 
 // ---- Delete ----

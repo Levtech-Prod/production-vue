@@ -82,11 +82,19 @@
           >
             <td class="p-4 font-semibold">{{ category.name }}</td>
             <td class="p-4">
-              <img
+              <button
                 v-if="category.image"
-                :src="category.image"
-                class="h-10 w-10 rounded-md border object-cover"
-              />
+                type="button"
+                class="block"
+                :title="t('view_image')"
+                @click="openImagePreview(category)"
+              >
+                <img
+                  :src="category.image"
+                  class="h-10 w-10 rounded-md border object-cover transition-transform hover:scale-105"
+                  :alt="category.name"
+                />
+              </button>
               <span v-else class="text-slate-300">—</span>
             </td>
             <td class="p-4 text-slate-500">
@@ -159,6 +167,13 @@
       @confirm="confirmDeleteCategory"
       @cancel="closeDeleteConfirm"
     />
+
+    <!-- Image lightbox -->
+    <ImagePreviewModal
+      v-model="imagePreviewOpen"
+      :image="previewCategory?.image"
+      :title="previewCategory?.name"
+    />
   </div>
 </template>
 
@@ -172,6 +187,7 @@ import type {
 import CategoryFormModal from './PartCategoryModal.vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
+import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
 import {
   localizeZodIssues,
@@ -206,6 +222,15 @@ const filteredCategories = computed(() => {
       c.parameters?.some((p) => p.name.toLowerCase().includes(q)),
   );
 });
+
+// Image lightbox
+const imagePreviewOpen = ref(false);
+const previewCategory = ref<PartCategory | null>(null);
+
+function openImagePreview(category: PartCategory) {
+  previewCategory.value = category;
+  imagePreviewOpen.value = true;
+}
 
 // Modal state
 const modalOpen = ref(false);

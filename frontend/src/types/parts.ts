@@ -25,6 +25,7 @@ export interface Part {
   pricePerPiece: number | string;
   location?: string | null;
   description?: string | null;
+  image?: string | null;
   category: PartCategory;
   parameters?: PartParameterValue[];
   createdAt?: string;
@@ -43,6 +44,7 @@ export interface CreatePartPayload {
   pricePerPiece: number;
   location?: string | null;
   description?: string | null;
+  image?: string | null;
   parameters: PartPayloadParameter[];
 }
 

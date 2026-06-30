@@ -12,6 +12,7 @@ const schema = z.object({
   pricePerPiece: z.number().nonnegative(),
   location: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
+  image: z.string().optional().nullable(),
   parameters: z
     .array(z.object({ parameterId: z.number(), value: z.string() }))
     .default([]),
@@ -27,6 +28,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.price_per_piece AS "pricePerPiece",
       p.location,
       p.description,
+      p.image,
       p.created_at AS "createdAt",
       p.updated_at AS "updatedAt",
       json_build_object('id', pc.id, 'name', pc.name, 'description', pc.description, 'image', pc.image) AS category,
@@ -64,9 +66,9 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
     const partResult = await client.query(
-      `INSERT INTO parts (category_id, name, code, price_per_piece, location, description)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, category_id AS "categoryId", name, code, price_per_piece AS "pricePerPiece", location, description, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      `INSERT INTO parts (category_id, name, code, price_per_piece, location, description, image)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, category_id AS "categoryId", name, code, price_per_piece AS "pricePerPiece", location, description, image, created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         data.categoryId,
         data.name,
@@ -74,6 +76,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
         data.pricePerPiece,
         data.location || null,
         data.description || null,
+        data.image || null,
       ],
     );
     const part = partResult.rows[0];
@@ -122,10 +125,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       `
       UPDATE parts
       SET category_id = $1, name = $2, code = $3, price_per_piece = $4,
-          location = $5, description = $6, updated_at = NOW()
-      WHERE id = $7
+          location = $5, description = $6, image = $7, updated_at = NOW()
+      WHERE id = $8
       RETURNING id, category_id AS "categoryId", name, code,
-        price_per_piece AS "pricePerPiece", location, description,
+        price_per_piece AS "pricePerPiece", location, description, image,
         created_at AS "createdAt", updated_at AS "updatedAt"
       `,
       [
@@ -135,6 +138,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         data.pricePerPiece,
         data.location || null,
         data.description || null,
+        data.image || null,
         partId,
       ],
     );

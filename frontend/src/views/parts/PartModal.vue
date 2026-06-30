@@ -78,6 +78,15 @@
             :placeholder="t('description')"
           ></textarea>
         </div>
+
+        <div class="md:col-span-2">
+          <ImageUploadField
+            v-model="form.image"
+            :label="t('part_image')"
+            target="parts"
+            :preview-alt="t('part_image_preview')"
+          />
+        </div>
       </div>
 
       <div
@@ -125,6 +134,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
+import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
 import type { PartCategory } from '../../types/partCategories.ts';
 import type { Part, CreatePartPayload } from '../../types/parts.ts';
@@ -157,6 +167,7 @@ const form = reactive({
   pricePerPiece: 0,
   location: '',
   description: '',
+  image: '',
 });
 
 const parameterValues = ref<Record<number, string>>({});
@@ -177,6 +188,7 @@ watch(
       form.pricePerPiece = Number(part.pricePerPiece) || 0;
       form.location = part.location ?? '';
       form.description = part.description ?? '';
+      form.image = part.image ?? '';
       const values: Record<number, string> = {};
       part.parameters?.forEach((p) => {
         values[p.parameterId] = p.value;
@@ -213,6 +225,7 @@ function resetForm() {
   form.pricePerPiece = 0;
   form.location = '';
   form.description = '';
+  form.image = '';
   parameterValues.value = {};
 }
 
@@ -233,6 +246,7 @@ function save() {
     pricePerPiece: Number(form.pricePerPiece) || 0,
     location: form.location || null,
     description: form.description || null,
+    image: form.image || null,
     parameters,
   });
 }
