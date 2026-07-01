@@ -83,3 +83,132 @@ END $$;
 
 -- Part image (uploaded file URL, stored in uploads/parts)
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
+
+-- ===========================================================================
+-- Product Management & Revisioning module
+-- ---------------------------------------------------------------------------
+-- Uses SERIAL integer PKs to stay consistent with the rest of the schema
+-- (users, part_categories, parts). The existing `parts` table is reused as
+-- the leaf node; per-usage quantity/unit live on sub_product_revision_parts.
+-- All statements are idempotent and safe to re-run.
+-- ===========================================================================
+
+-- Shared updated_at trigger function (create once, reuse per table)
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Revision status enum (guarded because CREATE TYPE has no IF NOT EXISTS)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'revision_status') THEN
+    CREATE TYPE revision_status AS ENUM ('draft', 'active', 'deprecated');
+  END IF;
+END $$;
+
+-- Core entities ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS products (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  sku         VARCHAR(100) NOT NULL UNIQUE,
+  type        VARCHAR(100),
+  image       TEXT,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_products (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  sku         VARCHAR(100) NOT NULL UNIQUE,
+  type        VARCHAR(100),
+  image       TEXT,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS products_updated_at ON products;
+CREATE TRIGGER products_updated_at
+  BEFORE UPDATE ON products
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS sub_products_updated_at ON sub_products;
+CREATE TRIGGER sub_products_updated_at
+  BEFORE UPDATE ON sub_products
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Revision tables ----------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS product_revisions (
+  id              SERIAL PRIMARY KEY,
+  product_id      INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  revision_number INT  NOT NULL,
+  label           VARCHAR(100) NOT NULL,
+  status          revision_status NOT NULL DEFAULT 'draft',
+  change_notes    TEXT,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(product_id, revision_number)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_revisions (
+  id              SERIAL PRIMARY KEY,
+  sub_product_id  INTEGER NOT NULL REFERENCES sub_products(id) ON DELETE CASCADE,
+  revision_number INT  NOT NULL,
+  label           VARCHAR(100) NOT NULL,
+  status          revision_status NOT NULL DEFAULT 'draft',
+  change_notes    TEXT,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(sub_product_id, revision_number)
+);
+
+-- Junction tables ----------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS product_revision_sub_products (
+  id                      SERIAL PRIMARY KEY,
+  product_revision_id     INTEGER NOT NULL REFERENCES product_revisions(id) ON DELETE CASCADE,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  position                INT NOT NULL DEFAULT 0,
+  UNIQUE(product_revision_id, sub_product_revision_id)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_revision_parts (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  part_id                 INTEGER NOT NULL REFERENCES parts(id),
+  quantity                NUMERIC(10,3) NOT NULL,
+  unit                    VARCHAR(50),
+  notes                   TEXT,
+  UNIQUE(sub_product_revision_id, part_id)
+);
+
+-- Auto-increment revision-number helpers -----------------------------------
+
+CREATE OR REPLACE FUNCTION next_product_revision_number(p_product_id INTEGER)
+RETURNS INT AS $$
+  SELECT COALESCE(MAX(revision_number), 0) + 1
+  FROM product_revisions WHERE product_id = p_product_id;
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION next_sub_product_revision_number(p_sub_product_id INTEGER)
+RETURNS INT AS $$
+  SELECT COALESCE(MAX(revision_number), 0) + 1
+  FROM sub_product_revisions WHERE sub_product_id = p_sub_product_id;
+$$ LANGUAGE SQL;
+
+-- Indexes ------------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_product_revisions_product_id ON product_revisions(product_id);
+CREATE INDEX IF NOT EXISTS idx_sub_product_revisions_sub_product_id ON sub_product_revisions(sub_product_id);
+CREATE INDEX IF NOT EXISTS idx_prsp_product_revision_id ON product_revision_sub_products(product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_sub_products(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_id);
