@@ -143,6 +143,10 @@ const messages = {
     notes: 'Notes',
     sub_product_revision_created_hint:
       'Revision created. Select a product revision and use "Add sub-product" to include it.',
+    add_to_product: 'Add to product',
+    add_to_product_hint:
+      'Also link this sub-product to the selected product revision.',
+    already_added: 'Added',
     compare_status: {
       added: 'Added',
       removed: 'Removed',
@@ -381,6 +385,10 @@ const messages = {
     notes: 'Megjegyzés',
     sub_product_revision_created_hint:
       'Revízió létrehozva. Válassz termékrevíziót, és az „Altermék hozzáadása" gombbal foglald bele.',
+    add_to_product: 'Hozzáadás a termékhez',
+    add_to_product_hint:
+      'Az új alkatermék hozzákapcsolása a kiválasztott termékrevízióhoz.',
+    already_added: 'Hozzáadva',
     compare_status: {
       added: 'Hozzáadva',
       removed: 'Eltávolítva',
