@@ -4,6 +4,7 @@ export type UploadTarget =
   | 'part-categories'
   | 'parts'
   | 'products'
+  | 'sub-products'
   | 'suppliers'
   | 'temp';
 
