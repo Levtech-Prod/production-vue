@@ -236,7 +236,12 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
 
     const newRevResult = await client.query(
       `INSERT INTO product_revisions (product_id, revision_number, label, status, change_notes)
-       VALUES ($1, next_product_revision_number($1), $2, 'draft', $3)
+       VALUES (
+         $1,
+         (SELECT COALESCE(MAX(revision_number), 0) + 1
+            FROM product_revisions WHERE product_id = $1),
+         $2, 'draft', $3
+       )
        RETURNING id, revision_number AS "revisionNumber", label, status,
          change_notes AS "changeNotes", created_at AS "createdAt"`,
       [productId, data.label, data.changeNotes || null],
@@ -276,7 +281,8 @@ router.patch('/:productId', requireAuth, async (req, res) => {
   try {
     const result = await query(
       `UPDATE products
-       SET name = $1, sku = $2, type = $3, description = $4, image = $5
+       SET name = $1, sku = $2, type = $3, description = $4, image = $5,
+           updated_at = NOW()
        WHERE id = $6
        RETURNING id, name, sku, type, description, image,
          created_at AS "createdAt", updated_at AS "updatedAt"`,
