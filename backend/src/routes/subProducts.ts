@@ -6,7 +6,24 @@ import { ErrorCodes } from '../errorCodes.js';
 
 const router = Router();
 
+const partInputSchema = z.object({
+  partId: z.number(),
+  quantity: z.number(),
+  unit: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
 const createSchema = z.object({
+  name: z.string().min(2),
+  sku: z.string().min(1),
+  type: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  image: z.string().optional().nullable(),
+  // Optional parts for the auto-created first revision (Rev. 1).
+  parts: z.array(partInputSchema).optional().default([]),
+});
+
+const updateSchema = z.object({
   name: z.string().min(2),
   sku: z.string().min(1),
   type: z.string().optional().nullable(),
@@ -90,9 +107,24 @@ router.post('/', requireAuth, async (req, res) => {
        RETURNING id, revision_number AS "revisionNumber", label, status`,
       [subProduct.id],
     );
+    const rev1 = revResult.rows[0];
+
+    // Attach any parts chosen at creation time to Rev. 1.
+    for (const part of data.parts) {
+      await client.query(
+        `INSERT INTO sub_product_revision_parts
+           (sub_product_revision_id, part_id, quantity, unit, notes)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (sub_product_revision_id, part_id)
+         DO UPDATE SET quantity = EXCLUDED.quantity,
+                       unit = EXCLUDED.unit,
+                       notes = EXCLUDED.notes`,
+        [rev1.id, part.partId, part.quantity, part.unit || null, part.notes || null],
+      );
+    }
 
     await client.query('COMMIT');
-    res.json({ ...subProduct, revisions: [revResult.rows[0]] });
+    res.json({ ...subProduct, revisions: [rev1] });
   } catch (err: any) {
     await client.query('ROLLBACK');
     if (err?.code === '23505') {
@@ -112,7 +144,7 @@ router.patch('/:spId', requireAuth, async (req, res) => {
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
-  const data = createSchema.parse(req.body);
+  const data = updateSchema.parse(req.body);
 
   try {
     const result = await query(
