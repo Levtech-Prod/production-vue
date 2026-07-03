@@ -1,4 +1,5 @@
 export type RevisionStatus = 'draft' | 'active' | 'deprecated';
+export type ProductStatus = 'active' | 'archived';
 
 // ---- Products -------------------------------------------------------------
 
@@ -19,6 +20,7 @@ export interface ProductSummary {
   type?: string | null;
   image?: string | null;
   description?: string | null;
+  status: ProductStatus;
   defaultRevisionId?: number | null;
   revisions: ProductRevision[];
   createdAt?: string;
@@ -72,6 +74,7 @@ export interface ProductDetail {
   type?: string | null;
   image?: string | null;
   description?: string | null;
+  status: ProductStatus;
   defaultRevisionId?: number | null;
   createdAt?: string;
   updatedAt?: string;

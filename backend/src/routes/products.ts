@@ -38,6 +38,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.type,
       p.image,
       p.description,
+      p.status,
       p.default_revision_id AS "defaultRevisionId",
       p.created_at AS "createdAt",
       p.updated_at AS "updatedAt",
@@ -112,7 +113,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
   }
 
   const productResult = await query(
-    `SELECT id, name, sku, type, image, description,
+    `SELECT id, name, sku, type, image, description, status,
        default_revision_id AS "defaultRevisionId",
        created_at AS "createdAt", updated_at AS "updatedAt"
      FROM products WHERE id = $1`,
@@ -297,6 +298,28 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
     `UPDATE products SET default_revision_id = $1 WHERE id = $2
      RETURNING id, default_revision_id AS "defaultRevisionId"`,
     [data.revisionId, productId],
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+  }
+  res.json(result.rows[0]);
+});
+
+// PATCH /api/products/:productId/status — archive or re-activate a product
+router.patch('/:productId/status', requireAuth, async (req, res) => {
+  const productId = Number(req.params.productId);
+  if (!productId || Number.isNaN(productId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
+  }
+  const data = z
+    .object({ status: z.enum(['active', 'archived']) })
+    .parse(req.body);
+
+  const result = await query(
+    `UPDATE products SET status = $1, updated_at = NOW()
+     WHERE id = $2
+     RETURNING id, status, updated_at AS "updatedAt"`,
+    [data.status, productId],
   );
   if (result.rowCount === 0) {
     return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });

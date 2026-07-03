@@ -7,6 +7,7 @@ import type {
   ProductDetail,
   ProductPayload,
   NewRevisionPayload,
+  ProductStatus,
 } from '../types/products.ts';
 
 export const useProductsStore = defineStore('products', () => {
@@ -75,6 +76,27 @@ export const useProductsStore = defineStore('products', () => {
     }
   }
 
+  async function setProductStatus(id: number, status: ProductStatus) {
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await productsApi.setStatus(id, status);
+      const index = list.value.findIndex((p) => p.id === id);
+      if (index !== -1) {
+        list.value[index] = { ...list.value[index], ...response.data };
+      }
+      if (detail.value?.id === id) {
+        detail.value = { ...detail.value, status: response.data.status };
+      }
+      return response.data;
+    } catch (err) {
+      error.value = i18n.global.t('errors.set_product_status_failed');
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   async function createRevision(id: number, payload: NewRevisionPayload) {
     loading.value = true;
     error.value = null;
@@ -101,6 +123,7 @@ export const useProductsStore = defineStore('products', () => {
     fetchDetail,
     createProduct,
     updateProduct,
+    setProductStatus,
     createRevision,
     clearDetail,
   };
