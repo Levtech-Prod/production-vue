@@ -12,6 +12,7 @@ import type {
   RevisionPart,
   CompareResult,
   RevisionStatus,
+  ProductStatus,
 } from '../types/products.ts';
 
 export const productsApi = {
@@ -37,6 +38,12 @@ export const productsApi = {
     return api.patch<{ id: number; defaultRevisionId: number | null }>(
       `/products/${id}/default-revision`,
       { revisionId },
+    );
+  },
+  setStatus(id: number, status: ProductStatus) {
+    return api.patch<{ id: number; status: ProductStatus; updatedAt: string }>(
+      `/products/${id}/status`,
+      { status },
     );
   },
 };

@@ -9,6 +9,15 @@
     </RouterLink>
 
     <div v-if="detail" class="mt-3">
+      <!-- Archived banner -->
+      <div
+        v-if="isArchived"
+        class="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      >
+        <Archive class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+        <span>{{ t('archived_product_banner') }}</span>
+      </div>
+
       <!-- Info bar -->
       <div class="card p-5">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -94,6 +103,7 @@
         </button>
 
         <button
+          v-if="!isArchived"
           type="button"
           class="ml-1 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1 text-sm text-slate-500 hover:border-blue-400 hover:text-blue-600"
           @click="revisionModalOpen = true"
@@ -102,7 +112,7 @@
         </button>
 
         <button
-          v-if="canSetDefault"
+          v-if="canSetDefault && !isArchived"
           type="button"
           class="inline-flex items-center gap-1 rounded-full border border-amber-300 px-3 py-1 text-sm text-amber-600 hover:bg-amber-50"
           @click="onSetDefaultRevision"
@@ -110,7 +120,7 @@
           <Star class="h-3.5 w-3.5" /> {{ t('set_as_default') }}
         </button>
 
-        <div class="ml-auto flex items-center gap-2">
+        <div v-if="!isArchived" class="ml-auto flex items-center gap-2">
           <button
             type="button"
             class="btn-secondary !py-1.5 !text-xs inline-flex items-center gap-1"
@@ -189,6 +199,7 @@
                   </div>
                 </div>
                 <button
+                  v-if="!isArchived"
                   type="button"
                   class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
                   :title="t('new_revision')"
@@ -385,7 +396,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, ChevronRight, Plus, X, Star } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Plus, X, Star, Archive } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import RevisionModal from './RevisionModal.vue';
 import SubProductModal from './SubProductModal.vue';
@@ -416,6 +427,7 @@ const notify = useNotificationStore();
 
 const productId = computed(() => Number(route.params.id));
 const detail = computed(() => store.detail);
+const isArchived = computed(() => detail.value?.status === 'archived');
 
 function formatDate(iso?: string): string {
   if (!iso) return '—';

@@ -189,3 +189,20 @@ CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_i
 ALTER TABLE products
   ADD COLUMN IF NOT EXISTS default_revision_id INTEGER
     REFERENCES product_revisions(id) ON DELETE SET NULL;
+
+-- Product archive status ('active' by default, can be set to 'archived').
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'products_status_check'
+  ) THEN
+    ALTER TABLE products
+      ADD CONSTRAINT products_status_check
+        CHECK (status IN ('active', 'archived'));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);

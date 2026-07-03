@@ -7,6 +7,27 @@
     <div class="card mt-6 overflow-hidden">
       <!-- Toolbar -->
       <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
+
+        <!-- Status tab filter -->
+        <div class="flex overflow-hidden rounded-lg border border-slate-200 text-sm font-medium">
+          <button
+            type="button"
+            class="px-4 py-2 transition-colors"
+            :class="filterStatus === 'active' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            @click="filterStatus = 'active'"
+          >
+            {{ t('status_active') }}
+          </button>
+          <button
+            type="button"
+            class="border-l border-slate-200 px-4 py-2 transition-colors"
+            :class="filterStatus === 'archived' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            @click="filterStatus = 'archived'"
+          >
+            {{ t('status_archived') }}
+          </button>
+        </div>
+
         <!-- Name filter -->
         <div class="relative max-w-xs flex-1">
           <svg
@@ -68,12 +89,12 @@
         </button>
 
         <span class="text-sm text-slate-400">
-          {{ filtered.length }} / {{ products.length }}
+          {{ filtered.length }} / {{ productsByStatus.length }}
         </span>
 
         <button
           class="ml-auto inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
-          @click="openAdd"
+          @click="openModal()"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -147,6 +168,7 @@
           <tr v-if="filtered.length === 0">
             <td colspan="6" class="py-12 text-center text-sm text-slate-400">
               <template v-if="filterName || filterSku || filterType">{{ t('no_search_results') }}.</template>
+              <template v-else-if="filterStatus === 'archived'">{{ t('no_archived_products_msg') }}</template>
               <template v-else>{{ t('no_products_msg') }}</template>
             </td>
           </tr>
@@ -154,6 +176,7 @@
             v-for="product in filtered"
             :key="product.id"
             class="cursor-pointer border-t border-slate-100 transition-colors hover:bg-slate-50"
+            :class="{ 'opacity-60': product.status === 'archived' }"
             @click="openDetail(product.id)"
           >
             <td class="p-4">
@@ -187,14 +210,18 @@
             </td>
             <td class="p-4" @click.stop>
               <div class="flex items-center gap-2">
+                <!-- Edit: only for active products -->
                 <button
+                  v-if="product.status === 'active'"
                   type="button"
                   class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
                   :title="t('edit')"
-                  @click="openEdit(product)"
+                  @click="openModal(product)"
                 >
                   <Pencil class="h-4 w-4" />
                 </button>
+
+                <!-- Open detail -->
                 <button
                   type="button"
                   class="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
@@ -202,6 +229,28 @@
                   @click="openDetail(product.id)"
                 >
                   <Eye class="h-4 w-4" />
+                </button>
+
+                <!-- Archive: only for active products -->
+                <button
+                  v-if="product.status === 'active'"
+                  type="button"
+                  class="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                  :title="t('archive')"
+                  @click="promptArchive(product)"
+                >
+                  <Archive class="h-4 w-4" />
+                </button>
+
+                <!-- Re-activate: only for archived products -->
+                <button
+                  v-if="product.status === 'archived'"
+                  type="button"
+                  class="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                  :title="t('activate')"
+                  @click="activateProduct(product)"
+                >
+                  <ArchiveRestore class="h-4 w-4" />
                 </button>
               </div>
             </td>
@@ -217,20 +266,32 @@
       :saving="saving"
       @saved="onSaved"
     />
+
+    <!-- Archive confirmation modal -->
+    <ConfirmModal
+      :visible="archiveModalVisible"
+      :title="t('archive')"
+      :message="t('confirmations.archive_product_msg')"
+      :confirm-text="t('archive')"
+      :loading="archiving"
+      @confirm="confirmArchive"
+      @cancel="archiveModalVisible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
+import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown, Archive, ArchiveRestore } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
+import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
-import type { ProductSummary, ProductPayload } from '../../types/products.ts';
+import type { ProductSummary, ProductPayload, ProductStatus } from '../../types/products.ts';
 
 const { t, te } = useI18n();
 const router = useRouter();
@@ -249,88 +310,77 @@ const sortDir = ref<SortDir>('asc');
 
 function toggleSort(key: SortKey) {
   if (sortKey.value === key) {
-    if (sortDir.value === 'asc') {
-      sortDir.value = 'desc';
-    } else {
-      sortKey.value = null;
-    }
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : (sortKey.value = null, 'asc');
   } else {
     sortKey.value = key;
     sortDir.value = 'asc';
   }
 }
 
-// ---- Column filters ---------------------------------------------------------
+// Lookup table so the comparator stays free of branching.
+const SORT_GETTER: Record<SortKey, (p: ProductSummary) => string | number> = {
+  sku: (p) => p.sku,
+  name: (p) => p.name,
+  type: (p) => p.type ?? '',
+  revisions: (p) => p.revisions.length,
+};
 
-const filterSku = ref('');
+function compareProducts(a: ProductSummary, b: ProductSummary): number {
+  const get = SORT_GETTER[sortKey.value!];
+  const aVal = get(a);
+  const bVal = get(b);
+  if (aVal < bVal) return sortDir.value === 'asc' ? -1 : 1;
+  if (aVal > bVal) return sortDir.value === 'asc' ? 1 : -1;
+  return 0;
+}
+
+// ---- Filters ----------------------------------------------------------------
+
+const filterStatus = ref<ProductStatus>('active');
 const filterName = ref('');
+const filterSku = ref('');
 const filterType = ref('');
 
+// Products in the active status tab — denominator for the count display.
+const productsByStatus = computed(() =>
+  products.value.filter((p) => p.status === filterStatus.value),
+);
+
 const uniqueTypes = computed(() => {
-  const types = products.value
-    .map((p) => p.type)
-    .filter((t): t is string => !!t);
+  const types = productsByStatus.value.map((p) => p.type).filter((v): v is string => !!v);
   return [...new Set(types)].sort();
 });
 
-// Revision highlighted in the row: the product's default revision if one is
-// set, otherwise the latest (highest revision number) as a fallback.
+const filtered = computed(() => {
+  const name = filterName.value.toLowerCase();
+  const sku = filterSku.value.toLowerCase();
+
+  const list = productsByStatus.value
+    .filter((p) => !name || p.name.toLowerCase().includes(name))
+    .filter((p) => !sku || p.sku.toLowerCase().includes(sku))
+    .filter((p) => !filterType.value || (p.type ?? '') === filterType.value);
+
+  return sortKey.value ? list.sort(compareProducts) : list;
+});
+
+// Revision highlighted in the row: the product's default revision if set,
+// otherwise the latest (highest revision number) as a fallback.
 function highlightedRevisionId(product: ProductSummary): number | null {
   if (!product.revisions.length) return null;
-  const def = product.defaultRevisionId;
-  if (def != null && product.revisions.some((r) => r.id === def)) return def;
-  return product.revisions.reduce((a, b) =>
-    b.revisionNumber > a.revisionNumber ? b : a,
-  ).id;
+  const { defaultRevisionId, revisions } = product;
+  if (defaultRevisionId != null && revisions.some((r) => r.id === defaultRevisionId))
+    return defaultRevisionId;
+  return revisions.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a)).id;
 }
 
-const filtered = computed(() => {
-  let list = products.value;
-
-  if (filterName.value) {
-    const v = filterName.value.toLowerCase();
-    list = list.filter((p) => p.name.toLowerCase().includes(v));
-  }
-  if (filterSku.value) {
-    const v = filterSku.value.toLowerCase();
-    list = list.filter((p) => p.sku.toLowerCase().includes(v));
-  }
-  if (filterType.value) {
-    list = list.filter((p) => (p.type ?? '') === filterType.value);
-  }
-
-  // Sorting
-  if (sortKey.value) {
-    const key = sortKey.value;
-    const dir = sortDir.value;
-    list = [...list].sort((a, b) => {
-      let aVal: string | number;
-      let bVal: string | number;
-      if (key === 'sku') { aVal = a.sku; bVal = b.sku; }
-      else if (key === 'name') { aVal = a.name; bVal = b.name; }
-      else if (key === 'type') { aVal = a.type ?? ''; bVal = b.type ?? ''; }
-      else { aVal = a.revisions.length; bVal = b.revisions.length; }
-      if (aVal < bVal) return dir === 'asc' ? -1 : 1;
-      if (aVal > bVal) return dir === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }
-
-  return list;
-});
+// ---- Product modal ----------------------------------------------------------
 
 const modalOpen = ref(false);
 const editing = ref<ProductSummary | null>(null);
 const saveError = ref<string | null>(null);
 const saving = ref(false);
 
-function openAdd() {
-  editing.value = null;
-  saveError.value = null;
-  modalOpen.value = true;
-}
-
-function openEdit(product: ProductSummary) {
+function openModal(product: ProductSummary | null = null) {
   editing.value = product;
   saveError.value = null;
   modalOpen.value = true;
@@ -358,6 +408,47 @@ async function onSaved(payload: ProductPayload) {
   } finally {
     saving.value = false;
   }
+}
+
+// ---- Archive / activate -----------------------------------------------------
+
+const archiveModalVisible = ref(false);
+const productToArchive = ref<ProductSummary | null>(null);
+const archiving = ref(false);
+
+// Shared status-change handler — updates store, shows toast, swallows errors.
+async function changeStatus(product: ProductSummary, status: ProductStatus): Promise<boolean> {
+  try {
+    await store.setProductStatus(product.id, status);
+    notify.showToast(
+      t(status === 'archived' ? 'success.archive_product' : 'success.activate_product'),
+      'success',
+    );
+    return true;
+  } catch (err: any) {
+    notify.showToast(translateApiError(err, { t, te }, 'errors.set_product_status_failed'), 'error');
+    return false;
+  }
+}
+
+function promptArchive(product: ProductSummary) {
+  productToArchive.value = product;
+  archiveModalVisible.value = true;
+}
+
+async function confirmArchive() {
+  if (!productToArchive.value) return;
+  archiving.value = true;
+  const ok = await changeStatus(productToArchive.value, 'archived');
+  archiving.value = false;
+  if (ok) {
+    archiveModalVisible.value = false;
+    productToArchive.value = null;
+  }
+}
+
+async function activateProduct(product: ProductSummary) {
+  await changeStatus(product, 'active');
 }
 
 onMounted(() => {
