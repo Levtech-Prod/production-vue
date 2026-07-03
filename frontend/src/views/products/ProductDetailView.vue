@@ -230,14 +230,25 @@
           class="card flex max-h-[70vh] flex-col overflow-hidden"
         >
           <div
-            class="flex items-center justify-between border-b border-slate-100 px-4 py-3"
+            class="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"
           >
-            <h3 class="font-semibold text-slate-700">
-              {{ compareMode ? t('comparison') : t('parts') }}
+            <h3 class="flex min-w-0 items-center gap-2 font-semibold text-slate-700">
+              <template v-if="compareMode">{{ t('comparison') }}</template>
+              <template v-else>
+                <span class="truncate">
+                  {{ t('parts_of', { name: openPartsRef?.spName }) }}
+                </span>
+                <span
+                  v-if="openPartsRef?.revLabel"
+                  class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
+                >
+                  {{ openPartsRef.revLabel }}
+                </span>
+              </template>
             </h3>
             <button
               type="button"
-              class="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
+              class="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100"
               @click="closePanel"
             >
               <X class="h-4 w-4" />
@@ -274,15 +285,7 @@
           </div>
 
           <!-- Single revision parts list -->
-          <div v-else class="flex-1 overflow-y-auto p-4">
-            <div class="mb-3">
-              <div class="font-medium text-slate-800">
-                {{ openPartsRef?.spName }}
-              </div>
-              <div class="text-xs text-slate-400">
-                {{ openPartsRef?.revLabel }}
-              </div>
-            </div>
+          <div v-else class="flex-1 overflow-y-auto">
             <div
               v-if="partsLoading"
               class="py-6 text-center text-sm text-slate-400"
@@ -295,26 +298,49 @@
             >
               {{ t('no_parts_in_revision') }}
             </div>
-            <ul v-else class="flex flex-col divide-y divide-slate-100">
-              <li
-                v-for="part in parts"
-                :key="part.id"
-                class="flex items-center justify-between py-2"
+            <template v-else>
+              <!-- Column header -->
+              <div
+                class="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs uppercase tracking-wide text-slate-500"
               >
-                <div>
-                  <div class="text-sm font-medium text-slate-800">
-                    {{ part.name }}
+                <span>{{ t('part') }}</span>
+                <span>{{ t('quantity') }}</span>
+              </div>
+              <ul class="flex flex-col divide-y divide-slate-100">
+                <li
+                  v-for="part in parts"
+                  :key="part.id"
+                  class="flex items-center justify-between gap-3 px-4 py-2"
+                >
+                  <div class="flex min-w-0 items-center gap-2.5">
+                    <img
+                      v-if="part.image"
+                      :src="part.image"
+                      class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                      :alt="part.name"
+                    />
+                    <div
+                      v-else
+                      class="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-slate-100 text-slate-300"
+                    >
+                      ▣
+                    </div>
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-slate-800">
+                        {{ part.name }}
+                      </div>
+                      <div class="truncate font-mono text-xs text-slate-400">
+                        {{ part.code }}
+                      </div>
+                    </div>
                   </div>
-                  <div class="font-mono text-xs text-slate-400">
-                    {{ part.code }}
+                  <div class="shrink-0 text-right text-sm">
+                    <span class="font-semibold">{{ part.quantity }}</span>
+                    <span class="text-slate-400"> {{ part.unit || '' }}</span>
                   </div>
-                </div>
-                <div class="text-right text-sm">
-                  <span class="font-semibold">{{ part.quantity }}</span>
-                  <span class="text-slate-400"> {{ part.unit || '' }}</span>
-                </div>
-              </li>
-            </ul>
+                </li>
+              </ul>
+            </template>
           </div>
         </aside>
       </div>

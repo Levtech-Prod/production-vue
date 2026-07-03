@@ -151,6 +151,8 @@ const messages = {
     last_updated: 'Last updated',
     default_revision: 'Default revision',
     set_as_default: 'Set as default',
+    part: 'Part',
+    parts_of: 'Parts of {name}',
     compare_status: {
       added: 'Added',
       removed: 'Removed',
@@ -399,6 +401,8 @@ const messages = {
     last_updated: 'Utolsó módosítás',
     default_revision: 'Alapértelmezett revízió',
     set_as_default: 'Beállítás alapértelmezettként',
+    part: 'Alkatrész',
+    parts_of: '{name} alkatrészei',
     compare_status: {
       added: 'Hozzáadva',
       removed: 'Eltávolítva',
