@@ -182,3 +182,10 @@ CREATE INDEX IF NOT EXISTS idx_prsp_product_revision_id ON product_revision_sub_
 CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_sub_products(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_id);
+
+-- Optional pointer to a product's default (canonical) revision. Added here,
+-- after product_revisions exists, so the FK target is available. On revision
+-- deletion the pointer is cleared rather than blocking the delete.
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS default_revision_id INTEGER
+    REFERENCES product_revisions(id) ON DELETE SET NULL;

@@ -38,6 +38,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.type,
       p.image,
       p.description,
+      p.default_revision_id AS "defaultRevisionId",
       p.created_at AS "createdAt",
       p.updated_at AS "updatedAt",
       COALESCE(
@@ -112,6 +113,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
 
   const productResult = await query(
     `SELECT id, name, sku, type, image, description,
+       default_revision_id AS "defaultRevisionId",
        created_at AS "createdAt", updated_at AS "updatedAt"
      FROM products WHERE id = $1`,
     [productId],
@@ -268,6 +270,38 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// PATCH /api/products/:productId/default-revision — set/clear default revision
+router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
+  const productId = Number(req.params.productId);
+  if (!productId || Number.isNaN(productId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
+  }
+  const data = z
+    .object({ revisionId: z.number().nullable() })
+    .parse(req.body);
+
+  // When setting (not clearing), the revision must belong to this product.
+  if (data.revisionId != null) {
+    const check = await query(
+      `SELECT id FROM product_revisions WHERE id = $1 AND product_id = $2`,
+      [data.revisionId, productId],
+    );
+    if (check.rowCount === 0) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+  }
+
+  const result = await query(
+    `UPDATE products SET default_revision_id = $1 WHERE id = $2
+     RETURNING id, default_revision_id AS "defaultRevisionId"`,
+    [data.revisionId, productId],
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+  }
+  res.json(result.rows[0]);
 });
 
 // PATCH /api/products/:productId — update product fields

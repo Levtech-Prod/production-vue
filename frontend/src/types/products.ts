@@ -19,6 +19,7 @@ export interface ProductSummary {
   type?: string | null;
   image?: string | null;
   description?: string | null;
+  defaultRevisionId?: number | null;
   revisions: ProductRevision[];
   createdAt?: string;
   updatedAt?: string;
@@ -71,6 +72,9 @@ export interface ProductDetail {
   type?: string | null;
   image?: string | null;
   description?: string | null;
+  defaultRevisionId?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
   revisions: ProductRevision[];
   membership: RevisionMembership[];
   subProducts: DetailSubProduct[];

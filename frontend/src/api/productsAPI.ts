@@ -33,6 +33,12 @@ export const productsApi = {
   createRevision(id: number, payload: NewRevisionPayload) {
     return api.post<ProductRevision>(`/products/${id}/revisions`, payload);
   },
+  setDefaultRevision(id: number, revisionId: number | null) {
+    return api.patch<{ id: number; defaultRevisionId: number | null }>(
+      `/products/${id}/default-revision`,
+      { revisionId },
+    );
+  },
 };
 
 export const productRevisionsApi = {
