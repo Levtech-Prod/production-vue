@@ -7,6 +7,27 @@
     <div class="card mt-6 overflow-hidden">
       <!-- Toolbar -->
       <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
+
+        <!-- Status tab filter -->
+        <div class="flex overflow-hidden rounded-lg border border-slate-200 text-sm font-medium">
+          <button
+            type="button"
+            class="px-4 py-2 transition-colors"
+            :class="filterStatus === 'active' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            @click="filterStatus = 'active'"
+          >
+            {{ t('status_active') }}
+          </button>
+          <button
+            type="button"
+            class="border-l border-slate-200 px-4 py-2 transition-colors"
+            :class="filterStatus === 'archived' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            @click="filterStatus = 'archived'"
+          >
+            {{ t('status_archived') }}
+          </button>
+        </div>
+
         <!-- Name filter -->
         <div class="relative max-w-xs flex-1">
           <svg
@@ -68,7 +89,7 @@
         </button>
 
         <span class="text-sm text-slate-400">
-          {{ filtered.length }} / {{ products.length }}
+          {{ filtered.length }} / {{ productsByStatus.length }}
         </span>
 
         <button
@@ -154,6 +175,7 @@
             v-for="product in filtered"
             :key="product.id"
             class="cursor-pointer border-t border-slate-100 transition-colors hover:bg-slate-50"
+            :class="{ 'opacity-60': product.status === 'archived' }"
             @click="openDetail(product.id)"
           >
             <td class="p-4">
@@ -187,7 +209,9 @@
             </td>
             <td class="p-4" @click.stop>
               <div class="flex items-center gap-2">
+                <!-- Edit: only for active products -->
                 <button
+                  v-if="product.status === 'active'"
                   type="button"
                   class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
                   :title="t('edit')"
@@ -195,6 +219,8 @@
                 >
                   <Pencil class="h-4 w-4" />
                 </button>
+
+                <!-- Open detail -->
                 <button
                   type="button"
                   class="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
@@ -202,6 +228,28 @@
                   @click="openDetail(product.id)"
                 >
                   <Eye class="h-4 w-4" />
+                </button>
+
+                <!-- Archive: only for active products -->
+                <button
+                  v-if="product.status === 'active'"
+                  type="button"
+                  class="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                  :title="t('archive')"
+                  @click="promptArchive(product)"
+                >
+                  <Archive class="h-4 w-4" />
+                </button>
+
+                <!-- Re-activate: only for archived products -->
+                <button
+                  v-if="product.status === 'archived'"
+                  type="button"
+                  class="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                  :title="t('activate')"
+                  @click="activateProduct(product)"
+                >
+                  <ArchiveRestore class="h-4 w-4" />
                 </button>
               </div>
             </td>
@@ -217,20 +265,32 @@
       :saving="saving"
       @saved="onSaved"
     />
+
+    <!-- Archive confirmation modal -->
+    <ConfirmModal
+      :visible="archiveModalVisible"
+      :title="t('archive')"
+      :message="t('confirmations.archive_product_msg')"
+      :confirm-text="t('archive')"
+      :loading="archiving"
+      @confirm="confirmArchive"
+      @cancel="archiveModalVisible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
+import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown, Archive, ArchiveRestore } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
+import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
-import type { ProductSummary, ProductPayload } from '../../types/products.ts';
+import type { ProductSummary, ProductPayload, ProductStatus } from '../../types/products.ts';
 
 const { t, te } = useI18n();
 const router = useRouter();
@@ -262,12 +322,18 @@ function toggleSort(key: SortKey) {
 
 // ---- Column filters ---------------------------------------------------------
 
+const filterStatus = ref<ProductStatus>('active');
 const filterSku = ref('');
 const filterName = ref('');
 const filterType = ref('');
 
+// Products matching the current status tab (before text/type filters).
+const productsByStatus = computed(() =>
+  products.value.filter((p) => p.status === filterStatus.value),
+);
+
 const uniqueTypes = computed(() => {
-  const types = products.value
+  const types = productsByStatus.value
     .map((p) => p.type)
     .filter((t): t is string => !!t);
   return [...new Set(types)].sort();
@@ -285,7 +351,7 @@ function highlightedRevisionId(product: ProductSummary): number | null {
 }
 
 const filtered = computed(() => {
-  let list = products.value;
+  let list = productsByStatus.value;
 
   if (filterName.value) {
     const v = filterName.value.toLowerCase();
@@ -318,6 +384,8 @@ const filtered = computed(() => {
 
   return list;
 });
+
+// ---- Product modal ----------------------------------------------------------
 
 const modalOpen = ref(false);
 const editing = ref<ProductSummary | null>(null);
@@ -357,6 +425,47 @@ async function onSaved(payload: ProductPayload) {
     saveError.value = translateApiError(err, { t, te }, 'errors.save_product_failed');
   } finally {
     saving.value = false;
+  }
+}
+
+// ---- Archive / activate -----------------------------------------------------
+
+const archiveModalVisible = ref(false);
+const productToArchive = ref<ProductSummary | null>(null);
+const archiving = ref(false);
+
+function promptArchive(product: ProductSummary) {
+  productToArchive.value = product;
+  archiveModalVisible.value = true;
+}
+
+async function confirmArchive() {
+  if (!productToArchive.value) return;
+  archiving.value = true;
+  try {
+    await store.setProductStatus(productToArchive.value.id, 'archived');
+    notify.showToast(t('success.archive_product'), 'success');
+    archiveModalVisible.value = false;
+    productToArchive.value = null;
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.set_product_status_failed'),
+      'error',
+    );
+  } finally {
+    archiving.value = false;
+  }
+}
+
+async function activateProduct(product: ProductSummary) {
+  try {
+    await store.setProductStatus(product.id, 'active');
+    notify.showToast(t('success.activate_product'), 'success');
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.set_product_status_failed'),
+      'error',
+    );
   }
 }
 

@@ -160,6 +160,13 @@ const messages = {
       unchanged: 'Unchanged',
     },
 
+    // Product archive
+    archive: 'Archive',
+    activate: 'Re-activate',
+    status_active: 'Active',
+    status_archived: 'Archived',
+    archived_product_banner: 'This product is archived and cannot be modified. Re-activate it first to make changes.',
+
     errors: {
       // Mirror the `code` field returned by the backend (see
       // backend/src/errorCodes.ts) so a failed request can be translated
@@ -226,6 +233,7 @@ const messages = {
         'The sub-product revision could not be saved',
       update_revision_failed: 'The revision could not be updated',
       set_default_revision_failed: 'Could not set the default revision',
+      set_product_status_failed: 'Could not update the product status',
     },
 
     success: {
@@ -243,6 +251,8 @@ const messages = {
         'The sub-product revision was created successfully',
       update_revision: 'The revision was updated successfully',
       set_default_revision: 'Default revision updated',
+      archive_product: 'The product has been archived',
+      activate_product: 'The product has been re-activated',
     },
 
     validation: {
@@ -259,6 +269,7 @@ const messages = {
       action_msg: 'Are you sure you want to perform this action?',
       delete_category_msg: 'Are you sure you want to delete this category',
       delete_part_msg: 'Are you sure you want to delete this part',
+      archive_product_msg: 'Are you sure you want to archive this product? It will become read-only until re-activated.',
     },
   },
   hu: {
@@ -410,6 +421,13 @@ const messages = {
       unchanged: 'Változatlan',
     },
 
+    // Product archive
+    archive: 'Archiválás',
+    activate: 'Visszaállítás',
+    status_active: 'Aktív',
+    status_archived: 'Archivált',
+    archived_product_banner: 'Ez a termék archivált, nem módosítható. A szerkesztéshez először állítsd vissza aktív állapotba.',
+
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
       INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
@@ -472,6 +490,7 @@ const messages = {
       update_revision_failed: 'A revízió módosítása nem sikerült',
       set_default_revision_failed:
         'Nem sikerült beállítani az alapértelmezett revíziót',
+      set_product_status_failed: 'Nem sikerült módosítani a termék állapotát',
     },
 
     success: {
@@ -489,6 +508,8 @@ const messages = {
       save_sub_product_revision: 'Az altermék-revízió sikeresen létrehozva',
       update_revision: 'A revízió módosítása sikeresen megtörtént',
       set_default_revision: 'Alapértelmezett revízió frissítve',
+      archive_product: 'A termék archiválva lett',
+      activate_product: 'A termék visszaállítva aktív állapotba',
     },
 
     validation: {
@@ -505,6 +526,7 @@ const messages = {
       action_msg: 'Biztosan végrehajtod ezt a műveletet?',
       delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
+      archive_product_msg: 'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
     },
   },
 };
