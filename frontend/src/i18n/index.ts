@@ -276,7 +276,7 @@ const messages = {
     actions: 'Műveletek',
     no_categories_msg:
       'Még nincs kategória. Kattints a „Kategória hozzáadása" gombra az első létrehozásához.',
-    no_search_results: 'Nincs találat erre a keresésre:',
+    no_search_results: 'Nincs találat erre a keresésre',
     search: 'Keresés',
     cancel: 'Mégse',
     edit: 'Szerkesztés',
