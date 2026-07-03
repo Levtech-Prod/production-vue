@@ -7,7 +7,8 @@
     <div class="card mt-6 overflow-hidden">
       <!-- Toolbar -->
       <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
-        <div class="relative max-w-sm flex-1">
+        <!-- Name filter -->
+        <div class="relative max-w-xs flex-1">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -21,11 +22,50 @@
             />
           </svg>
           <input
-            v-model="search"
+            v-model="filterName"
             class="input !pl-9"
-            :placeholder="t('search_products_placeholder')"
+            :placeholder="t('name')"
           />
         </div>
+
+        <!-- SKU filter -->
+        <div class="relative max-w-xs flex-1">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+              clip-rule="evenodd"
+            />
+          </svg>
+          <input
+            v-model="filterSku"
+            class="input !pl-9"
+            placeholder="SKU"
+          />
+        </div>
+
+        <!-- Type filter -->
+        <select v-model="filterType" class="input max-w-xs flex-1">
+          <option value="">{{ t('type') }}: {{ t('all') }}</option>
+          <option v-for="type in uniqueTypes" :key="type" :value="type">{{ type }}</option>
+        </select>
+
+        <button
+          v-if="filterName || filterSku || filterType"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+          @click="filterName = ''; filterSku = ''; filterType = ''"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+          </svg>
+          {{ t('clear_filters') }}
+        </button>
 
         <span class="text-sm text-slate-400">
           {{ filtered.length }} / {{ products.length }}
@@ -53,19 +93,60 @@
 
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <!-- Sort row -->
           <tr>
             <th class="p-4">{{ t('image') }}</th>
-            <th class="p-4">SKU</th>
-            <th class="p-4">{{ t('name') }}</th>
-            <th class="p-4">{{ t('type') }}</th>
-            <th class="p-4">{{ t('revisions') }}</th>
+            <th class="p-4">
+              <button
+                class="inline-flex items-center gap-1 hover:text-slate-700"
+                @click="toggleSort('sku')"
+              >
+                SKU
+                <ChevronUp v-if="sortKey === 'sku' && sortDir === 'asc'" class="h-3 w-3" />
+                <ChevronDown v-else-if="sortKey === 'sku' && sortDir === 'desc'" class="h-3 w-3" />
+                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+              </button>
+            </th>
+            <th class="p-4">
+              <button
+                class="inline-flex items-center gap-1 hover:text-slate-700"
+                @click="toggleSort('name')"
+              >
+                {{ t('name') }}
+                <ChevronUp v-if="sortKey === 'name' && sortDir === 'asc'" class="h-3 w-3" />
+                <ChevronDown v-else-if="sortKey === 'name' && sortDir === 'desc'" class="h-3 w-3" />
+                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+              </button>
+            </th>
+            <th class="p-4">
+              <button
+                class="inline-flex items-center gap-1 hover:text-slate-700"
+                @click="toggleSort('type')"
+              >
+                {{ t('type') }}
+                <ChevronUp v-if="sortKey === 'type' && sortDir === 'asc'" class="h-3 w-3" />
+                <ChevronDown v-else-if="sortKey === 'type' && sortDir === 'desc'" class="h-3 w-3" />
+                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+              </button>
+            </th>
+            <th class="p-4">
+              <button
+                class="inline-flex items-center gap-1 hover:text-slate-700"
+                @click="toggleSort('revisions')"
+              >
+                {{ t('revisions') }}
+                <ChevronUp v-if="sortKey === 'revisions' && sortDir === 'asc'" class="h-3 w-3" />
+                <ChevronDown v-else-if="sortKey === 'revisions' && sortDir === 'desc'" class="h-3 w-3" />
+                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+              </button>
+            </th>
             <th class="p-4">{{ t('actions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
             <td colspan="6" class="py-12 text-center text-sm text-slate-400">
-              <template v-if="search">{{ t('no_search_results') }}.</template>
+              <template v-if="filterName || filterSku || filterType">{{ t('no_search_results') }}.</template>
               <template v-else>{{ t('no_products_msg') }}</template>
             </td>
           </tr>
@@ -142,7 +223,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Pencil, Eye } from 'lucide-vue-next';
+import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
@@ -157,7 +238,40 @@ const store = useProductsStore();
 const notify = useNotificationStore();
 
 const products = computed(() => store.list);
-const search = ref('');
+
+// ---- Sorting ----------------------------------------------------------------
+
+type SortKey = 'sku' | 'name' | 'type' | 'revisions';
+type SortDir = 'asc' | 'desc';
+
+const sortKey = ref<SortKey | null>(null);
+const sortDir = ref<SortDir>('asc');
+
+function toggleSort(key: SortKey) {
+  if (sortKey.value === key) {
+    if (sortDir.value === 'asc') {
+      sortDir.value = 'desc';
+    } else {
+      sortKey.value = null;
+    }
+  } else {
+    sortKey.value = key;
+    sortDir.value = 'asc';
+  }
+}
+
+// ---- Column filters ---------------------------------------------------------
+
+const filterSku = ref('');
+const filterName = ref('');
+const filterType = ref('');
+
+const uniqueTypes = computed(() => {
+  const types = products.value
+    .map((p) => p.type)
+    .filter((t): t is string => !!t);
+  return [...new Set(types)].sort();
+});
 
 // Revision highlighted in the row: the product's default revision if one is
 // set, otherwise the latest (highest revision number) as a fallback.
@@ -171,12 +285,38 @@ function highlightedRevisionId(product: ProductSummary): number | null {
 }
 
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  if (!q) return products.value;
-  return products.value.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q),
-  );
+  let list = products.value;
+
+  if (filterName.value) {
+    const v = filterName.value.toLowerCase();
+    list = list.filter((p) => p.name.toLowerCase().includes(v));
+  }
+  if (filterSku.value) {
+    const v = filterSku.value.toLowerCase();
+    list = list.filter((p) => p.sku.toLowerCase().includes(v));
+  }
+  if (filterType.value) {
+    list = list.filter((p) => (p.type ?? '') === filterType.value);
+  }
+
+  // Sorting
+  if (sortKey.value) {
+    const key = sortKey.value;
+    const dir = sortDir.value;
+    list = [...list].sort((a, b) => {
+      let aVal: string | number;
+      let bVal: string | number;
+      if (key === 'sku') { aVal = a.sku; bVal = b.sku; }
+      else if (key === 'name') { aVal = a.name; bVal = b.name; }
+      else if (key === 'type') { aVal = a.type ?? ''; bVal = b.type ?? ''; }
+      else { aVal = a.revisions.length; bVal = b.revisions.length; }
+      if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }
+
+  return list;
 });
 
 const modalOpen = ref(false);
