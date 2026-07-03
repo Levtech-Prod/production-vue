@@ -10,44 +10,72 @@
 
     <div v-if="detail" class="mt-3">
       <!-- Info bar -->
-      <div class="card flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
-        <img
-          v-if="detail.image"
-          :src="detail.image"
-          class="h-20 w-20 rounded-xl border border-slate-200 object-cover"
-          :alt="detail.name"
-        />
-        <div
-          v-else
-          class="grid h-20 w-20 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-2xl text-slate-300"
+      <div class="card p-5">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <img
+            v-if="detail.image"
+            :src="detail.image"
+            class="h-24 w-24 shrink-0 rounded-xl border border-slate-200 object-cover"
+            :alt="detail.name"
+          />
+          <div
+            v-else
+            class="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-2xl text-slate-300"
+          >
+            ▣
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <h1 class="text-2xl font-bold">{{ detail.name }}</h1>
+            <div class="font-mono text-sm text-slate-500">{{ detail.sku }}</div>
+            <p v-if="detail.description" class="mt-2 text-sm text-slate-500">
+              {{ detail.description }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <dl
+          class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6"
         >
-          ▣
-        </div>
-
-        <div class="flex-1">
-          <h1 class="text-2xl font-bold">{{ detail.name }}</h1>
-          <div class="font-mono text-sm text-slate-500">{{ detail.sku }}</div>
-        </div>
-
-        <div class="grid grid-cols-3 gap-4">
           <div>
-            <div class="text-xs uppercase text-slate-400">{{ t('type') }}</div>
-            <div class="font-semibold">{{ detail.type || '—' }}</div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('type') }}</dt>
+            <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.type || '—' }}</dd>
           </div>
           <div>
-            <div class="text-xs uppercase text-slate-400">{{ t('revisions') }}</div>
-            <div class="font-semibold">{{ detail.revisions.length }}</div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('revisions') }}</dt>
+            <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.revisions.length }}</dd>
           </div>
           <div>
-            <div class="text-xs uppercase text-slate-400">{{ t('sub_products') }}</div>
-            <div class="font-semibold">{{ detail.subProducts.length }}</div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('sub_products') }}</dt>
+            <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.subProducts.length }}</dd>
           </div>
-        </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('default_revision') }}</dt>
+            <dd class="mt-0.5 flex items-center gap-1 font-semibold text-slate-800">
+              <Star
+                v-if="defaultRevisionLabel"
+                class="h-3.5 w-3.5 fill-amber-400 text-amber-400"
+              />
+              {{ defaultRevisionLabel || '—' }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('created_at') }}</dt>
+            <dd class="mt-0.5 font-semibold text-slate-800">{{ formatDate(detail.createdAt) }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('last_updated') }}</dt>
+            <dd class="mt-0.5 font-semibold text-slate-800">{{ formatDate(detail.updatedAt) }}</dd>
+          </div>
+        </dl>
       </div>
 
       <!-- Revision selector -->
       <div class="mt-6 flex flex-wrap items-center gap-2">
-        <span class="mr-1 text-sm font-medium text-slate-500">{{ t('revisions') }}:</span>
+        <span class="mr-1 text-sm font-medium text-slate-500"
+          >{{ t('revisions') }}:</span
+        >
         <button
           v-for="(rev, i) in detail.revisions"
           :key="rev.id"
@@ -58,6 +86,11 @@
         >
           <span class="h-1.5 w-1.5 rounded-full" :class="pillDot(rev.id, i)" />
           {{ rev.label }}
+          <Star
+            v-if="rev.id === detail.defaultRevisionId"
+            class="h-3 w-3 fill-current"
+            :title="t('default_revision')"
+          />
         </button>
 
         <button
@@ -68,19 +101,32 @@
           <Plus class="h-3.5 w-3.5" /> {{ t('new_revision') }}
         </button>
 
+        <button
+          v-if="canSetDefault"
+          type="button"
+          class="inline-flex items-center gap-1 rounded-full border border-amber-300 px-3 py-1 text-sm text-amber-600 hover:bg-amber-50"
+          @click="onSetDefaultRevision"
+        >
+          <Star class="h-3.5 w-3.5" /> {{ t('set_as_default') }}
+        </button>
+
         <div class="ml-auto flex items-center gap-2">
           <button
             type="button"
-            class="btn-secondary !py-1.5 !text-xs"
+            class="btn-secondary !py-1.5 !text-xs inline-flex items-center gap-1"
             @click="subProductModalOpen = true"
           >
-            {{ t('new_sub_product') }}
+            <Plus class="h-3.5 w-3.5" /> {{ t('new_sub_product') }}
           </button>
           <button
             type="button"
             class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
             :disabled="selectedRevisionIds.length !== 1"
-            :title="selectedRevisionIds.length !== 1 ? t('select_one_revision_hint') : ''"
+            :title="
+              selectedRevisionIds.length !== 1
+                ? t('select_one_revision_hint')
+                : ''
+            "
             @click="addModalOpen = true"
           >
             <Plus class="h-3.5 w-3.5" /> {{ t('add_sub_product') }}
@@ -88,16 +134,21 @@
         </div>
       </div>
 
-      <p v-if="selectedRevisionIds.length === 2" class="mt-2 text-sm text-blue-600">
+      <p
+        v-if="selectedRevisionIds.length === 2"
+        class="mt-2 text-sm text-blue-600"
+      >
         {{ t('two_revisions_selected_hint') }}
       </p>
 
       <!-- Main grid: sub-product table + side panel -->
-      <div class="mt-4 grid gap-4" :class="panelOpen ? 'lg:grid-cols-[22rem_1fr]' : ''">
+      <div class="mt-4 grid gap-4 lg:grid-cols-[32rem_1fr]">
         <!-- Sub-product table -->
         <div class="card overflow-hidden">
           <div class="border-b border-slate-100 px-4 py-3">
-            <h2 class="font-semibold text-slate-700">{{ t('sub_products') }}</h2>
+            <h2 class="font-semibold text-slate-700">
+              {{ t('sub_products') }}
+            </h2>
           </div>
 
           <div
@@ -115,9 +166,27 @@
               :class="{ 'opacity-40': isSpDimmed(sp) }"
             >
               <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <div class="truncate font-semibold text-slate-800">{{ sp.name }}</div>
-                  <div class="truncate font-mono text-xs text-slate-400">{{ sp.sku }}</div>
+                <div class="flex min-w-0 items-center gap-2.5">
+                  <img
+                    v-if="sp.image"
+                    :src="sp.image"
+                    class="h-9 w-9 shrink-0 rounded-lg border border-slate-200 object-cover"
+                    :alt="sp.name"
+                  />
+                  <div
+                    v-else
+                    class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
+                  >
+                    ▣
+                  </div>
+                  <div class="min-w-0">
+                    <div class="truncate font-semibold text-slate-800">
+                      {{ sp.name }}
+                    </div>
+                    <div class="truncate font-mono text-xs text-slate-400">
+                      {{ sp.sku }}
+                    </div>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -129,20 +198,26 @@
                 </button>
               </div>
 
-              <div class="mt-2 flex flex-col gap-1.5">
+              <div class="mt-2 flex flex-col">
                 <button
                   v-for="rev in sp.revisions"
                   :key="rev.id"
                   type="button"
-                  class="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left text-sm transition-colors"
+                  class="flex items-center justify-between gap-2 rounded-r-md border-l-2 py-1 pl-2.5 pr-1 text-left text-sm transition-colors"
                   :class="rowClass(sp, rev.id)"
                   @click="openParts(sp, rev.id, rev.label)"
                 >
                   <span class="flex items-center gap-2 truncate">
-                    <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="statusDot(rev.status)" />
+                    <span
+                      class="h-1.5 w-1.5 shrink-0 rounded-full"
+                      :class="statusDot(rev.status)"
+                    />
                     <span class="truncate">{{ rev.label }}</span>
                   </span>
-                  <span class="shrink-0 text-xs text-slate-400">{{ t('view_parts') }}</span>
+                  <span class="flex shrink-0 items-center gap-0.5 text-xs text-slate-400">
+                    {{ t('view_parts') }}
+                    <ChevronRight class="h-3.5 w-3.5" />
+                  </span>
                 </button>
               </div>
             </li>
@@ -150,8 +225,13 @@
         </div>
 
         <!-- Side panel: parts (single) / compare summary -->
-        <aside v-if="panelOpen" class="card flex max-h-[70vh] flex-col overflow-hidden">
-          <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+        <aside
+          v-if="panelOpen"
+          class="card flex max-h-[70vh] flex-col overflow-hidden"
+        >
+          <div
+            class="flex items-center justify-between border-b border-slate-100 px-4 py-3"
+          >
             <h3 class="font-semibold text-slate-700">
               {{ compareMode ? t('comparison') : t('parts') }}
             </h3>
@@ -166,7 +246,10 @@
 
           <!-- Compare summary (2 product revisions selected) -->
           <div v-if="compareMode" class="flex-1 overflow-y-auto p-4">
-            <div v-if="compareLoading" class="py-6 text-center text-sm text-slate-400">
+            <div
+              v-if="compareLoading"
+              class="py-6 text-center text-sm text-slate-400"
+            >
               {{ t('loading') }}
             </div>
             <ul v-else-if="compareResult" class="flex flex-col gap-2">
@@ -178,7 +261,9 @@
               >
                 <div class="flex items-center justify-between">
                   <span class="font-medium">{{ row.name }}</span>
-                  <span class="text-xs uppercase">{{ t('compare_status.' + row.status) }}</span>
+                  <span class="text-xs uppercase">{{
+                    t('compare_status.' + row.status)
+                  }}</span>
                 </div>
                 <div class="mt-1 flex gap-3 text-xs text-slate-500">
                   <span>A: {{ row.inA ? row.inA.revisionLabel : '—' }}</span>
@@ -191,20 +276,38 @@
           <!-- Single revision parts list -->
           <div v-else class="flex-1 overflow-y-auto p-4">
             <div class="mb-3">
-              <div class="font-medium text-slate-800">{{ openPartsRef?.spName }}</div>
-              <div class="text-xs text-slate-400">{{ openPartsRef?.revLabel }}</div>
+              <div class="font-medium text-slate-800">
+                {{ openPartsRef?.spName }}
+              </div>
+              <div class="text-xs text-slate-400">
+                {{ openPartsRef?.revLabel }}
+              </div>
             </div>
-            <div v-if="partsLoading" class="py-6 text-center text-sm text-slate-400">
+            <div
+              v-if="partsLoading"
+              class="py-6 text-center text-sm text-slate-400"
+            >
               {{ t('loading') }}
             </div>
-            <div v-else-if="parts.length === 0" class="py-6 text-center text-sm text-slate-400">
+            <div
+              v-else-if="parts.length === 0"
+              class="py-6 text-center text-sm text-slate-400"
+            >
               {{ t('no_parts_in_revision') }}
             </div>
             <ul v-else class="flex flex-col divide-y divide-slate-100">
-              <li v-for="part in parts" :key="part.id" class="flex items-center justify-between py-2">
+              <li
+                v-for="part in parts"
+                :key="part.id"
+                class="flex items-center justify-between py-2"
+              >
                 <div>
-                  <div class="text-sm font-medium text-slate-800">{{ part.name }}</div>
-                  <div class="font-mono text-xs text-slate-400">{{ part.code }}</div>
+                  <div class="text-sm font-medium text-slate-800">
+                    {{ part.name }}
+                  </div>
+                  <div class="font-mono text-xs text-slate-400">
+                    {{ part.code }}
+                  </div>
                 </div>
                 <div class="text-right text-sm">
                   <span class="font-semibold">{{ part.quantity }}</span>
@@ -217,7 +320,9 @@
       </div>
     </div>
 
-    <div v-else class="py-16 text-center text-slate-400">{{ t('loading') }}</div>
+    <div v-else class="py-16 text-center text-slate-400">
+      {{ t('loading') }}
+    </div>
 
     <!-- Modals -->
     <RevisionModal
@@ -254,7 +359,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, Plus, X } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Plus, X, Star } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import RevisionModal from './RevisionModal.vue';
 import SubProductModal from './SubProductModal.vue';
@@ -262,7 +367,11 @@ import AddSubProductModal from './AddSubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
-import { subProductsApi, productRevisionsApi } from '../../api/productsAPI.ts';
+import {
+  productsApi,
+  subProductsApi,
+  productRevisionsApi,
+} from '../../api/productsAPI.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
   DetailSubProduct,
@@ -281,6 +390,42 @@ const notify = useNotificationStore();
 
 const productId = computed(() => Number(route.params.id));
 const detail = computed(() => store.detail);
+
+function formatDate(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
+
+// ---- Default revision ----
+const defaultRevisionLabel = computed(() => {
+  const id = detail.value?.defaultRevisionId;
+  if (id == null) return '';
+  return detail.value?.revisions.find((r) => r.id === id)?.label ?? '';
+});
+
+const canSetDefault = computed(
+  () =>
+    selectedRevisionIds.value.length === 1 &&
+    selectedRevisionIds.value[0] !== detail.value?.defaultRevisionId,
+);
+
+async function onSetDefaultRevision() {
+  if (selectedRevisionIds.value.length !== 1) return;
+  try {
+    await productsApi.setDefaultRevision(
+      productId.value,
+      selectedRevisionIds.value[0],
+    );
+    notify.showToast(t('success.set_default_revision'), 'success');
+    await reload();
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.set_default_revision_failed'),
+      'error',
+    );
+  }
+}
 
 // ---- Revision selection (max 2) ----
 const selectedRevisionIds = ref<number[]>([]);
@@ -309,7 +454,7 @@ const membership = computed<Record<number, number[]>>(() => {
 // The set of sub_product_revision_ids in each currently selected product rev.
 function selectedSetFor(index: number): Set<number> {
   const revId = selectedRevisionIds.value[index];
-  return new Set(revId != null ? membership.value[revId] ?? [] : []);
+  return new Set(revId != null ? (membership.value[revId] ?? []) : []);
 }
 
 const setA = computed(() => selectedSetFor(0));
@@ -317,19 +462,22 @@ const setB = computed(() => selectedSetFor(1));
 
 function isSpDimmed(sp: DetailSubProduct): boolean {
   if (selectedRevisionIds.value.length === 0) return false;
-  return !sp.revisions.some((r) => setA.value.has(r.id) || setB.value.has(r.id));
+  return !sp.revisions.some(
+    (r) => setA.value.has(r.id) || setB.value.has(r.id),
+  );
 }
 
-// Colour a revision row by which selected product revision(s) contain it.
+// Colour a revision line by which selected product revision(s) contain it.
+// Uses a left-border accent (border-l-2) rather than a full boxed button.
 function rowClass(_sp: DetailSubProduct, spRevId: number): string {
   const inA = setA.value.has(spRevId);
   const inB = setB.value.has(spRevId);
   const isOpen = openPartsRef.value?.revId === spRevId;
-  if (isOpen) return 'border-blue-500 bg-blue-50 ring-1 ring-blue-300';
-  if (inA && inB) return 'border-violet-300 bg-violet-50';
-  if (inA) return 'border-blue-300 bg-blue-50';
-  if (inB) return 'border-emerald-300 bg-emerald-50';
-  return 'border-slate-200 hover:bg-slate-50';
+  if (isOpen) return 'border-blue-500 bg-blue-50 text-blue-700';
+  if (inA && inB) return 'border-violet-400 bg-violet-50/60';
+  if (inA) return 'border-blue-400 bg-blue-50/60';
+  if (inB) return 'border-emerald-400 bg-emerald-50/60';
+  return 'border-transparent hover:bg-slate-50';
 }
 
 // ---- Revision pills styling ----
@@ -340,7 +488,9 @@ function pillClass(revId: number): string {
   return 'border-slate-200 bg-white text-slate-600 hover:border-slate-300';
 }
 function pillDot(revId: number, _i: number): string {
-  return selectedRevisionIds.value.includes(revId) ? 'bg-white' : 'bg-slate-400';
+  return selectedRevisionIds.value.includes(revId)
+    ? 'bg-white'
+    : 'bg-slate-400';
 }
 
 function statusDot(status: RevisionStatus): string {
@@ -362,7 +512,11 @@ const openPartsRef = ref<OpenParts | null>(null);
 const parts = ref<RevisionPart[]>([]);
 const partsLoading = ref(false);
 
-async function openParts(sp: DetailSubProduct, revId: number, revLabel: string) {
+async function openParts(
+  sp: DetailSubProduct,
+  revId: number,
+  revLabel: string,
+) {
   if (openPartsRef.value?.revId === revId) {
     closePanel();
     return;
@@ -374,7 +528,10 @@ async function openParts(sp: DetailSubProduct, revId: number, revLabel: string) 
     const response = await subProductsApi.getRevisionParts(sp.id, revId);
     parts.value = response.data;
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.load_parts_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.load_parts_failed'),
+      'error',
+    );
   } finally {
     partsLoading.value = false;
   }
@@ -405,7 +562,9 @@ watch(
   { deep: true },
 );
 
-const panelOpen = computed(() => compareMode.value || openPartsRef.value !== null);
+const panelOpen = computed(
+  () => compareMode.value || openPartsRef.value !== null,
+);
 
 function closePanel() {
   openPartsRef.value = null;
@@ -416,12 +575,14 @@ function closePanel() {
 }
 
 function compareRowClass(status: string): string {
-  return {
-    added: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    removed: 'border-red-200 bg-red-50 text-red-700',
-    changed: 'border-amber-200 bg-amber-50 text-amber-800',
-    unchanged: 'border-slate-200 bg-white text-slate-600',
-  }[status] ?? 'border-slate-200';
+  return (
+    {
+      added: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+      removed: 'border-red-200 bg-red-50 text-red-700',
+      changed: 'border-amber-200 bg-amber-50 text-amber-800',
+      unchanged: 'border-slate-200 bg-white text-slate-600',
+    }[status] ?? 'border-slate-200'
+  );
 }
 
 // ---- Modals ----
@@ -439,7 +600,7 @@ function openNewSubProductRevision(sp: DetailSubProduct) {
 
 const linkedIdsForSelectedRevision = computed(() =>
   selectedRevisionIds.value.length === 1
-    ? membership.value[selectedRevisionIds.value[0]] ?? []
+    ? (membership.value[selectedRevisionIds.value[0]] ?? [])
     : [],
 );
 
@@ -472,7 +633,10 @@ async function onCreateRevision(payload: NewRevisionPayload) {
     revisionModalOpen.value = false;
     await reload();
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.save_revision_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.save_revision_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
@@ -503,13 +667,18 @@ async function onCreateSubProduct(
       notify.showToast(t('sub_product_created_hint'), 'info');
     }
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.save_sub_product_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.save_sub_product_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
 }
 
-async function onCreateSubProductRevision(payload: NewSubProductRevisionPayload) {
+async function onCreateSubProductRevision(
+  payload: NewSubProductRevisionPayload,
+) {
   if (!activeSubProduct.value) return;
   modalSaving.value = true;
   try {
@@ -520,7 +689,11 @@ async function onCreateSubProductRevision(payload: NewSubProductRevisionPayload)
     await reload();
   } catch (err: any) {
     notify.showToast(
-      translateApiError(err, { t, te }, 'errors.save_sub_product_revision_failed'),
+      translateApiError(
+        err,
+        { t, te },
+        'errors.save_sub_product_revision_failed',
+      ),
       'error',
     );
   } finally {
@@ -540,18 +713,46 @@ async function onAddSubProducts(subProductRevisionIds: number[]) {
     addModalOpen.value = false;
     await reload();
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.update_revision_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.update_revision_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
 }
 
-onMounted(reload);
+// On initial load / navigation, default to the latest product revision and
+// open the first sub-product revision that belongs to it.
+function applyDefaults() {
+  const d = detail.value;
+  if (!d || d.revisions.length === 0) return;
+  const latest = d.revisions.reduce((a, b) =>
+    b.revisionNumber > a.revisionNumber ? b : a,
+  );
+  selectedRevisionIds.value = [latest.id];
+
+  const memberSet = new Set(membership.value[latest.id] ?? []);
+  for (const sp of d.subProducts) {
+    const rev = sp.revisions.find((r) => memberSet.has(r.id));
+    if (rev) {
+      openParts(sp, rev.id, rev.label);
+      break;
+    }
+  }
+}
+
+async function loadAndApplyDefaults() {
+  await reload();
+  applyDefaults();
+}
+
+onMounted(loadAndApplyDefaults);
 
 // Reset selection when navigating to a different product.
 watch(productId, () => {
   selectedRevisionIds.value = [];
   openPartsRef.value = null;
-  reload();
+  loadAndApplyDefaults();
 });
 </script>

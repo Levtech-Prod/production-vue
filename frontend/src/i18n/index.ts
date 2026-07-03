@@ -126,7 +126,7 @@ const messages = {
     no_parts_in_revision: 'No parts in this revision.',
     add: 'Add',
     select_one_revision_hint:
-      'Select exactly one revision to add sub-products.',
+      'Select one revision of the sub-products to add to a product.',
     two_revisions_selected_hint:
       'Two revisions selected — showing the comparison.',
     view_parts: 'View parts',
@@ -147,6 +147,10 @@ const messages = {
     add_to_product_hint:
       'Also link this sub-product to the selected product revision.',
     already_added: 'Added',
+    created_at: 'Created',
+    last_updated: 'Last updated',
+    default_revision: 'Default revision',
+    set_as_default: 'Set as default',
     compare_status: {
       added: 'Added',
       removed: 'Removed',
@@ -219,6 +223,7 @@ const messages = {
       save_sub_product_revision_failed:
         'The sub-product revision could not be saved',
       update_revision_failed: 'The revision could not be updated',
+      set_default_revision_failed: 'Could not set the default revision',
     },
 
     success: {
@@ -235,6 +240,7 @@ const messages = {
       save_sub_product_revision:
         'The sub-product revision was created successfully',
       update_revision: 'The revision was updated successfully',
+      set_default_revision: 'Default revision updated',
     },
 
     validation: {
@@ -368,7 +374,7 @@ const messages = {
     no_parts_in_revision: 'Ebben a revízióban nincs alkatrész.',
     add: 'Hozzáadás',
     select_one_revision_hint:
-      'Pontosan egy revíziót válassz altermékek hozzáadásához.',
+      'Válassz egy altermék-revíziót, amelyet hozzá szeretnél adni a termékhez.',
     two_revisions_selected_hint:
       'Két revízió kiválasztva — az összehasonlítás látható.',
     view_parts: 'Alkatrészek',
@@ -389,6 +395,10 @@ const messages = {
     add_to_product_hint:
       'Az új alkatermék hozzákapcsolása a kiválasztott termékrevízióhoz.',
     already_added: 'Hozzáadva',
+    created_at: 'Létrehozva',
+    last_updated: 'Utolsó módosítás',
+    default_revision: 'Alapértelmezett revízió',
+    set_as_default: 'Beállítás alapértelmezettként',
     compare_status: {
       added: 'Hozzáadva',
       removed: 'Eltávolítva',
@@ -456,6 +466,8 @@ const messages = {
       save_sub_product_revision_failed:
         'Az altermék-revízió mentése nem sikerült',
       update_revision_failed: 'A revízió módosítása nem sikerült',
+      set_default_revision_failed:
+        'Nem sikerült beállítani az alapértelmezett revíziót',
     },
 
     success: {
@@ -472,6 +484,7 @@ const messages = {
       save_sub_product: 'Az altermék mentése sikeresen megtörtént',
       save_sub_product_revision: 'Az altermék-revízió sikeresen létrehozva',
       update_revision: 'A revízió módosítása sikeresen megtörtént',
+      set_default_revision: 'Alapértelmezett revízió frissítve',
     },
 
     validation: {
