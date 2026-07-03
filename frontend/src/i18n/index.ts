@@ -102,6 +102,7 @@ const messages = {
     search_products_placeholder: 'Search by name or SKU...',
     no_products_msg:
       'No products yet. Click the "Add Product" button to create the first one.',
+    no_archived_products_msg: 'No archived products.',
     revisions: 'Revisions',
     open: 'Open',
     type: 'Type',
@@ -363,6 +364,7 @@ const messages = {
     search_products_placeholder: 'Keresés név vagy SKU alapján…',
     no_products_msg:
       'Még nincs termék. Kattints a „Termék hozzáadása" gombra az első létrehozásához.',
+    no_archived_products_msg: 'Nincs archivált termék.',
     revisions: 'Revíziók',
     open: 'Megnyitás',
     type: 'Típus',
