@@ -99,7 +99,7 @@
                   :key="rev.id"
                   :label="rev.label"
                   :status="rev.status"
-                  :highlight="rev.id === latestRevisionId(product)"
+                  :highlight="rev.id === highlightedRevisionId(product)"
                 />
                 <span v-if="!product.revisions.length" class="text-slate-300">—</span>
               </div>
@@ -159,9 +159,12 @@ const notify = useNotificationStore();
 const products = computed(() => store.list);
 const search = ref('');
 
-// Id of the latest (highest revision number) revision — highlighted in the row.
-function latestRevisionId(product: ProductSummary): number | null {
+// Revision highlighted in the row: the product's default revision if one is
+// set, otherwise the latest (highest revision number) as a fallback.
+function highlightedRevisionId(product: ProductSummary): number | null {
   if (!product.revisions.length) return null;
+  const def = product.defaultRevisionId;
+  if (def != null && product.revisions.some((r) => r.id === def)) return def;
   return product.revisions.reduce((a, b) =>
     b.revisionNumber > a.revisionNumber ? b : a,
   ).id;

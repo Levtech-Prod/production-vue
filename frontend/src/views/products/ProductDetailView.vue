@@ -722,17 +722,23 @@ async function onAddSubProducts(subProductRevisionIds: number[]) {
   }
 }
 
-// On initial load / navigation, default to the latest product revision and
-// open the first sub-product revision that belongs to it.
+// On initial load / navigation, default to the product's default revision
+// (falling back to the latest) and open the first sub-product revision that
+// belongs to it.
 function applyDefaults() {
   const d = detail.value;
   if (!d || d.revisions.length === 0) return;
   const latest = d.revisions.reduce((a, b) =>
     b.revisionNumber > a.revisionNumber ? b : a,
   );
-  selectedRevisionIds.value = [latest.id];
+  const initial =
+    d.defaultRevisionId != null &&
+    d.revisions.some((r) => r.id === d.defaultRevisionId)
+      ? d.defaultRevisionId
+      : latest.id;
+  selectedRevisionIds.value = [initial];
 
-  const memberSet = new Set(membership.value[latest.id] ?? []);
+  const memberSet = new Set(membership.value[initial] ?? []);
   for (const sp of d.subProducts) {
     const rev = sp.revisions.find((r) => memberSet.has(r.id));
     if (rev) {
