@@ -99,6 +99,7 @@
                   :key="rev.id"
                   :label="rev.label"
                   :status="rev.status"
+                  :highlight="rev.id === latestRevisionId(product)"
                 />
                 <span v-if="!product.revisions.length" class="text-slate-300">—</span>
               </div>
@@ -119,7 +120,7 @@
                   :title="t('open')"
                   @click="openDetail(product.id)"
                 >
-                  <ChevronRight class="h-4 w-4" />
+                  <Eye class="h-4 w-4" />
                 </button>
               </div>
             </td>
@@ -141,7 +142,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Pencil, ChevronRight } from 'lucide-vue-next';
+import { Pencil, Eye } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
@@ -157,6 +158,14 @@ const notify = useNotificationStore();
 
 const products = computed(() => store.list);
 const search = ref('');
+
+// Id of the latest (highest revision number) revision — highlighted in the row.
+function latestRevisionId(product: ProductSummary): number | null {
+  if (!product.revisions.length) return null;
+  return product.revisions.reduce((a, b) =>
+    b.revisionNumber > a.revisionNumber ? b : a,
+  ).id;
+}
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();

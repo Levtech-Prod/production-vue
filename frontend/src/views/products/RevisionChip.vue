@@ -1,7 +1,7 @@
 <template>
   <span
     class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
-    :class="chipClass"
+    :class="[chipClass, highlight ? 'ring-2 ring-blue-400 ring-offset-1' : '']"
   >
     <span class="h-1.5 w-1.5 rounded-full" :class="dotClass" />
     {{ label }}
@@ -15,6 +15,8 @@ import type { RevisionStatus } from '../../types/products.ts';
 const props = defineProps<{
   label: string;
   status: RevisionStatus;
+  // Emphasises this chip (used for the latest revision in the list).
+  highlight?: boolean;
 }>();
 
 const chipClass = computed(
