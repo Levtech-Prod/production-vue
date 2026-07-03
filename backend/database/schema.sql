@@ -83,3 +83,109 @@ END $$;
 
 -- Part image (uploaded file URL, stored in uploads/parts)
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
+
+-- ===========================================================================
+-- Product Management & Revisioning module
+-- ---------------------------------------------------------------------------
+-- Uses SERIAL integer PKs to stay consistent with the rest of the schema
+-- (users, part_categories, parts). The existing `parts` table is reused as
+-- the leaf node. Per-usage quantity/unit live on sub_product_revision_parts.
+--
+-- Deliberately contains NO functions, triggers, enums, or DO/$$ blocks so the
+-- whole file runs statement-by-statement in any SQL client. Matching the rest
+-- of this schema, `status` uses a CHECK constraint (not a Postgres ENUM) and
+-- `updated_at` is set explicitly in the API UPDATE queries (see parts.ts),
+-- not via a trigger. All statements are idempotent and safe to re-run.
+-- ===========================================================================
+
+-- Core entities ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS products (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  sku         VARCHAR(100) NOT NULL UNIQUE,
+  type        VARCHAR(100),
+  image       TEXT,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_products (
+  id          SERIAL PRIMARY KEY,
+  name        VARCHAR(255) NOT NULL,
+  sku         VARCHAR(100) NOT NULL UNIQUE,
+  type        VARCHAR(100),
+  image       TEXT,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Revision tables ----------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS product_revisions (
+  id              SERIAL PRIMARY KEY,
+  product_id      INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  revision_number INT  NOT NULL,
+  label           VARCHAR(100) NOT NULL,
+  status          VARCHAR(20) NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft', 'active', 'deprecated')),
+  change_notes    TEXT,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(product_id, revision_number)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_revisions (
+  id              SERIAL PRIMARY KEY,
+  sub_product_id  INTEGER NOT NULL REFERENCES sub_products(id) ON DELETE CASCADE,
+  revision_number INT  NOT NULL,
+  label           VARCHAR(100) NOT NULL,
+  status          VARCHAR(20) NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft', 'active', 'deprecated')),
+  change_notes    TEXT,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(sub_product_id, revision_number)
+);
+
+-- Junction tables ----------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS product_revision_sub_products (
+  id                      SERIAL PRIMARY KEY,
+  product_revision_id     INTEGER NOT NULL REFERENCES product_revisions(id) ON DELETE CASCADE,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  position                INT NOT NULL DEFAULT 0,
+  UNIQUE(product_revision_id, sub_product_revision_id)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_revision_parts (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  part_id                 INTEGER NOT NULL REFERENCES parts(id),
+  quantity                NUMERIC(10,3) NOT NULL,
+  unit                    VARCHAR(50),
+  notes                   TEXT,
+  UNIQUE(sub_product_revision_id, part_id)
+);
+
+-- Note: the "next revision number" is computed inline in the API INSERT
+-- queries with a COALESCE(MAX(revision_number), 0) + 1 subquery, so no SQL
+-- helper functions are needed here.
+
+-- Indexes ------------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_product_revisions_product_id ON product_revisions(product_id);
+CREATE INDEX IF NOT EXISTS idx_sub_product_revisions_sub_product_id ON sub_product_revisions(sub_product_id);
+CREATE INDEX IF NOT EXISTS idx_prsp_product_revision_id ON product_revision_sub_products(product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_sub_products(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_id);
+
+-- Optional pointer to a product's default (canonical) revision. Added here,
+-- after product_revisions exists, so the FK target is available. On revision
+-- deletion the pointer is cleared rather than blocking the delete.
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS default_revision_id INTEGER
+    REFERENCES product_revisions(id) ON DELETE SET NULL;

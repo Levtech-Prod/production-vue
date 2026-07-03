@@ -10,6 +10,7 @@ type UploadTarget =
   | 'part-categories'
   | 'parts'
   | 'products'
+  | 'sub-products'
   | 'suppliers'
   | 'temp';
 
@@ -17,6 +18,7 @@ const allowedTargets: UploadTarget[] = [
   'part-categories',
   'parts',
   'products',
+  'sub-products',
   'suppliers',
   'temp',
 ];

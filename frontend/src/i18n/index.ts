@@ -95,6 +95,71 @@ const messages = {
     min: 'Min',
     max: 'Max',
 
+    // Products module
+    products: 'Products',
+    add_product: 'Add Product',
+    edit_product: 'Edit Product',
+    search_products_placeholder: 'Search by name or SKU...',
+    no_products_msg:
+      'No products yet. Click the "Add Product" button to create the first one.',
+    revisions: 'Revisions',
+    open: 'Open',
+    type: 'Type',
+    sub_products: 'Sub-products',
+    new_revision: 'New revision',
+    label: 'Label',
+    revision_label_placeholder: 'e.g. Rev. 2',
+    duplicate_from: 'Duplicate from',
+    start_empty: 'Start empty',
+    duplicate_from_hint:
+      'Copies the sub-product links from the chosen revision.',
+    change_notes: 'Change notes',
+    new_sub_product: 'New sub-product',
+    add_sub_product: 'Add sub-product',
+    add_sub_product_to_revision: 'Add sub-product to revision',
+    add_sub_product_hint:
+      'Select which sub-product revisions to include in this product revision.',
+    loading: 'Loading...',
+    no_sub_products_msg: 'No sub-products available.',
+    no_sub_products_in_product:
+      'No sub-products in this product yet. Select a revision and add some.',
+    no_parts_in_revision: 'No parts in this revision.',
+    add: 'Add',
+    select_one_revision_hint:
+      'Select one revision of the sub-products to add to a product.',
+    two_revisions_selected_hint:
+      'Two revisions selected — showing the comparison.',
+    view_parts: 'View parts',
+    comparison: 'Comparison',
+    sub_product_created_hint:
+      'Sub-product created. Select a revision, then use "Add sub-product" to link it.',
+    new_sub_product_revision: 'New sub-product revision',
+    copy_parts_from: 'Copy parts from',
+    parts_in_revision: 'Parts in this revision',
+    select_part: 'Select a part to add…',
+    all_parts_added: 'All parts already added',
+    no_parts_selected: 'No parts added yet.',
+    quantity: 'Quantity',
+    notes: 'Notes',
+    sub_product_revision_created_hint:
+      'Revision created. Select a product revision and use "Add sub-product" to include it.',
+    add_to_product: 'Add to product',
+    add_to_product_hint:
+      'Also link this sub-product to the selected product revision.',
+    already_added: 'Added',
+    created_at: 'Created',
+    last_updated: 'Last updated',
+    default_revision: 'Default revision',
+    set_as_default: 'Set as default',
+    part: 'Part',
+    parts_of: 'Parts of {name}',
+    compare_status: {
+      added: 'Added',
+      removed: 'Removed',
+      changed: 'Changed',
+      unchanged: 'Unchanged',
+    },
+
     errors: {
       // Mirror the `code` field returned by the backend (see
       // backend/src/errorCodes.ts) so a failed request can be translated
@@ -136,6 +201,31 @@ const messages = {
       file_upload_failed: 'File upload failed',
       load_categories_failed: 'Failed to load categories',
       load_parts_failed: 'Failed to load parts',
+
+      // Products module — backend codes
+      PRODUCT_SKU_ALREADY_EXISTS: 'A product with this SKU already exists.',
+      PRODUCT_NOT_FOUND: 'Product not found',
+      INVALID_PRODUCT_ID: 'Invalid product id',
+      PRODUCT_UPDATE_FAILED: 'Failed to update product',
+      SUB_PRODUCT_SKU_ALREADY_EXISTS:
+        'A sub-product with this SKU already exists.',
+      SUB_PRODUCT_NOT_FOUND: 'Sub-product not found',
+      INVALID_SUB_PRODUCT_ID: 'Invalid sub-product id',
+      SUB_PRODUCT_UPDATE_FAILED: 'Failed to update sub-product',
+      REVISION_NOT_FOUND: 'Revision not found',
+      INVALID_REVISION_ID: 'Invalid revision id',
+      REVISION_UPDATE_FAILED: 'Failed to update revision',
+      COMPARE_INVALID_PARAMS: 'Invalid comparison parameters',
+      // Products module — frontend-only fallbacks
+      load_products_failed: 'Failed to load products',
+      load_product_failed: 'Failed to load the product',
+      save_product_failed: 'The product could not be saved',
+      save_revision_failed: 'The revision could not be saved',
+      save_sub_product_failed: 'The sub-product could not be saved',
+      save_sub_product_revision_failed:
+        'The sub-product revision could not be saved',
+      update_revision_failed: 'The revision could not be updated',
+      set_default_revision_failed: 'Could not set the default revision',
     },
 
     success: {
@@ -145,6 +235,14 @@ const messages = {
       save_part: 'The part was saved successfully',
       update_part: 'The part was updated successfully',
       delete_part: 'The part was deleted successfully.',
+      save_product: 'The product was saved successfully',
+      update_product: 'The product was updated successfully',
+      save_revision: 'The revision was created successfully',
+      save_sub_product: 'The sub-product was saved successfully',
+      save_sub_product_revision:
+        'The sub-product revision was created successfully',
+      update_revision: 'The revision was updated successfully',
+      set_default_revision: 'Default revision updated',
     },
 
     validation: {
@@ -247,6 +345,71 @@ const messages = {
     min: 'Min',
     max: 'Max',
 
+    // Products module
+    products: 'Termékek',
+    add_product: 'Termék hozzáadása',
+    edit_product: 'Termék szerkesztése',
+    search_products_placeholder: 'Keresés név vagy SKU alapján…',
+    no_products_msg:
+      'Még nincs termék. Kattints a „Termék hozzáadása" gombra az első létrehozásához.',
+    revisions: 'Revíziók',
+    open: 'Megnyitás',
+    type: 'Típus',
+    sub_products: 'Altermékek',
+    new_revision: 'Új revízió',
+    label: 'Címke',
+    revision_label_placeholder: 'pl. Rev. 2',
+    duplicate_from: 'Másolás innen',
+    start_empty: 'Üres kezdés',
+    duplicate_from_hint:
+      'Átmásolja a kiválasztott revízió alaktermék-hivatkozásait.',
+    change_notes: 'Változásleírás',
+    new_sub_product: 'Új altermék',
+    add_sub_product: 'Altermék hozzáadása',
+    add_sub_product_to_revision: 'Altermék hozzáadása a revízióhoz',
+    add_sub_product_hint:
+      'Válaszd ki, mely altermék-revíziók kerüljenek ebbe a termékrevízióba.',
+    loading: 'Betöltés…',
+    no_sub_products_msg: 'Nincs elérhető altermék.',
+    no_sub_products_in_product:
+      'Ehhez a termékhez még nincs altermék. Válassz revíziót és adj hozzá.',
+    no_parts_in_revision: 'Ebben a revízióban nincs alkatrész.',
+    add: 'Hozzáadás',
+    select_one_revision_hint:
+      'Válassz egy altermék-revíziót, amelyet hozzá szeretnél adni a termékhez.',
+    two_revisions_selected_hint:
+      'Két revízió kiválasztva — az összehasonlítás látható.',
+    view_parts: 'Alkatrészek',
+    comparison: 'Összehasonlítás',
+    sub_product_created_hint:
+      'Altermék létrehozva. Válassz revíziót, majd az „Altermék hozzáadása" gombbal kapcsold hozzá.',
+    new_sub_product_revision: 'Új altermék-revízió',
+    copy_parts_from: 'Alkatrészek másolása innen',
+    parts_in_revision: 'Alkatrészek a revízióban',
+    select_part: 'Válassz hozzáadandó alkatrészt…',
+    all_parts_added: 'Minden alkatrész hozzáadva',
+    no_parts_selected: 'Még nincs hozzáadva alkatrész.',
+    quantity: 'Mennyiség',
+    notes: 'Megjegyzés',
+    sub_product_revision_created_hint:
+      'Revízió létrehozva. Válassz termékrevíziót, és az „Altermék hozzáadása" gombbal foglald bele.',
+    add_to_product: 'Hozzáadás a termékhez',
+    add_to_product_hint:
+      'Az új alkatermék hozzákapcsolása a kiválasztott termékrevízióhoz.',
+    already_added: 'Hozzáadva',
+    created_at: 'Létrehozva',
+    last_updated: 'Utolsó módosítás',
+    default_revision: 'Alapértelmezett revízió',
+    set_as_default: 'Beállítás alapértelmezettként',
+    part: 'Alkatrész',
+    parts_of: '{name} alkatrészei',
+    compare_status: {
+      added: 'Hozzáadva',
+      removed: 'Eltávolítva',
+      changed: 'Módosítva',
+      unchanged: 'Változatlan',
+    },
+
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
       INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
@@ -284,6 +447,31 @@ const messages = {
       file_upload_failed: 'A fájl feltöltése sikertelen',
       load_categories_failed: 'Nem sikerült betölteni a kategóriákat',
       load_parts_failed: 'Nem sikerült betölteni az alkatrészeket',
+
+      // Products module — backend kódok
+      PRODUCT_SKU_ALREADY_EXISTS: 'Már létezik termék ezzel a SKU-val.',
+      PRODUCT_NOT_FOUND: 'A termék nem található',
+      INVALID_PRODUCT_ID: 'Érvénytelen termékazonosító',
+      PRODUCT_UPDATE_FAILED: 'Nem sikerült módosítani a terméket',
+      SUB_PRODUCT_SKU_ALREADY_EXISTS: 'Már létezik altermék ezzel a SKU-val.',
+      SUB_PRODUCT_NOT_FOUND: 'Az altermék nem található',
+      INVALID_SUB_PRODUCT_ID: 'Érvénytelen altermék-azonosító',
+      SUB_PRODUCT_UPDATE_FAILED: 'Nem sikerült módosítani az alterméket',
+      REVISION_NOT_FOUND: 'A revízió nem található',
+      INVALID_REVISION_ID: 'Érvénytelen revízióazonosító',
+      REVISION_UPDATE_FAILED: 'Nem sikerült módosítani a revíziót',
+      COMPARE_INVALID_PARAMS: 'Érvénytelen összehasonlítási paraméterek',
+      // Products module — frontend fallbackok
+      load_products_failed: 'Nem sikerült betölteni a termékeket',
+      load_product_failed: 'Nem sikerült betölteni a terméket',
+      save_product_failed: 'A termék mentése nem sikerült',
+      save_revision_failed: 'A revízió mentése nem sikerült',
+      save_sub_product_failed: 'Az altermék mentése nem sikerült',
+      save_sub_product_revision_failed:
+        'Az altermék-revízió mentése nem sikerült',
+      update_revision_failed: 'A revízió módosítása nem sikerült',
+      set_default_revision_failed:
+        'Nem sikerült beállítani az alapértelmezett revíziót',
     },
 
     success: {
@@ -294,6 +482,13 @@ const messages = {
       save_part: 'Az alkatrész mentése sikeresen megtörtént',
       update_part: 'Az alkatrész módosítása sikeresen megtörtént',
       delete_part: 'Az alkatrész sikeresen törölve.',
+      save_product: 'A termék mentése sikeresen megtörtént',
+      update_product: 'A termék módosítása sikeresen megtörtént',
+      save_revision: 'A revízió sikeresen létrehozva',
+      save_sub_product: 'Az altermék mentése sikeresen megtörtént',
+      save_sub_product_revision: 'Az altermék-revízió sikeresen létrehozva',
+      update_revision: 'A revízió módosítása sikeresen megtörtént',
+      set_default_revision: 'Alapértelmezett revízió frissítve',
     },
 
     validation: {
