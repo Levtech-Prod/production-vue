@@ -11,6 +11,7 @@ import type {
   NewSubProductRevisionPayload,
   RevisionPart,
   CompareResult,
+  ComparePartsResult,
   RevisionStatus,
   ProductStatus,
 } from '../types/products.ts';
@@ -84,5 +85,10 @@ export const subProductsApi = {
     return api.get<RevisionPart[]>(
       `/sub-products/${spId}/revisions/${revId}/parts`,
     );
+  },
+  compareRevisionParts(a: number, b: number) {
+    return api.get<ComparePartsResult>('/sub-products/revisions/compare', {
+      params: { a, b },
+    });
   },
 };

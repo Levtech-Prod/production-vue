@@ -8,7 +8,7 @@ const router = Router();
 
 const partInputSchema = z.object({
   partId: z.number(),
-  quantity: z.number(),
+  quantity: z.number().transform((v) => Math.round(v)),
   unit: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -39,13 +39,81 @@ const revisionSchema = z.object({
     .array(
       z.object({
         partId: z.number(),
-        quantity: z.number(),
+        quantity: z.number().transform((v) => Math.round(v)),
         unit: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
       }),
     )
     .optional()
     .default([]),
+});
+
+// GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
+// Registered before /:spId routes so the literal path takes precedence.
+router.get('/revisions/compare', requireAuth, async (req, res) => {
+  const a = Number(req.query.a);
+  const b = Number(req.query.b);
+  if (!a || !b || Number.isNaN(a) || Number.isNaN(b)) {
+    return res.status(400).json({ code: ErrorCodes.COMPARE_INVALID_PARAMS });
+  }
+
+  const rowsResult = await query(
+    `SELECT
+       sprp.sub_product_revision_id AS "revisionId",
+       p.id                          AS "partId",
+       p.name,
+       p.code,
+       p.image,
+       sprp.quantity::integer AS quantity,
+       sprp.unit,
+       sprp.notes
+     FROM sub_product_revision_parts sprp
+     JOIN parts p ON p.id = sprp.part_id
+     WHERE sprp.sub_product_revision_id IN ($1, $2)
+     ORDER BY p.name`,
+    [a, b],
+  );
+
+  type PartSide = { quantity: number; unit: string | null; notes: string | null } | null;
+
+  const map = new Map<
+    number,
+    { partId: number; name: string; code: string; image: string | null; inA: PartSide; inB: PartSide }
+  >();
+
+  for (const row of rowsResult.rows) {
+    if (!map.has(row.partId)) {
+      map.set(row.partId, {
+        partId: row.partId,
+        name: row.name,
+        code: row.code,
+        image: row.image ?? null,
+        inA: null,
+        inB: null,
+      });
+    }
+    const entry = map.get(row.partId)!;
+    const side: PartSide = { quantity: row.quantity, unit: row.unit ?? null, notes: row.notes ?? null };
+    if (row.revisionId === a) entry.inA = side;
+    if (row.revisionId === b) entry.inB = side;
+  }
+
+  const parts = Array.from(map.values()).map((e) => {
+    let status: 'added' | 'removed' | 'changed' | 'unchanged';
+    if (e.inA && !e.inB) status = 'removed';
+    else if (!e.inA && e.inB) status = 'added';
+    else if (
+      e.inA &&
+      e.inB &&
+      (String(e.inA.quantity) !== String(e.inB.quantity) ||
+        (e.inA.unit ?? '') !== (e.inB.unit ?? ''))
+    )
+      status = 'changed';
+    else status = 'unchanged';
+    return { ...e, status };
+  });
+
+  res.json({ a, b, parts });
 });
 
 // GET /api/sub-products — list all (for picker modal)
@@ -269,7 +337,7 @@ router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
        p.category_id AS "categoryId",
        p.price_per_piece AS "pricePerPiece",
        p.image,
-       sprp.quantity,
+       sprp.quantity::integer AS quantity,
        sprp.unit,
        sprp.notes
      FROM sub_product_revision_parts sprp
