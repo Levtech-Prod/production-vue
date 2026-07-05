@@ -160,6 +160,13 @@ const messages = {
       changed: 'Changed',
       unchanged: 'Unchanged',
     },
+    parts_comparison: 'Parts comparison',
+    compare_parts: 'Compare parts',
+    view_revision_parts: 'View parts',
+    back_to_comparison: 'Back to comparison',
+    no_parts_diff: 'These revisions have identical parts.',
+    sp_rev_compare_hint: 'Two revisions selected — comparing parts.',
+    sp_rev_select_hint: 'Click a revision row to view its parts. Click another to compare.',
 
     // Product archive
     archive: 'Archive',
@@ -422,6 +429,13 @@ const messages = {
       changed: 'Módosítva',
       unchanged: 'Változatlan',
     },
+    parts_comparison: 'Alkatrész-összehasonlítás',
+    compare_parts: 'Alkatrészek összehasonlítása',
+    view_revision_parts: 'Alkatrészek megtekintése',
+    back_to_comparison: 'Vissza az összehasonlításhoz',
+    no_parts_diff: 'A két revízióban azonos alkatrészek szerepelnek.',
+    sp_rev_compare_hint: 'Két revízió kiválasztva — alkatrészek összehasonlítása.',
+    sp_rev_select_hint: 'Kattints egy revízióra az alkatrészek megtekintéséhez. Kattints egy másikra az összehasonlításhoz.',
 
     // Product archive
     archive: 'Archiválás',

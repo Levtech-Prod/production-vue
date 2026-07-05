@@ -124,6 +124,30 @@ export interface CompareResult {
   subProducts: CompareSubProduct[];
 }
 
+// ---- Parts compare --------------------------------------------------------
+
+export interface ComparePartSide {
+  quantity: number;
+  unit?: string | null;
+  notes?: string | null;
+}
+
+export interface ComparePartRow {
+  partId: number;
+  name: string;
+  code: string;
+  image?: string | null;
+  inA: ComparePartSide | null;
+  inB: ComparePartSide | null;
+  status: CompareStatus;
+}
+
+export interface ComparePartsResult {
+  a: number; // subProductRevisionId A
+  b: number; // subProductRevisionId B
+  parts: ComparePartRow[];
+}
+
 // ---- Payloads -------------------------------------------------------------
 
 export interface ProductPayload {

@@ -60,9 +60,11 @@
               v-model.number="row.quantity"
               type="number"
               min="0"
-              step="0.001"
+              step="1"
               class="input !py-1"
               required
+              @keydown="(e) => ['.', ',', 'e', 'E', '+', '-'].includes(e.key) && e.preventDefault()"
+              @input="row.quantity = Math.trunc(row.quantity)"
             />
           </td>
           <td class="px-4 py-2">
