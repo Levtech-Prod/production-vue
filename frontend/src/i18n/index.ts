@@ -199,6 +199,10 @@ const messages = {
     // Product revisions section
     product_revisions_title: 'Product revisions',
 
+    // Sub-product panel collapse
+    collapse: 'Collapse',
+    expand: 'Expand',
+
     // Compare panel empty state
     compare_select_hint: 'Select two revision pills above to compare product revisions, or click two sub-product revision rows to compare their parts.',
 
@@ -502,6 +506,10 @@ const messages = {
 
     // Termékrevíziók szekció
     product_revisions_title: 'Termékrevíziók',
+
+    // Altermék panel összecsukása
+    collapse: 'Összecsukás',
+    expand: 'Kinyitás',
 
     // Összehasonlítás panel üres állapot
     compare_select_hint: 'Válassz két revíziót a termékrevíziók összehasonlításához, vagy kattints két altermék-revízió sorra az alkatrészek összehasonlításához.',
