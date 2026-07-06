@@ -148,6 +148,18 @@ export interface ComparePartsResult {
   parts: ComparePartRow[];
 }
 
+// ---- Documents ------------------------------------------------------------
+
+export interface ProductDocument {
+  id: number;
+  originalName: string;
+  filename: string;
+  mimeType: string | null;
+  path: string;
+  createdAt: string;
+}
+
+
 // ---- Payloads -------------------------------------------------------------
 
 export interface ProductPayload {
