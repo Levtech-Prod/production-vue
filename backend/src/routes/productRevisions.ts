@@ -93,6 +93,74 @@ router.get('/compare', requireAuth, async (req, res) => {
   res.json({ a, b, subProducts });
 });
 
+// GET /api/product-revisions/:revId/bom — aggregated parts for all sub-products in a revision
+router.get('/:revId/bom', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const result = await query(
+    `SELECT
+       sp.id          AS "subProductId",
+       sp.name        AS "subProductName",
+       sp.sku         AS "subProductSku",
+       spr.id         AS "subProductRevisionId",
+       spr.label      AS "subProductRevisionLabel",
+       p.id           AS "partId",
+       p.name         AS "partName",
+       p.code         AS "partCode",
+       p.image        AS "partImage",
+       sprp.quantity::integer AS quantity,
+       sprp.unit,
+       sprp.notes
+     FROM product_revision_sub_products prsp
+     JOIN sub_product_revisions spr ON spr.id = prsp.sub_product_revision_id
+     JOIN sub_products sp ON sp.id = spr.sub_product_id
+     LEFT JOIN sub_product_revision_parts sprp ON sprp.sub_product_revision_id = spr.id
+     LEFT JOIN parts p ON p.id = sprp.part_id
+     WHERE prsp.product_revision_id = $1
+     ORDER BY sp.name, p.name`,
+    [revId],
+  );
+
+  // Group flat rows into sub-products with nested parts
+  const map = new Map<number, {
+    subProductId: number;
+    subProductName: string;
+    subProductSku: string;
+    subProductRevisionId: number;
+    subProductRevisionLabel: string;
+    parts: any[];
+  }>();
+
+  for (const row of result.rows) {
+    if (!map.has(row.subProductId)) {
+      map.set(row.subProductId, {
+        subProductId: row.subProductId,
+        subProductName: row.subProductName,
+        subProductSku: row.subProductSku,
+        subProductRevisionId: row.subProductRevisionId,
+        subProductRevisionLabel: row.subProductRevisionLabel,
+        parts: [],
+      });
+    }
+    if (row.partId != null) {
+      map.get(row.subProductId)!.parts.push({
+        id: row.partId,
+        name: row.partName,
+        code: row.partCode,
+        image: row.partImage ?? null,
+        quantity: row.quantity,
+        unit: row.unit ?? null,
+        notes: row.notes ?? null,
+      });
+    }
+  }
+
+  res.json(Array.from(map.values()));
+});
+
 // PATCH /api/product-revisions/:revId — update status, change_notes, label
 router.patch('/:revId', requireAuth, async (req, res) => {
   const revId = Number(req.params.revId);

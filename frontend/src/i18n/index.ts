@@ -168,6 +168,40 @@ const messages = {
     sp_rev_compare_hint: 'Two revisions selected — comparing parts.',
     sp_rev_select_hint: 'Click a revision row to view its parts. Click another to compare.',
 
+    // Right panel tabs
+    tab_documents: 'Documents',
+    tab_bom: 'BOM',
+    tab_compare: 'Compare',
+
+    // Documents panel
+    product_documents: 'Product Documents',
+    sp_rev_documents: '{name} — {label} Documents',
+    no_product_documents: 'No documents uploaded for this product.',
+    no_sp_rev_documents: 'No documents uploaded for this revision.',
+    upload_document: 'Upload document',
+    document_name: 'File name',
+    document_name_hint: 'Optionally give the file a name. Leave blank to keep the original file name.',
+    uploading: 'Uploading…',
+    delete_document: 'Delete document',
+    document_uploaded: 'Document uploaded',
+    document_deleted: 'Document deleted',
+    errors_upload_document_failed: 'Failed to upload document',
+    errors_delete_document_failed: 'Failed to delete document',
+
+    // BOM panel
+    bom_title: 'Bill of Materials',
+    bom_select_revision: 'Select a revision to view the BOM.',
+    no_bom_parts: 'No parts in this revision.',
+    bom_sub_product_header: '{name}',
+    bom_main_product: 'Main product',
+    bom_sub_rev_scope: '{name} · {label}',
+
+    // Product revisions section
+    product_revisions_title: 'Product revisions',
+
+    // Compare panel empty state
+    compare_select_hint: 'Select two revision pills above to compare product revisions, or click two sub-product revision rows to compare their parts.',
+
     // Product archive
     archive: 'Archive',
     activate: 'Re-activate',
@@ -277,6 +311,7 @@ const messages = {
       action_msg: 'Are you sure you want to perform this action?',
       delete_category_msg: 'Are you sure you want to delete this category',
       delete_part_msg: 'Are you sure you want to delete this part',
+      delete_document_msg: 'Are you sure you want to delete this document',
       archive_product_msg: 'Are you sure you want to archive this product? It will become read-only until re-activated.',
     },
   },
@@ -437,7 +472,41 @@ const messages = {
     sp_rev_compare_hint: 'Két revízió kiválasztva — alkatrészek összehasonlítása.',
     sp_rev_select_hint: 'Kattints egy revízióra az alkatrészek megtekintéséhez. Kattints egy másikra az összehasonlításhoz.',
 
-    // Product archive
+    // Jobb oldali panel fülek
+    tab_documents: 'Dokumentumok',
+    tab_bom: 'Anyagjegyzék',
+    tab_compare: 'Összehasonlítás',
+
+    // Dokumentumok panel
+    product_documents: 'Termék dokumentumok',
+    sp_rev_documents: '{name} — {label} dokumentumok',
+    no_product_documents: 'Ehhez a termékhez nincs feltöltött dokumentum.',
+    no_sp_rev_documents: 'Ehhez a revízióhoz nincs feltöltött dokumentum.',
+    upload_document: 'Dokumentum feltöltése',
+    document_name: 'Fájlnév',
+    document_name_hint: 'Megadhatsz egy nevet a fájlnak. Hagyd üresen az eredeti fájlnév megtartásához.',
+    uploading: 'Feltöltés…',
+    delete_document: 'Dokumentum törlése',
+    document_uploaded: 'Dokumentum feltöltve',
+    document_deleted: 'Dokumentum törölve',
+    errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
+    errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
+
+    // Anyagjegyzék panel
+    bom_title: 'Anyagjegyzék',
+    bom_select_revision: 'Válassz revíziót az anyagjegyzék megtekintéséhez.',
+    no_bom_parts: 'Ebben a revízióban nincs alkatrész.',
+    bom_sub_product_header: '{name}',
+    bom_main_product: 'Fő termék',
+    bom_sub_rev_scope: '{name} · {label}',
+
+    // Termékrevíziók szekció
+    product_revisions_title: 'Termékrevíziók',
+
+    // Összehasonlítás panel üres állapot
+    compare_select_hint: 'Válassz két revíziót a termékrevíziók összehasonlításához, vagy kattints két altermék-revízió sorra az alkatrészek összehasonlításához.',
+
+    // Termék archiválás
     archive: 'Archiválás',
     activate: 'Visszaállítás',
     status_active: 'Aktív',
@@ -542,6 +611,7 @@ const messages = {
       action_msg: 'Biztosan végrehajtod ezt a műveletet?',
       delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
+      delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
       archive_product_msg: 'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
     },
   },
