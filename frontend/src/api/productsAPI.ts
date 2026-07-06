@@ -14,6 +14,7 @@ import type {
   ComparePartsResult,
   RevisionStatus,
   ProductStatus,
+  ProductDocument,
 } from '../types/products.ts';
 
 export const productsApi = {
@@ -90,5 +91,36 @@ export const subProductsApi = {
     return api.get<ComparePartsResult>('/sub-products/revisions/compare', {
       params: { a, b },
     });
+  },
+};
+
+export const documentsApi = {
+  getProductDocuments(productId: number) {
+    return api.get<ProductDocument[]>(`/products/${productId}/documents`);
+  },
+  uploadProductDocument(productId: number, file: File, name?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (name && name.trim()) formData.append('name', name.trim());
+    return api.post<ProductDocument>(`/products/${productId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteProductDocument(productId: number, docId: number) {
+    return api.delete(`/products/${productId}/documents/${docId}`);
+  },
+  getSpRevisionDocuments(spId: number, revId: number) {
+    return api.get<ProductDocument[]>(`/sub-products/${spId}/revisions/${revId}/documents`);
+  },
+  uploadSpRevisionDocument(spId: number, revId: number, file: File, name?: string) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (name && name.trim()) formData.append('name', name.trim());
+    return api.post<ProductDocument>(`/sub-products/${spId}/revisions/${revId}/documents`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteSpRevisionDocument(spId: number, revId: number, docId: number) {
+    return api.delete(`/sub-products/${spId}/revisions/${revId}/documents/${docId}`);
   },
 };

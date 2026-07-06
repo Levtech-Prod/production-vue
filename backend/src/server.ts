@@ -11,6 +11,7 @@ import productRevisionRoutes from './routes/productRevisions.js';
 import subProductRoutes from './routes/subProducts.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadFiles';
+import documentRoutes from './routes/documents.js';
 import { ErrorCodes } from './errorCodes.js';
 
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/sub-products', subProductRoutes);
 
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/api', uploadRoutes);
+app.use('/api', documentRoutes);
 
 app.use(
   (

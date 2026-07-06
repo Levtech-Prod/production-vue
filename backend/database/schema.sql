@@ -206,3 +206,33 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+
+-- ===========================================================================
+-- Documents module
+-- Files attached to products (product-level) or sub-product revisions.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS product_documents (
+  id            SERIAL PRIMARY KEY,
+  product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  original_name VARCHAR(255) NOT NULL,
+  filename      VARCHAR(255) NOT NULL,
+  mime_type     VARCHAR(100),
+  path          TEXT NOT NULL,
+  uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  original_name           VARCHAR(255) NOT NULL,
+  filename                VARCHAR(255) NOT NULL,
+  mime_type               VARCHAR(100),
+  path                    TEXT NOT NULL,
+  uploaded_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_documents_product_id ON product_documents(product_id);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_documents_sp_rev_id ON sub_product_revision_documents(sub_product_revision_id);

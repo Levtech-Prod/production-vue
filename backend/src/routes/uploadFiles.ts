@@ -12,6 +12,7 @@ type UploadTarget =
   | 'products'
   | 'sub-products'
   | 'suppliers'
+  | 'documents'
   | 'temp';
 
 const allowedTargets: UploadTarget[] = [
@@ -20,7 +21,20 @@ const allowedTargets: UploadTarget[] = [
   'products',
   'sub-products',
   'suppliers',
+  'documents',
   'temp',
+];
+
+const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+const documentTypes = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'text/csv',
+  ...imageTypes,
 ];
 
 const baseUploadDir = path.join(process.cwd(), 'uploads');
@@ -62,13 +76,20 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 25 * 1024 * 1024,
   },
-  fileFilter: (_req, file, callback) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  fileFilter: (req, file, callback) => {
+    const target = req.params.target as UploadTarget;
+    const allowed = target === 'documents' ? documentTypes : imageTypes;
 
-    if (!allowedTypes.includes(file.mimetype)) {
-      return callback(new Error('Only JPG, PNG and WEBP files are allowed'));
+    if (!allowed.includes(file.mimetype)) {
+      return callback(
+        new Error(
+          target === 'documents'
+            ? 'Only PDF, Word, Excel, plain text and image files are allowed'
+            : 'Only JPG, PNG and WEBP files are allowed',
+        ),
+      );
     }
 
     callback(null, true);
