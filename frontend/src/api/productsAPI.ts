@@ -15,6 +15,7 @@ import type {
   RevisionStatus,
   ProductStatus,
   ProductDocument,
+  BomSubProduct,
 } from '../types/products.ts';
 
 export const productsApi = {
@@ -66,6 +67,9 @@ export const productRevisionsApi = {
     return api.get<CompareResult>('/product-revisions/compare', {
       params: { a, b },
     });
+  },
+  getBom(revId: number) {
+    return api.get<BomSubProduct[]>(`/product-revisions/${revId}/bom`);
   },
 };
 
