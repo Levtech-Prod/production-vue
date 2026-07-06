@@ -159,6 +159,26 @@ export interface ProductDocument {
   createdAt: string;
 }
 
+// ---- BOM ------------------------------------------------------------------
+
+export interface BomPart {
+  id: number;
+  name: string;
+  code: string;
+  image?: string | null;
+  quantity: number;
+  unit?: string | null;
+  notes?: string | null;
+}
+
+export interface BomSubProduct {
+  subProductId: number;
+  subProductName: string;
+  subProductSku: string;
+  subProductRevisionId: number;
+  subProductRevisionLabel: string;
+  parts: BomPart[];
+}
 
 // ---- Payloads -------------------------------------------------------------
 
