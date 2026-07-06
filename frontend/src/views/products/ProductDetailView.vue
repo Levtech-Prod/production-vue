@@ -20,7 +20,7 @@
 
       <!-- Info bar -->
       <div class="card p-5">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
           <img
             v-if="detail.image"
             :src="detail.image"
@@ -40,6 +40,49 @@
             <p v-if="detail.description" class="mt-2 text-sm text-slate-500">
               {{ detail.description }}
             </p>
+          </div>
+
+          <!-- ── Product revisions (same row as image + name) ────────────── -->
+          <div class="w-full shrink-0 border-t border-slate-100 pt-4 lg:w-72 lg:border-t-0 lg:border-l lg:pl-4 lg:pt-0">
+            <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 lg:text-right">
+              {{ t('product_revisions_title') }}
+            </h2>
+            <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+              <button
+                v-for="(rev, i) in detail.revisions"
+                :key="rev.id"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors"
+                :class="pillClass(rev.id)"
+                @click="toggleRevision(rev.id)"
+              >
+                <span class="h-1.5 w-1.5 rounded-full" :class="pillDot(rev.id, i)" />
+                {{ rev.label }}
+                <Star
+                  v-if="rev.id === detail.defaultRevisionId"
+                  class="h-3 w-3 fill-current"
+                  :title="t('default_revision')"
+                />
+              </button>
+
+              <button
+                v-if="!isArchived"
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1 text-sm text-slate-500 hover:border-blue-400 hover:text-blue-600"
+                @click="revisionModalOpen = true"
+              >
+                <Plus class="h-3.5 w-3.5" /> {{ t('new_revision') }}
+              </button>
+
+              <button
+                v-if="canSetDefault && !isArchived"
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full border border-amber-300 px-3 py-1 text-sm text-amber-600 hover:bg-amber-50"
+                @click="onSetDefaultRevision"
+              >
+                <Star class="h-3.5 w-3.5" /> {{ t('set_as_default') }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -80,49 +123,6 @@
         </dl>
       </div>
 
-      <!-- ── Product revisions section (standalone) ─────────────────────── -->
-      <section class="card mt-6 p-4">
-        <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          {{ t('product_revisions_title') }}
-        </h2>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            v-for="(rev, i) in detail.revisions"
-            :key="rev.id"
-            type="button"
-            class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors"
-            :class="pillClass(rev.id)"
-            @click="toggleRevision(rev.id)"
-          >
-            <span class="h-1.5 w-1.5 rounded-full" :class="pillDot(rev.id, i)" />
-            {{ rev.label }}
-            <Star
-              v-if="rev.id === detail.defaultRevisionId"
-              class="h-3 w-3 fill-current"
-              :title="t('default_revision')"
-            />
-          </button>
-
-          <button
-            v-if="!isArchived"
-            type="button"
-            class="ml-1 inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1 text-sm text-slate-500 hover:border-blue-400 hover:text-blue-600"
-            @click="revisionModalOpen = true"
-          >
-            <Plus class="h-3.5 w-3.5" /> {{ t('new_revision') }}
-          </button>
-
-          <button
-            v-if="canSetDefault && !isArchived"
-            type="button"
-            class="inline-flex items-center gap-1 rounded-full border border-amber-300 px-3 py-1 text-sm text-amber-600 hover:bg-amber-50"
-            @click="onSetDefaultRevision"
-          >
-            <Star class="h-3.5 w-3.5" /> {{ t('set_as_default') }}
-          </button>
-        </div>
-      </section>
-
       <!-- ── Add actions row ───────────────────────────────────────────── -->
       <div v-if="!isArchived" class="mt-4 flex flex-wrap items-center justify-end gap-2">
         <button
@@ -143,16 +143,33 @@
         </button>
       </div>
 
-      <!-- Main grid: sub-product table + side panel -->
-      <div class="mt-4 grid gap-4 lg:grid-cols-[32rem_1fr]">
+      <!-- Main grid: sub-product table + side panel. Both columns share a fixed
+           height and scroll independently, so collapsing/expanding either side
+           never resizes the other. -->
+      <div
+        class="mt-4 grid h-[75vh] items-stretch gap-4 transition-[grid-template-columns] duration-200"
+        :class="subProductsCollapsed ? 'lg:grid-cols-[3.25rem_1fr]' : 'lg:grid-cols-[20rem_1fr]'"
+      >
 
         <!-- Sub-product table -->
-        <div class="card overflow-hidden">
+        <div class="card flex h-full flex-col overflow-hidden">
           <!-- Card header -->
-          <div class="border-b border-slate-100 px-4 py-3">
-            <h2 class="font-semibold text-slate-700">{{ t('sub_products') }}</h2>
+          <div class="flex shrink-0 items-center gap-2 border-b border-slate-100 px-4 py-3">
+            <button
+              type="button"
+              class="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              :title="subProductsCollapsed ? t('expand') : t('collapse')"
+              @click="subProductsCollapsed = !subProductsCollapsed"
+            >
+              <PanelLeftOpen v-if="subProductsCollapsed" class="h-4 w-4" />
+              <PanelLeftClose v-else class="h-4 w-4" />
+            </button>
+            <h2 v-show="!subProductsCollapsed" class="truncate font-semibold text-slate-700">
+              {{ t('sub_products') }}
+            </h2>
           </div>
 
+          <div v-show="!subProductsCollapsed" class="flex-1 overflow-y-auto">
           <div
             v-if="detail.subProducts.length === 0"
             class="py-10 text-center text-sm text-slate-400"
@@ -228,13 +245,14 @@
               </div>
             </li>
           </ul>
+          </div>
         </div>
 
-        <!-- ── Right side panel (always visible) ────────────────────────── -->
-        <aside class="card flex max-h-[70vh] flex-col overflow-hidden">
+        <!-- ── Right side panel (always visible, gets the extra space) ──── -->
+        <aside class="card flex h-full min-h-0 flex-col overflow-hidden">
 
           <!-- View toggle: Documents / BOM / Compare (controls this panel) -->
-          <div class="border-b border-slate-100 p-2">
+          <div class="shrink-0 border-b border-slate-100 p-2">
             <div class="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5">
               <button
                 v-for="tab in tabs"
@@ -909,6 +927,8 @@ import {
   Image,
   GitCompare,
   List,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import RevisionModal from './RevisionModal.vue';
@@ -961,6 +981,10 @@ function formatDate(iso?: string): string {
 
 type RightPanelTab = 'documents' | 'bom' | 'compare';
 const activeTab = ref<RightPanelTab>('documents');
+
+// ── Sub-product panel collapse (left column) ─────────────────────────────────
+
+const subProductsCollapsed = ref(false);
 
 const tabs = [
   { key: 'documents' as RightPanelTab, labelKey: 'tab_documents', icon: FileText },
