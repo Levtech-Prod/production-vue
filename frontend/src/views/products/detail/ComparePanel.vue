@@ -71,17 +71,14 @@
         </div>
         <table v-else class="w-full table-fixed text-sm">
           <colgroup v-if="isSingle">
-            <col style="width: 30%" />
-            <col style="width: 70%" />
+            <col style="width: 100%" />
           </colgroup>
           <colgroup v-else>
-            <col style="width: 27%" />
-            <col style="width: 36.5%" />
-            <col style="width: 36.5%" />
+            <col style="width: 50%" />
+            <col style="width: 50%" />
           </colgroup>
           <thead>
             <tr class="border-b border-slate-200">
-              <th class="px-4 py-2"></th>
               <th class="bg-blue-50/60 px-3 py-2 text-left">
                 <span class="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
                   <span class="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">A</span>
@@ -96,42 +93,92 @@
               </th>
             </tr>
           </thead>
-          <tbody v-for="row in productRows" :key="row.spId">
-            <!-- Sub-product name row -->
-            <tr>
-              <td :colspan="isSingle ? 2 : 3" class="border-t-4 border-slate-100 bg-slate-50 px-4 py-2">
-                <div class="flex items-center gap-2.5">
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
-                    <div class="truncate font-mono text-xs text-slate-400">{{ row.sku }}</div>
+          <tbody>
+            <tr v-for="row in productRows" :key="row.spId" class="border-t border-slate-100">
+              <!-- Column A -->
+              <td class="align-top p-3">
+                <div v-if="row.revA" class="rounded-lg border p-2.5" :class="cardAccentClass(row.same)">
+                  <div class="flex items-center gap-2">
+                    <img
+                      v-if="row.image"
+                      :src="row.image"
+                      class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                      :alt="row.name"
+                    />
+                    <div
+                      v-else
+                      class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-300"
+                    >
+                      ▣
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
+                      <div class="truncate font-mono text-xs text-slate-400">{{ row.sku }}</div>
+                    </div>
+                    <span
+                      v-if="row.status"
+                      class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                      :class="compareStatusChipClass(row.status)"
+                    >
+                      {{ t('compare_status.' + row.status) }}
+                    </span>
                   </div>
-                  <span
-                    v-if="row.status"
-                    class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                    :class="compareStatusChipClass(row.status)"
-                  >
-                    {{ t('compare_status.' + row.status) }}
-                  </span>
-                  <button
-                    v-if="row.status === 'changed' && row.revA && row.revB"
-                    type="button"
-                    class="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-0.5 text-xs text-slate-500 hover:bg-white hover:text-blue-600"
-                    @click="drillIntoParts(row)"
-                  >
-                    {{ t('compare_parts') }}
-                    <ChevronRight class="h-3 w-3" />
-                  </button>
+                  <div class="mt-1.5 flex items-center justify-between gap-2">
+                    <div class="min-w-0 truncate text-xs text-slate-500">
+                      {{ t('linked_revision') }}:
+                      <span class="font-medium text-slate-700">{{ row.revA.label }}</span>
+                    </div>
+                    <button
+                      v-if="row.status === 'changed' && row.revB"
+                      type="button"
+                      class="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs text-slate-400 hover:bg-white hover:text-blue-600"
+                      @click="drillIntoParts(row)"
+                    >
+                      {{ t('compare_parts') }}
+                      <ChevronRight class="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                <div
+                  v-else
+                  class="grid min-h-[3.25rem] place-items-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-300"
+                >
+                  {{ t('not_in_this_revision') }}
                 </div>
               </td>
-            </tr>
-            <!-- Linked revision row -->
-            <tr class="border-t border-slate-50">
-              <td class="px-4 py-1.5 align-top text-xs text-slate-400">{{ t('linked_revision') }}</td>
-              <td class="px-3 py-1.5" :class="matchCellClass(row.same, row.revA != null)">
-                {{ row.revA?.label ?? '—' }}
-              </td>
-              <td v-if="!isSingle" class="px-3 py-1.5" :class="matchCellClass(row.same, row.revB != null)">
-                {{ row.revB?.label ?? '—' }}
+
+              <!-- Column B -->
+              <td v-if="!isSingle" class="align-top p-3">
+                <div v-if="row.revB" class="rounded-lg border p-2.5" :class="cardAccentClass(row.same)">
+                  <div class="flex items-center gap-2">
+                    <img
+                      v-if="row.image"
+                      :src="row.image"
+                      class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                      :alt="row.name"
+                    />
+                    <div
+                      v-else
+                      class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-300"
+                    >
+                      ▣
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
+                      <div class="truncate font-mono text-xs text-slate-400">{{ row.sku }}</div>
+                    </div>
+                  </div>
+                  <div class="mt-1.5 truncate text-xs text-slate-500">
+                    {{ t('linked_revision') }}:
+                    <span class="font-medium text-slate-700">{{ row.revB.label }}</span>
+                  </div>
+                </div>
+                <div
+                  v-else
+                  class="grid min-h-[3.25rem] place-items-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-300"
+                >
+                  {{ t('not_in_this_revision') }}
+                </div>
               </td>
             </tr>
           </tbody>
@@ -180,17 +227,14 @@
           </div>
           <table v-else class="w-full table-fixed text-sm">
             <colgroup v-if="isSingle">
-              <col style="width: 30%" />
-              <col style="width: 70%" />
+              <col style="width: 100%" />
             </colgroup>
             <colgroup v-else>
-              <col style="width: 27%" />
-              <col style="width: 36.5%" />
-              <col style="width: 36.5%" />
+              <col style="width: 50%" />
+              <col style="width: 50%" />
             </colgroup>
             <thead>
               <tr class="border-b border-slate-200">
-                <th class="px-4 py-2"></th>
                 <th class="bg-blue-50/60 px-3 py-2 text-left">
                   <span class="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
                     <span class="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">A</span>
@@ -205,97 +249,130 @@
                 </th>
               </tr>
             </thead>
-            <tbody v-for="row in filteredParts" :key="row.partId">
-              <!-- Part name row -->
-              <tr>
-                <td :colspan="isSingle ? 2 : 3" class="border-t-4 border-slate-100 bg-slate-50 px-4 py-2">
-                  <div class="flex items-center gap-2.5">
-                    <img
-                      v-if="row.image"
-                      :src="row.image"
-                      class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
-                      :alt="row.name"
-                    />
-                    <div
-                      v-else
-                      class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-300"
-                    >
-                      ▣
+            <tbody>
+              <tr v-for="row in filteredParts" :key="row.partId" class="border-t border-slate-100">
+                <!-- Column A -->
+                <td class="align-top p-3">
+                  <div v-if="row.inA" class="rounded-lg border p-2.5" :class="cardAccentClass(partSame(row))">
+                    <div class="flex items-center gap-2">
+                      <img
+                        v-if="row.image"
+                        :src="row.image"
+                        class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                        :alt="row.name"
+                      />
+                      <div
+                        v-else
+                        class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-300"
+                      >
+                        ▣
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
+                        <div class="truncate font-mono text-xs text-slate-400">{{ row.code }}</div>
+                      </div>
+                      <span
+                        v-if="!isSingle"
+                        class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                        :class="compareStatusChipClass(row.status)"
+                      >
+                        {{ t('compare_status.' + row.status) }}
+                      </span>
                     </div>
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
-                      <div class="truncate font-mono text-xs text-slate-400">{{ row.code }}</div>
+                    <div v-if="hasDetails(row)" class="mt-1.5 text-[11px] leading-5 text-slate-600">
+                      <span v-if="row.categoryName" class="mr-3 inline-block">
+                        <span class="text-slate-400">{{ t('category') }}:</span>
+                        {{ row.categoryName }}
+                      </span>
+                      <span
+                        v-if="row.pricePerPiece != null && row.pricePerPiece !== ''"
+                        class="mr-3 inline-block tabular-nums"
+                      >
+                        <span class="text-slate-400">{{ t('price_per_piece') }}:</span>
+                        {{ row.pricePerPiece }}
+                      </span>
+                      <span
+                        v-for="(param, i) in row.parameters ?? []"
+                        :key="i"
+                        class="mr-3 inline-block"
+                      >
+                        <span class="text-slate-400">{{ param.name }}:</span>
+                        {{ param.value }}{{ param.unit ? ` ${param.unit}` : '' }}
+                      </span>
                     </div>
-                    <span
-                      v-if="!isSingle"
-                      class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                      :class="compareStatusChipClass(row.status)"
-                    >
-                      {{ t('compare_status.' + row.status) }}
-                    </span>
+                    <div class="mt-1.5 text-xs text-slate-500">
+                      {{ t('quantity') }}:
+                      <span class="font-medium tabular-nums text-slate-700">{{ sideQty(row.inA) }}</span>
+                    </div>
+                    <div v-if="row.inA.notes" class="mt-1 text-xs text-slate-500">
+                      {{ t('notes') }}: {{ row.inA.notes }}
+                    </div>
+                  </div>
+                  <div
+                    v-else
+                    class="grid min-h-[3.25rem] place-items-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-300"
+                  >
+                    {{ t('not_in_this_revision') }}
                   </div>
                 </td>
-              </tr>
 
-              <!-- Compact details row (part-level, identical on both sides) -->
-              <tr v-if="hasDetails(row)" class="border-t border-slate-50">
-                <td
-                  :colspan="isSingle ? 2 : 3"
-                  class="px-4 py-1.5 text-[11px] leading-5 text-slate-600"
-                >
-                  <span v-if="row.categoryName" class="mr-3 inline-block">
-                    <span class="text-slate-400">{{ t('category') }}:</span>
-                    {{ row.categoryName }}
-                  </span>
-                  <span
-                    v-if="row.pricePerPiece != null && row.pricePerPiece !== ''"
-                    class="mr-3 inline-block tabular-nums"
+                <!-- Column B -->
+                <td v-if="!isSingle" class="align-top p-3">
+                  <div v-if="row.inB" class="rounded-lg border p-2.5" :class="cardAccentClass(partSame(row))">
+                    <div class="flex items-center gap-2">
+                      <img
+                        v-if="row.image"
+                        :src="row.image"
+                        class="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                        :alt="row.name"
+                      />
+                      <div
+                        v-else
+                        class="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] text-slate-300"
+                      >
+                        ▣
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
+                        <div class="truncate font-mono text-xs text-slate-400">{{ row.code }}</div>
+                      </div>
+                    </div>
+                    <div v-if="hasDetails(row)" class="mt-1.5 text-[11px] leading-5 text-slate-600">
+                      <span v-if="row.categoryName" class="mr-3 inline-block">
+                        <span class="text-slate-400">{{ t('category') }}:</span>
+                        {{ row.categoryName }}
+                      </span>
+                      <span
+                        v-if="row.pricePerPiece != null && row.pricePerPiece !== ''"
+                        class="mr-3 inline-block tabular-nums"
+                      >
+                        <span class="text-slate-400">{{ t('price_per_piece') }}:</span>
+                        {{ row.pricePerPiece }}
+                      </span>
+                      <span
+                        v-for="(param, i) in row.parameters ?? []"
+                        :key="i"
+                        class="mr-3 inline-block"
+                      >
+                        <span class="text-slate-400">{{ param.name }}:</span>
+                        {{ param.value }}{{ param.unit ? ` ${param.unit}` : '' }}
+                      </span>
+                    </div>
+                    <div class="mt-1.5 text-xs text-slate-500">
+                      {{ t('quantity') }}:
+                      <span class="font-medium tabular-nums text-slate-700">{{ sideQty(row.inB) }}</span>
+                      <span v-if="qtyDelta(row)" class="ml-1 text-xs text-slate-400">({{ qtyDelta(row) }})</span>
+                    </div>
+                    <div v-if="row.inB.notes" class="mt-1 text-xs text-slate-500">
+                      {{ t('notes') }}: {{ row.inB.notes }}
+                    </div>
+                  </div>
+                  <div
+                    v-else
+                    class="grid min-h-[3.25rem] place-items-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-300"
                   >
-                    <span class="text-slate-400">{{ t('price_per_piece') }}:</span>
-                    {{ row.pricePerPiece }}
-                  </span>
-                  <span
-                    v-for="(param, i) in row.parameters ?? []"
-                    :key="i"
-                    class="mr-3 inline-block"
-                  >
-                    <span class="text-slate-400">{{ param.name }}:</span>
-                    {{ param.value }}{{ param.unit ? ` ${param.unit}` : '' }}
-                  </span>
-                </td>
-              </tr>
-
-              <!-- Quantity row -->
-              <tr class="border-t border-slate-50">
-                <td class="px-4 py-1.5 align-top text-xs text-slate-400">{{ t('quantity') }}</td>
-                <td
-                  class="px-3 py-1.5 tabular-nums"
-                  :class="matchCellClass(qtySame(row), row.inA != null)"
-                >
-                  {{ sideQty(row.inA) }}
-                </td>
-                <td
-                  v-if="!isSingle"
-                  class="px-3 py-1.5 tabular-nums"
-                  :class="matchCellClass(qtySame(row), row.inB != null)"
-                >
-                  {{ sideQty(row.inB) }}
-                  <span v-if="qtyDelta(row)" class="ml-1 text-xs">({{ qtyDelta(row) }})</span>
-                </td>
-              </tr>
-
-              <!-- Notes row -->
-              <tr v-if="row.inA?.notes || row.inB?.notes" class="border-t border-slate-50">
-                <td class="px-4 py-1.5 align-top text-xs text-slate-400">{{ t('notes') }}</td>
-                <td class="px-3 py-1.5 text-xs" :class="matchCellClass(notesSame(row), !!row.inA?.notes)">
-                  {{ row.inA?.notes || '—' }}
-                </td>
-                <td
-                  v-if="!isSingle"
-                  class="px-3 py-1.5 text-xs"
-                  :class="matchCellClass(notesSame(row), !!row.inB?.notes)"
-                >
-                  {{ row.inB?.notes || '—' }}
+                    {{ t('not_in_this_revision') }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -408,6 +485,7 @@ interface ProductRow {
   spId: number;
   name: string;
   sku: string;
+  image: string | null;
   revA: SubProductRevision | null;
   revB: SubProductRevision | null;
   status: CompareStatus | null; // null in single mode
@@ -424,7 +502,18 @@ const productRows = computed<ProductRow[] | null>(() => {
     const revB = setB ? (sp.revisions.find((r) => setB.has(r.id)) ?? null) : null;
     if (!setB) {
       // Single mode: only what's in A.
-      if (revA) rows.push({ spId: sp.id, name: sp.name, sku: sp.sku, revA, revB: null, status: null, same: null });
+      if (revA) {
+        rows.push({
+          spId: sp.id,
+          name: sp.name,
+          sku: sp.sku,
+          image: sp.image ?? null,
+          revA,
+          revB: null,
+          status: null,
+          same: null,
+        });
+      }
       continue;
     }
     if (!revA && !revB) continue;
@@ -434,13 +523,15 @@ const productRows = computed<ProductRow[] | null>(() => {
       spId: sp.id,
       name: sp.name,
       sku: sp.sku,
+      image: sp.image ?? null,
       revA,
       revB,
       status,
       same: status === 'unchanged',
     });
   }
-  return rows;
+  // Identical first, then changed-in-both, then only-in-one-side last.
+  return rows.sort((a, b) => statusRank(a.status) - statusRank(b.status));
 });
 
 function drillIntoParts(row: ProductRow) {
@@ -546,11 +637,29 @@ const statusFilters: Array<{
 
 const filteredParts = computed<ComparePartRow[]>(() => {
   const rows = partsResult.value?.parts ?? [];
-  if (isSingle.value || statusFilter.value === 'all') return rows;
-  return rows.filter((r) => r.status === statusFilter.value);
+  const filtered =
+    isSingle.value || statusFilter.value === 'all' ? rows : rows.filter((r) => r.status === statusFilter.value);
+  // Identical first, then changed-in-both, then only-in-one-side last.
+  return [...filtered].sort((a, b) => statusRank(a.status) - statusRank(b.status));
 });
 
-// ── Cell helpers ─────────────────────────────────────────────────────────────
+// ── Card helpers ─────────────────────────────────────────────────────────────
+
+/** Sort order shared by both scopes: identical rows first, then rows changed
+ *  in both revisions, then rows only present in one revision (added/removed). */
+function statusRank(status: CompareStatus | null): number {
+  switch (status) {
+    case 'unchanged':
+      return 0;
+    case 'changed':
+      return 1;
+    case 'added':
+    case 'removed':
+      return 2;
+    default:
+      return 0; // single mode — nothing to diff, order doesn't matter
+  }
+}
 
 function hasDetails(row: ComparePartRow): boolean {
   return (
@@ -565,17 +674,6 @@ function sideQty(side: ComparePartSide | null): string {
   return `${side.quantity}${side.unit ? ` ${side.unit}` : ''}`;
 }
 
-function qtySame(row: ComparePartRow): boolean | null {
-  if (isSingle.value) return null;
-  if (!row.inA || !row.inB) return false;
-  return sideQty(row.inA) === sideQty(row.inB);
-}
-
-function notesSame(row: ComparePartRow): boolean | null {
-  if (isSingle.value) return null;
-  return (row.inA?.notes ?? '') === (row.inB?.notes ?? '');
-}
-
 function qtyDelta(row: ComparePartRow): string {
   if (isSingle.value || !row.inA || !row.inB) return '';
   const d = Number(row.inB.quantity) - Number(row.inA.quantity);
@@ -583,11 +681,17 @@ function qtyDelta(row: ComparePartRow): string {
   return d > 0 ? `+${d}` : `${d}`;
 }
 
-/** Green when the two sides match, red when they differ, neutral in single mode. */
-function matchCellClass(same: boolean | null, present: boolean): string {
-  if (same === null) return 'text-slate-700';
-  if (same) return 'bg-emerald-50/70 font-medium text-emerald-700';
-  return present ? 'bg-red-50/70 font-medium text-red-600' : 'bg-red-50/70 text-red-300';
+/** Whether a part row is identical across A/B (null in single mode, nothing to diff). */
+function partSame(row: ComparePartRow): boolean | null {
+  if (isSingle.value) return null;
+  return row.status === 'unchanged';
+}
+
+/** Card border/background accent: neutral in single mode, green when the two
+ *  sides match, red when they differ (added / removed / changed all read as "different"). */
+function cardAccentClass(same: boolean | null): string {
+  if (same === null) return 'border-slate-200 bg-white';
+  return same ? 'border-emerald-200 bg-emerald-50/40' : 'border-red-200 bg-red-50/40';
 }
 
 // Green = same, red = any difference (added / removed / changed).
