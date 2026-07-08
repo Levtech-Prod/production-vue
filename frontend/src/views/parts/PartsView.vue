@@ -76,98 +76,28 @@
         :parameters="selectedCategory.parameters"
       />
 
-      <table class="w-full text-left text-sm">
-        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
-          <tr>
-            <th class="p-4">{{ t('image') }}</th>
-            <th class="p-4">{{ t('code') }}</th>
-            <th class="p-4">{{ t('name') }}</th>
-            <th class="p-4">{{ t('category') }}</th>
-            <th class="p-4">{{ t('price_per_piece') }}</th>
-            <th class="p-4">{{ t('location') }}</th>
-            <th class="p-4">{{ t('parameters') }}</th>
-            <th class="p-4">{{ t('actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="filteredParts.length === 0">
-            <td colspan="8" class="py-12 text-center text-sm text-slate-400">
-              <template v-if="partNameSearch || selectedCategoryId">
-                {{ t('no_search_results') }}.
-              </template>
-              <template v-else>{{ t('no_parts_msg') }}</template>
-            </td>
-          </tr>
-          <tr
-            v-for="part in filteredParts"
-            :key="part.id"
-            class="border-t border-slate-100 hover:bg-slate-50 transition-colors"
-          >
-            <td class="p-4">
-              <button
-                v-if="part.image"
-                type="button"
-                class="block"
-                :title="t('view_image')"
-                @click="openImagePreview(part)"
-              >
-                <img
-                  :src="part.image"
-                  class="h-12 w-12 rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105"
-                  :alt="part.name"
-                />
-              </button>
-              <div
-                v-else
-                class="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
-              >
-                ▣
-              </div>
-            </td>
-            <td class="p-4 font-mono text-xs text-slate-600">
-              {{ part.code }}
-            </td>
-            <td class="p-4 font-semibold">{{ part.name }}</td>
-            <td class="p-4 text-slate-500">{{ part.category.name }}</td>
-            <td class="p-4">{{ part.pricePerPiece }}</td>
-            <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
-            <td class="p-4">
-              <div class="flex flex-col gap-1">
-                <span
-                  v-for="v in part.parameters"
-                  :key="v.id"
-                  class="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
-                >
-                  {{ v.parameter?.name }}: {{ v.value }}
-                </span>
-                <span v-if="!part.parameters?.length" class="text-slate-300"
-                  >—</span
-                >
-              </div>
-            </td>
-            <td class="p-4">
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                  :title="t('edit')"
-                  @click="openEdit(part)"
-                >
-                  <Pencil class="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                  :title="t('delete')"
-                  @click="openDeleteConfirm(part)"
-                >
-                  <Trash2 class="h-4 w-4" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <PartsTable :parts="filteredParts" :empty-text="tableEmptyText">
+        <template #actions="{ part }">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+              :title="t('edit')"
+              @click="openEdit(part)"
+            >
+              <Pencil class="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              class="rounded-lg p-2 text-red-600 hover:bg-red-50"
+              :title="t('delete')"
+              @click="openDeleteConfirm(part)"
+            >
+              <Trash2 class="h-4 w-4" />
+            </button>
+          </div>
+        </template>
+      </PartsTable>
     </div>
 
     <!-- Modal -->
@@ -193,12 +123,6 @@
       @cancel="closeDeleteConfirm"
     />
 
-    <!-- Image lightbox -->
-    <ImagePreviewModal
-      v-model="imagePreviewOpen"
-      :image="previewPart?.image"
-      :title="previewPart?.name"
-    />
   </div>
 </template>
 
@@ -207,8 +131,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { Pencil, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import PartModal from './PartModal.vue';
-import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
+import PartsTable from './PartsTable.vue';
 import CategoryCards from './CategoryCards.vue';
 import PartParameterFilters from './PartParameterFilters.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
@@ -301,6 +225,12 @@ const filteredParts = computed(() => {
   });
 });
 
+const tableEmptyText = computed(() =>
+  partNameSearch.value || selectedCategoryId.value
+    ? `${t('no_search_results')}.`
+    : t('no_parts_msg'),
+);
+
 // ---- Modal state ----
 const modalOpen = ref(false);
 const editingPart = ref<Part | null>(null);
@@ -354,15 +284,6 @@ async function onSaved(payload: CreatePartPayload) {
 function clearPartSaveError() {
   partSaveError.value = null;
   partSaveErrors.value = [];
-}
-
-// ---- Image lightbox ----
-const imagePreviewOpen = ref(false);
-const previewPart = ref<Part | null>(null);
-
-function openImagePreview(part: Part) {
-  previewPart.value = part;
-  imagePreviewOpen.value = true;
 }
 
 // ---- Delete ----
