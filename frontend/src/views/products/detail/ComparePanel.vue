@@ -96,45 +96,68 @@
               </th>
             </tr>
           </thead>
-          <tbody v-for="row in productRows" :key="row.spId">
-            <!-- Sub-product name row -->
-            <tr>
-              <td :colspan="isSingle ? 2 : 3" class="border-t-4 border-slate-100 bg-slate-50 px-4 py-2">
-                <div class="flex items-center gap-2.5">
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate font-semibold text-slate-800">{{ row.name }}</div>
-                    <div class="truncate font-mono text-xs text-slate-400">{{ row.sku }}</div>
+          <template v-for="item in productDisplayItems" :key="item.type === 'header' ? `group-${item.key}` : `row-${item.row.spId}`">
+            <!-- Azonos / Eltérések group header -->
+            <tbody v-if="item.type === 'header'">
+              <tr>
+                <td
+                  :colspan="isSingle ? 2 : 3"
+                  class="px-4 py-1.5"
+                  :class="item.key === 'identical' ? 'bg-slate-50' : 'bg-red-50'"
+                >
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="h-1.5 w-1.5 shrink-0 rounded-full"
+                      :class="item.key === 'identical' ? 'bg-slate-400' : 'bg-red-500'"
+                    ></span>
+                    <span
+                      class="text-[10px] font-semibold uppercase tracking-wide"
+                      :class="item.key === 'identical' ? 'text-slate-500' : 'text-red-600'"
+                    >
+                      {{ t(item.key === 'identical' ? 'compare_group_identical' : 'compare_group_different') }}
+                    </span>
+                    <span class="text-[10px] text-slate-400">
+                      {{ t('compare_group_count', { count: item.count }) }}
+                    </span>
                   </div>
-                  <span
-                    v-if="row.status"
-                    class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                    :class="compareStatusChipClass(row.status)"
-                  >
-                    {{ t('compare_status.' + row.status) }}
-                  </span>
-                  <button
-                    v-if="row.status === 'changed' && row.revA && row.revB"
-                    type="button"
-                    class="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-0.5 text-xs text-slate-500 hover:bg-white hover:text-blue-600"
-                    @click="drillIntoParts(row)"
-                  >
-                    {{ t('compare_parts') }}
-                    <ChevronRight class="h-3 w-3" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <!-- Linked revision row -->
-            <tr class="border-t border-slate-50">
-              <td class="px-4 py-1.5 align-top text-xs text-slate-400">{{ t('linked_revision') }}</td>
-              <td class="px-3 py-1.5" :class="matchCellClass(row.same, row.revA != null)">
-                {{ row.revA?.label ?? '—' }}
-              </td>
-              <td v-if="!isSingle" class="px-3 py-1.5" :class="matchCellClass(row.same, row.revB != null)">
-                {{ row.revB?.label ?? '—' }}
-              </td>
-            </tr>
-          </tbody>
+                </td>
+              </tr>
+            </tbody>
+
+            <!-- Sub-product row -->
+            <tbody v-else>
+              <!-- Sub-product name row -->
+              <tr>
+                <td :colspan="isSingle ? 2 : 3" class="border-t-4 border-slate-100 bg-slate-50 px-4 py-2">
+                  <div class="flex items-center gap-2.5">
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate font-semibold text-slate-800">{{ item.row.name }}</div>
+                      <div class="truncate font-mono text-xs text-slate-400">{{ item.row.sku }}</div>
+                    </div>
+                    <button
+                      v-if="item.row.status === 'changed' && item.row.revA && item.row.revB"
+                      type="button"
+                      class="inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-0.5 text-xs text-slate-500 hover:bg-white hover:text-blue-600"
+                      @click="drillIntoParts(item.row)"
+                    >
+                      {{ t('compare_parts') }}
+                      <ChevronRight class="h-3 w-3" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <!-- Linked revision row -->
+              <tr class="border-t border-slate-50">
+                <td class="px-4 py-1.5 align-top text-xs text-slate-400">{{ t('linked_revision') }}</td>
+                <td class="px-3 py-1.5" :class="matchCellClass(item.row.same, item.row.revA != null)">
+                  {{ item.row.revA?.label ?? '—' }}
+                </td>
+                <td v-if="!isSingle" class="px-3 py-1.5" :class="matchCellClass(item.row.same, item.row.revB != null)">
+                  {{ item.row.revB?.label ?? '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </template>
         </table>
       </template>
 
@@ -441,6 +464,31 @@ const productRows = computed<ProductRow[] | null>(() => {
     });
   }
   return rows;
+});
+
+// Product-scope rows grouped into "identical" / "different" sections (two-sided
+// compare only — single-mode keeps a flat list since there's nothing to diff).
+type ProductDisplayItem =
+  | { type: 'header'; key: 'identical' | 'different'; count: number }
+  | { type: 'row'; row: ProductRow };
+
+const productDisplayItems = computed<ProductDisplayItem[] | null>(() => {
+  const rows = productRows.value;
+  if (!rows) return null;
+  if (isSingle.value) return rows.map((row) => ({ type: 'row', row }));
+
+  const identical = rows.filter((r) => r.same);
+  const different = rows.filter((r) => !r.same);
+  const items: ProductDisplayItem[] = [];
+  if (identical.length) {
+    items.push({ type: 'header', key: 'identical', count: identical.length });
+    for (const row of identical) items.push({ type: 'row', row });
+  }
+  if (different.length) {
+    items.push({ type: 'header', key: 'different', count: different.length });
+    for (const row of different) items.push({ type: 'row', row });
+  }
+  return items;
 });
 
 function drillIntoParts(row: ProductRow) {

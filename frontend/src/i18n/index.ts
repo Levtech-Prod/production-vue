@@ -212,6 +212,9 @@ const messages = {
     select_revision: 'Select revision…',
     swap_ab: 'Swap A and B',
     no_differences: 'No differences between the selected revisions.',
+    compare_group_identical: 'Identical',
+    compare_group_different: 'Differences',
+    compare_group_count: '{count} products',
 
     // Structure tree / revisions mode
     overview: 'Overview',
@@ -568,6 +571,9 @@ const messages = {
     select_revision: 'Válassz revíziót…',
     swap_ab: 'A és B felcserélése',
     no_differences: 'Nincs eltérés a kiválasztott revíziók között.',
+    compare_group_identical: 'Azonos',
+    compare_group_different: 'Eltérések',
+    compare_group_count: '{count} termék',
 
     // Struktúra fa / revíziók mód
     overview: 'Áttekintés',
