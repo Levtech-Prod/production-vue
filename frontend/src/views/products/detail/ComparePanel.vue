@@ -530,7 +530,8 @@ const productRows = computed<ProductRow[] | null>(() => {
       same: status === 'unchanged',
     });
   }
-  return rows;
+  // Identical first, then changed-in-both, then only-in-one-side last.
+  return rows.sort((a, b) => statusRank(a.status) - statusRank(b.status));
 });
 
 function drillIntoParts(row: ProductRow) {
@@ -636,11 +637,29 @@ const statusFilters: Array<{
 
 const filteredParts = computed<ComparePartRow[]>(() => {
   const rows = partsResult.value?.parts ?? [];
-  if (isSingle.value || statusFilter.value === 'all') return rows;
-  return rows.filter((r) => r.status === statusFilter.value);
+  const filtered =
+    isSingle.value || statusFilter.value === 'all' ? rows : rows.filter((r) => r.status === statusFilter.value);
+  // Identical first, then changed-in-both, then only-in-one-side last.
+  return [...filtered].sort((a, b) => statusRank(a.status) - statusRank(b.status));
 });
 
 // ── Card helpers ─────────────────────────────────────────────────────────────
+
+/** Sort order shared by both scopes: identical rows first, then rows changed
+ *  in both revisions, then rows only present in one revision (added/removed). */
+function statusRank(status: CompareStatus | null): number {
+  switch (status) {
+    case 'unchanged':
+      return 0;
+    case 'changed':
+      return 1;
+    case 'added':
+    case 'removed':
+      return 2;
+    default:
+      return 0; // single mode — nothing to diff, order doesn't matter
+  }
+}
 
 function hasDetails(row: ComparePartRow): boolean {
   return (
