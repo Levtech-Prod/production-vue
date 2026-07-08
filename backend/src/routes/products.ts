@@ -1,32 +1,15 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import {
+  productPayloadSchema,
+  newRevisionSchema,
+  setDefaultRevisionSchema,
+  setProductStatusSchema,
+} from '../schemas/products.schema.js';
 
 const router = Router();
-
-const createSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const updateSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const revisionSchema = z.object({
-  label: z.string().min(1),
-  changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
-});
 
 // GET /api/products — list with latest revision info
 router.get('/', requireAuth, async (_req, res) => {
@@ -63,7 +46,7 @@ router.get('/', requireAuth, async (_req, res) => {
 
 // POST /api/products — create product + auto-create revision 1
 router.post('/', requireAuth, async (req, res) => {
-  const data = createSchema.parse(req.body);
+  const data = productPayloadSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -223,7 +206,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = revisionSchema.parse(req.body);
+  const data = newRevisionSchema.parse(req.body);
 
   const client = await pool.connect();
   try {
@@ -280,9 +263,7 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = z
-    .object({ revisionId: z.number().nullable() })
-    .parse(req.body);
+  const data = setDefaultRevisionSchema.parse(req.body);
 
   // When setting (not clearing), the revision must belong to this product.
   if (data.revisionId != null) {
@@ -312,9 +293,7 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = z
-    .object({ status: z.enum(['active', 'archived']) })
-    .parse(req.body);
+  const data = setProductStatusSchema.parse(req.body);
 
   const result = await query(
     `UPDATE products SET status = $1, updated_at = NOW()
@@ -334,7 +313,7 @@ router.patch('/:productId', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = updateSchema.parse(req.body);
+  const data = productPayloadSchema.parse(req.body);
 
   try {
     const result = await query(

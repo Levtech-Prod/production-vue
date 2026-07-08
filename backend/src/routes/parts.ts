@@ -1,22 +1,10 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import { partPayloadSchema } from '../schemas/parts.schema.js';
 
 const router = Router();
-const schema = z.object({
-  categoryId: z.number(),
-  name: z.string().min(2),
-  code: z.string().min(1),
-  pricePerPiece: z.number().nonnegative(),
-  location: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-  parameters: z
-    .array(z.object({ parameterId: z.number(), value: z.string() }))
-    .default([]),
-});
 
 router.get('/', requireAuth, async (_req, res) => {
   const result = await query(
@@ -61,7 +49,7 @@ router.get('/', requireAuth, async (_req, res) => {
 });
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
-  const data = schema.parse(req.body);
+  const data = partPayloadSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -114,7 +102,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 
   // Validate before opening a connection so ZodErrors reach the global
   // error handler and are returned as structured validation issues.
-  const data = schema.parse(req.body);
+  const data = partPayloadSchema.parse(req.body);
 
   const client = await pool.connect();
 

@@ -1,52 +1,16 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import {
+  createSubProductSchema,
+  subProductPayloadSchema,
+  newSubProductRevisionSchema,
+  replaceRevisionPartsSchema,
+} from '../schemas/subProducts.schema.js';
+import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 
 const router = Router();
-
-const partInputSchema = z.object({
-  partId: z.number(),
-  quantity: z.number().transform((v) => Math.round(v)),
-  unit: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
-
-const createSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-  // Optional parts for the auto-created first revision (Rev. 1).
-  parts: z.array(partInputSchema).optional().default([]),
-});
-
-const updateSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const revisionSchema = z.object({
-  label: z.string().min(1),
-  changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
-  parts: z
-    .array(
-      z.object({
-        partId: z.number(),
-        quantity: z.number().transform((v) => Math.round(v)),
-        unit: z.string().optional().nullable(),
-        notes: z.string().optional().nullable(),
-      }),
-    )
-    .optional()
-    .default([]),
-});
 
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
 // Registered before /:spId routes so the literal path takes precedence.
@@ -149,7 +113,7 @@ router.get('/', requireAuth, async (_req, res) => {
 
 // POST /api/sub-products — create sub-product + auto-create revision 1
 router.post('/', requireAuth, async (req, res) => {
-  const data = createSchema.parse(req.body);
+  const data = createSubProductSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -212,7 +176,7 @@ router.patch('/:spId', requireAuth, async (req, res) => {
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
-  const data = updateSchema.parse(req.body);
+  const data = subProductPayloadSchema.parse(req.body);
 
   try {
     const result = await query(
@@ -251,7 +215,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
-  const data = revisionSchema.parse(req.body);
+  const data = newSubProductRevisionSchema.parse(req.body);
 
   const client = await pool.connect();
   try {

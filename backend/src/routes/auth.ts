@@ -1,24 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { z } from 'zod';
 import { query } from '../db.js';
 import { ErrorCodes } from '../errorCodes.js';
+import { signupSchema, loginSchema } from '../schemas/auth.schema.js';
 
 const router = Router();
-
-const signupSchema = z.object({
-  username: z.string().min(2),
-  email: z.string().email(),
-  phone: z.string().optional().nullable(),
-  password: z.string().min(6),
-  admin: z.boolean().default(false)
-});
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
-});
 
 function signToken(user: { id: number; email: string; admin: boolean }) {
   return jwt.sign(user, process.env.JWT_SECRET || 'dev-secret', { expiresIn: '7d' });

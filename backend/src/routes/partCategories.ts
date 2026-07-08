@@ -1,27 +1,10 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import { partCategoryPayloadSchema } from '../schemas/partCategories.schema.js';
 
 const router = Router();
-const schema = z.object({
-  name: z.string().min(2),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-  parameters: z
-    .array(
-      z.object({
-        name: z.string().min(1),
-        type: z.enum(['text', 'number', 'boolean', 'dropdown']).default('text'),
-        unit: z.string().optional().nullable(),
-        required: z.boolean().default(false),
-        options: z.array(z.string().min(1)).optional().default([]), // Only for dropdown type
-      }),
-    )
-    .optional()
-    .default([]),
-});
 
 router.get('/', requireAuth, async (_req, res) => {
   const result = await query(
@@ -55,7 +38,7 @@ router.get('/', requireAuth, async (_req, res) => {
 });
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
-  const data = schema.parse(req.body);
+  const data = partCategoryPayloadSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

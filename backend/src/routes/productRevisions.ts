@@ -1,20 +1,11 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
+import { setRevisionSubProductsSchema } from '../schemas/subProducts.schema.js';
 
 const router = Router();
-
-const patchSchema = z.object({
-  label: z.string().min(1).optional(),
-  status: z.enum(['draft', 'active', 'deprecated']).optional(),
-  changeNotes: z.string().optional().nullable(),
-});
-
-const subProductsSchema = z.object({
-  subProductRevisionIds: z.array(z.number()),
-});
 
 // GET /api/product-revisions/compare?a=&b= — structured diff (server-side).
 // Registered before /:revId routes so the literal path takes precedence.
@@ -167,7 +158,7 @@ router.patch('/:revId', requireAuth, async (req, res) => {
   if (!revId || Number.isNaN(revId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
   }
-  const data = patchSchema.parse(req.body);
+  const data = revisionUpdateSchema.parse(req.body);
 
   // Build a dynamic SET clause from only the provided fields.
   const fields: string[] = [];
@@ -216,7 +207,7 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
   if (!revId || Number.isNaN(revId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
   }
-  const data = subProductsSchema.parse(req.body);
+  const data = setRevisionSubProductsSchema.parse(req.body);
 
   const client = await pool.connect();
   try {
