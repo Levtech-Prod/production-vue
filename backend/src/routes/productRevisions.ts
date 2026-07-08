@@ -1,20 +1,11 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
+import { setRevisionSubProductsSchema } from '../schemas/subProducts.schema.js';
 
 const router = Router();
-
-const patchSchema = z.object({
-  label: z.string().min(1).optional(),
-  status: z.enum(['draft', 'active', 'deprecated']).optional(),
-  changeNotes: z.string().optional().nullable(),
-});
-
-const subProductsSchema = z.object({
-  subProductRevisionIds: z.array(z.number()),
-});
 
 // GET /api/product-revisions/compare?a=&b= — structured diff (server-side).
 // Registered before /:revId routes so the literal path takes precedence.
@@ -167,7 +158,7 @@ router.patch('/:revId', requireAuth, async (req, res) => {
   if (!revId || Number.isNaN(revId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
   }
-  const data = patchSchema.parse(req.body);
+  const data = revisionUpdateSchema.parse(req.body);
 
   // Build a dynamic SET clause from only the provided fields.
   const fields: string[] = [];
@@ -216,7 +207,7 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
   if (!revId || Number.isNaN(revId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
   }
-  const data = subProductsSchema.parse(req.body);
+  const data = setRevisionSubProductsSchema.parse(req.body);
 
   const client = await pool.connect();
   try {
@@ -231,13 +222,35 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
+    // A product revision may hold at most ONE revision per sub-product.
+    // Deduplicate the incoming list: the last entry per sub-product wins.
+    let cleanIds = data.subProductRevisionIds;
+    if (cleanIds.length > 0) {
+      const ownerResult = await client.query(
+        `SELECT id, sub_product_id AS "subProductId"
+         FROM sub_product_revisions
+         WHERE id = ANY($1::int[])`,
+        [cleanIds],
+      );
+      const ownerOf = new Map<number, number>(
+        ownerResult.rows.map((r: any) => [r.id, r.subProductId]),
+      );
+      const bySubProduct = new Map<number, number>();
+      for (const sprId of cleanIds) {
+        const spId = ownerOf.get(sprId);
+        if (spId == null) continue; // unknown revision id — drop it
+        bySubProduct.set(spId, sprId);
+      }
+      cleanIds = Array.from(bySubProduct.values());
+    }
+
     await client.query(
       `DELETE FROM product_revision_sub_products WHERE product_revision_id = $1`,
       [revId],
     );
 
     let position = 0;
-    for (const sprId of data.subProductRevisionIds) {
+    for (const sprId of cleanIds) {
       await client.query(
         `INSERT INTO product_revision_sub_products
            (product_revision_id, sub_product_revision_id, position)

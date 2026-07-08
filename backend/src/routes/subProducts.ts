@@ -1,52 +1,16 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import {
+  createSubProductSchema,
+  subProductPayloadSchema,
+  newSubProductRevisionSchema,
+  replaceRevisionPartsSchema,
+} from '../schemas/subProducts.schema.js';
+import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 
 const router = Router();
-
-const partInputSchema = z.object({
-  partId: z.number(),
-  quantity: z.number().transform((v) => Math.round(v)),
-  unit: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
-
-const createSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-  // Optional parts for the auto-created first revision (Rev. 1).
-  parts: z.array(partInputSchema).optional().default([]),
-});
-
-const updateSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const revisionSchema = z.object({
-  label: z.string().min(1),
-  changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
-  parts: z
-    .array(
-      z.object({
-        partId: z.number(),
-        quantity: z.number().transform((v) => Math.round(v)),
-        unit: z.string().optional().nullable(),
-        notes: z.string().optional().nullable(),
-      }),
-    )
-    .optional()
-    .default([]),
-});
 
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
 // Registered before /:spId routes so the literal path takes precedence.
@@ -64,21 +28,51 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
        p.name,
        p.code,
        p.image,
+       p.price_per_piece            AS "pricePerPiece",
+       pc.name                      AS "categoryName",
+       COALESCE(
+         (
+           SELECT json_agg(
+             json_build_object(
+               'name', pcp.name,
+               'value', spv.value,
+               'unit', pcp.unit,
+               'type', pcp.type
+             ) ORDER BY pcp.id
+           )
+           FROM stock_parameters spv
+           JOIN part_category_parameters pcp ON pcp.id = spv.parameter_id
+           WHERE spv.part_id = p.id
+         ),
+         '[]'
+       ) AS parameters,
        sprp.quantity::integer AS quantity,
        sprp.unit,
        sprp.notes
      FROM sub_product_revision_parts sprp
      JOIN parts p ON p.id = sprp.part_id
+     JOIN part_categories pc ON pc.id = p.category_id
      WHERE sprp.sub_product_revision_id IN ($1, $2)
      ORDER BY p.name`,
     [a, b],
   );
 
   type PartSide = { quantity: number; unit: string | null; notes: string | null } | null;
+  type PartParameter = { name: string; value: string; unit: string | null; type: string };
 
   const map = new Map<
     number,
-    { partId: number; name: string; code: string; image: string | null; inA: PartSide; inB: PartSide }
+    {
+      partId: number;
+      name: string;
+      code: string;
+      image: string | null;
+      pricePerPiece: number | string | null;
+      categoryName: string | null;
+      parameters: PartParameter[];
+      inA: PartSide;
+      inB: PartSide;
+    }
   >();
 
   for (const row of rowsResult.rows) {
@@ -88,6 +82,9 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
         name: row.name,
         code: row.code,
         image: row.image ?? null,
+        pricePerPiece: row.pricePerPiece ?? null,
+        categoryName: row.categoryName ?? null,
+        parameters: row.parameters ?? [],
         inA: null,
         inB: null,
       });
@@ -149,17 +146,18 @@ router.get('/', requireAuth, async (_req, res) => {
 
 // POST /api/sub-products — create sub-product + auto-create revision 1
 router.post('/', requireAuth, async (req, res) => {
-  const data = createSchema.parse(req.body);
+  const data = createSubProductSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     const spResult = await client.query(
-      `INSERT INTO sub_products (name, sku, type, description, image)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, sku, type, description, image,
+      `INSERT INTO sub_products (product_id, name, sku, type, description, image)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, product_id AS "productId", name, sku, type, description, image,
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
+        data.productId,
         data.name,
         data.sku,
         data.type || null,
@@ -212,7 +210,7 @@ router.patch('/:spId', requireAuth, async (req, res) => {
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
-  const data = updateSchema.parse(req.body);
+  const data = subProductPayloadSchema.parse(req.body);
 
   try {
     const result = await query(
@@ -245,13 +243,31 @@ router.patch('/:spId', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/sub-products/:spId — delete a whole sub-product.
+// Cascades (see schema.sql FKs) remove its revisions, their parts,
+// documents, and any product-revision membership links.
+router.delete('/:spId', requireAuth, async (req, res) => {
+  const spId = Number(req.params.spId);
+  if (!spId || Number.isNaN(spId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
+  }
+  const result = await query(
+    `DELETE FROM sub_products WHERE id = $1 RETURNING id`,
+    [spId],
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
+  }
+  res.json({ id: spId, deleted: true });
+});
+
 // POST /api/sub-products/:spId/revisions — new revision (parts + optional duplicate)
 router.post('/:spId/revisions', requireAuth, async (req, res) => {
   const spId = Number(req.params.spId);
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
-  const data = revisionSchema.parse(req.body);
+  const data = newSubProductRevisionSchema.parse(req.body);
 
   const client = await pool.connect();
   try {
@@ -321,6 +337,137 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+// PATCH /api/sub-products/:spId/revisions/:revId — update label, status, change_notes
+router.patch('/:spId/revisions/:revId', requireAuth, async (req, res) => {
+  const spId = Number(req.params.spId);
+  const revId = Number(req.params.revId);
+  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const data = revisionUpdateSchema.parse(req.body);
+
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  let i = 1;
+  if (data.label !== undefined) {
+    fields.push(`label = $${i++}`);
+    values.push(data.label);
+  }
+  if (data.status !== undefined) {
+    fields.push(`status = $${i++}`);
+    values.push(data.status);
+  }
+  if (data.changeNotes !== undefined) {
+    fields.push(`change_notes = $${i++}`);
+    values.push(data.changeNotes || null);
+  }
+  if (fields.length === 0) {
+    return res.status(400).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
+  }
+  values.push(spId, revId);
+
+  try {
+    const result = await query(
+      `UPDATE sub_product_revisions
+       SET ${fields.join(', ')}
+       WHERE sub_product_id = $${i} AND id = $${i + 1}
+       RETURNING id, sub_product_id AS "subProductId",
+         revision_number AS "revisionNumber", label, status,
+         change_notes AS "changeNotes", created_at AS "createdAt"`,
+      values,
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
+  }
+});
+
+// DELETE /api/sub-products/:spId/revisions/:revId — delete a revision.
+// Cascades remove its parts, documents and product-revision links.
+router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
+  const spId = Number(req.params.spId);
+  const revId = Number(req.params.revId);
+  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const result = await query(
+    `DELETE FROM sub_product_revisions
+     WHERE id = $1 AND sub_product_id = $2
+     RETURNING id`,
+    [revId, spId],
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+  }
+  res.json({ id: revId, deleted: true });
+});
+
+// PUT /api/sub-products/:spId/revisions/:revId/parts — replace the part set
+router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
+  const spId = Number(req.params.spId);
+  const revId = Number(req.params.revId);
+  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const data = replaceRevisionPartsSchema.parse(req.body);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const revCheck = await client.query(
+      `SELECT id FROM sub_product_revisions WHERE id = $1 AND sub_product_id = $2`,
+      [revId, spId],
+    );
+    if (revCheck.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+
+    await client.query(
+      `DELETE FROM sub_product_revision_parts WHERE sub_product_revision_id = $1`,
+      [revId],
+    );
+    for (const part of data.parts) {
+      await client.query(
+        `INSERT INTO sub_product_revision_parts
+           (sub_product_revision_id, part_id, quantity, unit, notes)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (sub_product_revision_id, part_id)
+         DO UPDATE SET quantity = EXCLUDED.quantity,
+                       unit = EXCLUDED.unit,
+                       notes = EXCLUDED.notes`,
+        [revId, part.partId, part.quantity, part.unit || null, part.notes || null],
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  // Return the fresh part list (same shape as the GET endpoint).
+  const result = await query(
+    `SELECT
+       p.id, p.name, p.code, p.category_id AS "categoryId",
+       p.price_per_piece AS "pricePerPiece", p.image,
+       sprp.quantity::integer AS quantity, sprp.unit, sprp.notes
+     FROM sub_product_revision_parts sprp
+     JOIN parts p ON p.id = sprp.part_id
+     WHERE sprp.sub_product_revision_id = $1
+     ORDER BY p.name`,
+    [revId],
+  );
+  res.json(result.rows);
 });
 
 // GET /api/sub-products/:spId/revisions/:revId/parts — parts for one revision

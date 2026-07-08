@@ -132,11 +132,21 @@ export interface ComparePartSide {
   notes?: string | null;
 }
 
+export interface ComparePartParameter {
+  name: string;
+  value: string;
+  unit?: string | null;
+  type?: string;
+}
+
 export interface ComparePartRow {
   partId: number;
   name: string;
   code: string;
   image?: string | null;
+  pricePerPiece?: number | string | null;
+  categoryName?: string | null;
+  parameters?: ComparePartParameter[];
   inA: ComparePartSide | null;
   inB: ComparePartSide | null;
   status: CompareStatus;
@@ -180,38 +190,28 @@ export interface BomSubProduct {
   parts: BomPart[];
 }
 
-// ---- Payloads -------------------------------------------------------------
+// ---- Payloads ---------------------------------------------------------------
+//
+// These mirror the request bodies the backend validates with zod (see
+// backend/src/schemas/*.schema.ts). They're re-exported here as type-only
+// imports so both sides describe the same shape from one source of truth —
+// this never pulls zod itself (or any runtime code) into the frontend
+// bundle, since `import type` is fully erased at build time.
 
-export interface ProductPayload {
-  name: string;
-  sku: string;
-  type?: string | null;
-  description?: string | null;
-  image?: string | null;
-}
+import type { ProductPayload as ProductPayloadSchema, NewRevisionInput } from '../../../backend/src/schemas/products.schema.ts';
+import type { RevisionPartInput as RevisionPartInputSchema } from '../../../backend/src/schemas/parts.schema.ts';
+import type {
+  CreateSubProductInput,
+  NewSubProductRevisionInput,
+} from '../../../backend/src/schemas/subProducts.schema.ts';
 
-export interface NewRevisionPayload {
-  label: string;
-  changeNotes?: string | null;
-  duplicateFromId?: number | null;
-}
-
-export interface RevisionPartInput {
-  partId: number;
-  quantity: number;
-  unit?: string | null;
-  notes?: string | null;
-}
-
-export interface SubProductPayload {
-  name: string;
-  sku: string;
-  type?: string | null;
-  description?: string | null;
-  image?: string | null;
-  // Parts for the auto-created first revision (Rev. 1). Optional.
-  parts?: RevisionPartInput[];
-}
+export type ProductPayload = ProductPayloadSchema;
+export type NewRevisionPayload = NewRevisionInput;
+export type RevisionPartInput = RevisionPartInputSchema;
+// The backend's create schema also carries `productId` — the frontend adds
+// that separately (see subProductsApi.create), so it's omitted here.
+export type SubProductPayload = Omit<CreateSubProductInput, 'productId'>;
+export type NewSubProductRevisionPayload = NewSubProductRevisionInput;
 
 // Editable row used by the parts picker (carries display fields).
 export interface SelectedPart {
@@ -221,11 +221,4 @@ export interface SelectedPart {
   quantity: number;
   unit: string;
   notes: string;
-}
-
-export interface NewSubProductRevisionPayload {
-  label: string;
-  changeNotes?: string | null;
-  duplicateFromId?: number | null;
-  parts?: RevisionPartInput[];
 }

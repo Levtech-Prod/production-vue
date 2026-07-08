@@ -10,6 +10,7 @@ import type {
   SubProductPayload,
   NewSubProductRevisionPayload,
   RevisionPart,
+  RevisionPartInput,
   CompareResult,
   ComparePartsResult,
   RevisionStatus,
@@ -77,18 +78,37 @@ export const subProductsApi = {
   getAll() {
     return api.get<SubProductSummary[]>('/sub-products');
   },
-  create(payload: SubProductPayload) {
-    return api.post<SubProductSummary>('/sub-products', payload);
+  create(productId: number, payload: SubProductPayload) {
+    return api.post<SubProductSummary>('/sub-products', { ...payload, productId });
   },
   update(id: number, payload: SubProductPayload) {
     return api.patch<SubProductSummary>(`/sub-products/${id}`, payload);
   },
+  delete(id: number) {
+    return api.delete(`/sub-products/${id}`);
+  },
   createRevision(id: number, payload: NewSubProductRevisionPayload) {
     return api.post<SubProductRevision>(`/sub-products/${id}/revisions`, payload);
+  },
+  updateRevision(
+    spId: number,
+    revId: number,
+    payload: { label?: string; status?: RevisionStatus; changeNotes?: string | null },
+  ) {
+    return api.patch<SubProductRevision>(`/sub-products/${spId}/revisions/${revId}`, payload);
+  },
+  deleteRevision(spId: number, revId: number) {
+    return api.delete(`/sub-products/${spId}/revisions/${revId}`);
   },
   getRevisionParts(spId: number, revId: number) {
     return api.get<RevisionPart[]>(
       `/sub-products/${spId}/revisions/${revId}/parts`,
+    );
+  },
+  replaceRevisionParts(spId: number, revId: number, parts: RevisionPartInput[]) {
+    return api.put<RevisionPart[]>(
+      `/sub-products/${spId}/revisions/${revId}/parts`,
+      { parts },
     );
   },
   compareRevisionParts(a: number, b: number) {

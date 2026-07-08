@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE TABLE IF NOT EXISTS sub_products (
   id          SERIAL PRIMARY KEY,
+  -- Every sub-product belongs to one main product (see migration 001).
+  product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
   name        VARCHAR(255) NOT NULL,
   sku         VARCHAR(100) NOT NULL UNIQUE,
   type        VARCHAR(100),
@@ -178,6 +180,7 @@ CREATE TABLE IF NOT EXISTS sub_product_revision_parts (
 
 CREATE INDEX IF NOT EXISTS idx_product_revisions_product_id ON product_revisions(product_id);
 CREATE INDEX IF NOT EXISTS idx_sub_product_revisions_sub_product_id ON sub_product_revisions(sub_product_id);
+CREATE INDEX IF NOT EXISTS idx_sub_products_product_id ON sub_products(product_id);
 CREATE INDEX IF NOT EXISTS idx_prsp_product_revision_id ON product_revision_sub_products(product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_sub_products(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);

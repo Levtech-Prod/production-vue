@@ -10,7 +10,7 @@ import productRoutes from './routes/products.js';
 import productRevisionRoutes from './routes/productRevisions.js';
 import subProductRoutes from './routes/subProducts.js';
 import path from 'path';
-import uploadRoutes from './routes/uploadFiles';
+import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
 import { ErrorCodes } from './errorCodes.js';
 

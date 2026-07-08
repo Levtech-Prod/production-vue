@@ -2,6 +2,9 @@ import type {
   PartCategoryParameterType,
   PartCategory,
 } from './partCategories.ts';
+// Mirrors the backend's zod validation for this same payload (see
+// backend/src/schemas/parts.schema.ts) — type-only, so no runtime cost.
+import type { PartPayload } from '../../../backend/src/schemas/parts.schema.ts';
 
 export interface PartParameterValue {
   id?: number;
@@ -32,22 +35,9 @@ export interface Part {
   updatedAt?: string;
 }
 
-export interface PartPayloadParameter {
-  parameterId: number;
-  value: string;
-}
+export type PartPayloadParameter = NonNullable<PartPayload['parameters']>[number];
 
-export interface CreatePartPayload {
-  categoryId: number;
-  name: string;
-  code: string;
-  pricePerPiece: number;
-  location?: string | null;
-  description?: string | null;
-  image?: string | null;
-  parameters: PartPayloadParameter[];
-}
-
+export type CreatePartPayload = PartPayload;
 export type UpdatePartPayload = CreatePartPayload;
 
 // Per-parameter filter state used by the parts table.

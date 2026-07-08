@@ -166,7 +166,8 @@ const messages = {
     back_to_comparison: 'Back to comparison',
     no_parts_diff: 'These revisions have identical parts.',
     sp_rev_compare_hint: 'Two revisions selected — comparing parts.',
-    sp_rev_select_hint: 'Click a revision row to view its parts. Click another to compare.',
+    sp_rev_select_hint:
+      'Click a revision row to view its parts. Click another to compare.',
 
     // Right panel tabs
     tab_documents: 'Documents',
@@ -180,7 +181,8 @@ const messages = {
     no_sp_rev_documents: 'No documents uploaded for this revision.',
     upload_document: 'Upload document',
     document_name: 'File name',
-    document_name_hint: 'Optionally give the file a name. Leave blank to keep the original file name.',
+    document_name_hint:
+      'Optionally give the file a name. Leave blank to keep the original file name.',
     uploading: 'Uploading…',
     delete_document: 'Delete document',
     document_uploaded: 'Document uploaded',
@@ -203,15 +205,51 @@ const messages = {
     collapse: 'Collapse',
     expand: 'Expand',
 
-    // Compare panel empty state
-    compare_select_hint: 'Select two revision pills above to compare product revisions, or click two sub-product revision rows to compare their parts.',
+    // Compare tab
+    compare_select_hint:
+      'Pick a revision for both A and B to see the comparison.',
+    compare_scope: 'Compare',
+    select_revision: 'Select revision…',
+    swap_ab: 'Swap A and B',
+    no_differences: 'No differences between the selected revisions.',
+
+    // Structure tree / revisions mode
+    overview: 'Overview',
+    revision_mode: 'Revisions',
+    no_linked_sub_products: 'No sub-products linked to this revision.',
+    linked_revision: 'Linked revision',
+    n_selected: '{n} selected',
+    add_new_revision: 'Add new revision',
+    save_as_new_revision: 'Save as new revision',
+    compose_check_hint: 'Include this revision in the new product revision',
+    compose_disabled_hint: 'Click "Add new revision" to edit the composition',
+    compose_summary:
+      'The new product revision will link {count} sub-product revision(s).',
+    edit_revision: 'Edit revision',
+    edit_parts: 'Edit parts',
+    tab_parts: 'Parts',
+    select_sub_product: 'Select sub-product…',
+    parts_select_hint:
+      'Select a sub-product revision on the left to edit its parts.',
+    no_parts_found: 'No matching parts.',
+    delete_revision: 'Delete revision',
+    revision_deleted: 'Revision deleted.',
+    delete_sub_product: 'Delete sub-product',
+    sub_product_deleted: 'Sub-product deleted.',
+    status: 'Status',
+    revision_status: {
+      draft: 'Draft',
+      active: 'Active',
+      deprecated: 'Deprecated',
+    },
 
     // Product archive
     archive: 'Archive',
     activate: 'Re-activate',
     status_active: 'Active',
     status_archived: 'Archived',
-    archived_product_banner: 'This product is archived and cannot be modified. Re-activate it first to make changes.',
+    archived_product_banner:
+      'This product is archived and cannot be modified. Re-activate it first to make changes.',
 
     errors: {
       // Mirror the `code` field returned by the backend (see
@@ -278,6 +316,8 @@ const messages = {
       save_sub_product_revision_failed:
         'The sub-product revision could not be saved',
       update_revision_failed: 'The revision could not be updated',
+      delete_revision_failed: 'The revision could not be deleted',
+      delete_sub_product_failed: 'The sub-product could not be deleted',
       set_default_revision_failed: 'Could not set the default revision',
       set_product_status_failed: 'Could not update the product status',
     },
@@ -316,7 +356,14 @@ const messages = {
       delete_category_msg: 'Are you sure you want to delete this category',
       delete_part_msg: 'Are you sure you want to delete this part',
       delete_document_msg: 'Are you sure you want to delete this document',
-      archive_product_msg: 'Are you sure you want to archive this product? It will become read-only until re-activated.',
+      archive_product_msg:
+        'Are you sure you want to archive this product? It will become read-only until re-activated.',
+      delete_revision_msg:
+        'Are you sure you want to delete this revision? It will be removed from every product revision that includes it',
+      delete_sub_product_msg:
+        'Are you sure you want to delete this sub-product? All of its revisions, parts and documents will be removed, and it will be removed from every product revision that includes it',
+      remove_part_msg:
+        'Are you sure you want to remove this part from the revision',
     },
   },
   hu: {
@@ -473,8 +520,10 @@ const messages = {
     view_revision_parts: 'Alkatrészek megtekintése',
     back_to_comparison: 'Vissza az összehasonlításhoz',
     no_parts_diff: 'A két revízióban azonos alkatrészek szerepelnek.',
-    sp_rev_compare_hint: 'Két revízió kiválasztva — alkatrészek összehasonlítása.',
-    sp_rev_select_hint: 'Kattints egy revízióra az alkatrészek megtekintéséhez. Kattints egy másikra az összehasonlításhoz.',
+    sp_rev_compare_hint:
+      'Két revízió kiválasztva — alkatrészek összehasonlítása.',
+    sp_rev_select_hint:
+      'Kattints egy revízióra az alkatrészek megtekintéséhez. Kattints egy másikra az összehasonlításhoz.',
 
     // Jobb oldali panel fülek
     tab_documents: 'Dokumentumok',
@@ -488,7 +537,8 @@ const messages = {
     no_sp_rev_documents: 'Ehhez a revízióhoz nincs feltöltött dokumentum.',
     upload_document: 'Dokumentum feltöltése',
     document_name: 'Fájlnév',
-    document_name_hint: 'Megadhatsz egy nevet a fájlnak. Hagyd üresen az eredeti fájlnév megtartásához.',
+    document_name_hint:
+      'Megadhatsz egy nevet a fájlnak. Hagyd üresen az eredeti fájlnév megtartásához.',
     uploading: 'Feltöltés…',
     delete_document: 'Dokumentum törlése',
     document_uploaded: 'Dokumentum feltöltve',
@@ -511,15 +561,52 @@ const messages = {
     collapse: 'Összecsukás',
     expand: 'Kinyitás',
 
-    // Összehasonlítás panel üres állapot
-    compare_select_hint: 'Válassz két revíziót a termékrevíziók összehasonlításához, vagy kattints két altermék-revízió sorra az alkatrészek összehasonlításához.',
+    // Összehasonlítás fül
+    compare_select_hint:
+      'Válassz revíziót az A és a B oldalhoz az összehasonlításhoz.',
+    compare_scope: 'Összehasonlítás',
+    select_revision: 'Válassz revíziót…',
+    swap_ab: 'A és B felcserélése',
+    no_differences: 'Nincs eltérés a kiválasztott revíziók között.',
+
+    // Struktúra fa / revíziók mód
+    overview: 'Áttekintés',
+    revision_mode: 'Revíziók',
+    no_linked_sub_products: 'Ehhez a revízióhoz nincs kapcsolt altermék.',
+    linked_revision: 'Kapcsolt revízió',
+    n_selected: '{n} kiválasztva',
+    add_new_revision: 'Új revízió',
+    save_as_new_revision: 'Mentés új revízióként',
+    compose_check_hint: 'Ez a revízió kerüljön az új termékrevízióba',
+    compose_disabled_hint:
+      'Kattints az "Új revízió hozzáadása" gombra a szerkesztéshez',
+    compose_summary:
+      'Az új termékrevízió {count} altermék-revíziót fog tartalmazni.',
+    edit_revision: 'Revízió szerkesztése',
+    edit_parts: 'Alkatrészek szerkesztése',
+    tab_parts: 'Alkatrészek',
+    select_sub_product: 'Válassz alterméket…',
+    parts_select_hint:
+      'Válassz altermék-revíziót bal oldalon az alkatrészek szerkesztéséhez.',
+    no_parts_found: 'Nincs találat.',
+    delete_revision: 'Revízió törlése',
+    revision_deleted: 'Revízió törölve.',
+    delete_sub_product: 'Altermék törlése',
+    sub_product_deleted: 'Altermék törölve.',
+    status: 'Státusz',
+    revision_status: {
+      draft: 'Vázlat',
+      active: 'Aktív',
+      deprecated: 'Elavult',
+    },
 
     // Termék archiválás
     archive: 'Archiválás',
     activate: 'Visszaállítás',
     status_active: 'Aktív',
     status_archived: 'Archivált',
-    archived_product_banner: 'Ez a termék archivált, nem módosítható. A szerkesztéshez először állítsd vissza aktív állapotba.',
+    archived_product_banner:
+      'Ez a termék archivált, nem módosítható. A szerkesztéshez először állítsd vissza aktív állapotba.',
 
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
@@ -581,6 +668,8 @@ const messages = {
       save_sub_product_revision_failed:
         'Az altermék-revízió mentése nem sikerült',
       update_revision_failed: 'A revízió módosítása nem sikerült',
+      delete_revision_failed: 'A revízió törlése nem sikerült',
+      delete_sub_product_failed: 'Az altermék törlése nem sikerült',
       set_default_revision_failed:
         'Nem sikerült beállítani az alapértelmezett revíziót',
       set_product_status_failed: 'Nem sikerült módosítani a termék állapotát',
@@ -620,7 +709,13 @@ const messages = {
       delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
-      archive_product_msg: 'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
+      archive_product_msg:
+        'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
+      delete_revision_msg:
+        'Biztosan törölni szeretnéd ezt a revíziót? Minden termékrevízióból eltávolításra kerül, amely tartalmazza',
+      delete_sub_product_msg:
+        'Biztosan törölni szeretnéd ezt az alterméket? Minden revíziója, alkatrésze és dokumentuma törlődik, és eltávolításra kerül minden termékrevízióból, amely tartalmazza',
+      remove_part_msg: 'Biztosan eltávolítod ezt az alkatrészt a revízióból',
     },
   },
 };

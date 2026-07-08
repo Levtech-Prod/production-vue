@@ -1,32 +1,15 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import {
+  productPayloadSchema,
+  newRevisionSchema,
+  setDefaultRevisionSchema,
+  setProductStatusSchema,
+} from '../schemas/products.schema.js';
 
 const router = Router();
-
-const createSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const updateSchema = z.object({
-  name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-});
-
-const revisionSchema = z.object({
-  label: z.string().min(1),
-  changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
-});
 
 // GET /api/products — list with latest revision info
 router.get('/', requireAuth, async (_req, res) => {
@@ -63,7 +46,7 @@ router.get('/', requireAuth, async (_req, res) => {
 
 // POST /api/products — create product + auto-create revision 1
 router.post('/', requireAuth, async (req, res) => {
-  const data = createSchema.parse(req.body);
+  const data = productPayloadSchema.parse(req.body);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -146,10 +129,11 @@ router.get('/:productId', requireAuth, async (req, res) => {
     [productId],
   );
 
-  // All sub-products (and their revisions) referenced by any of this
-  // product's revisions.
+  // All sub-products linked to this product (via sub_products.product_id),
+  // with ALL their revisions — including sub-products that are not part of
+  // any product revision yet.
   const subProductsResult = await query(
-    `SELECT DISTINCT
+    `SELECT
        sp.id AS "id",
        sp.name AS "name",
        sp.sku AS "sku",
@@ -160,11 +144,9 @@ router.get('/:productId', requireAuth, async (req, res) => {
        spr.label AS "revLabel",
        spr.status AS "revStatus",
        spr.change_notes AS "revChangeNotes"
-     FROM product_revision_sub_products prsp
-     JOIN product_revisions pr ON pr.id = prsp.product_revision_id
-     JOIN sub_product_revisions spr ON spr.id = prsp.sub_product_revision_id
-     JOIN sub_products sp ON sp.id = spr.sub_product_id
-     WHERE pr.product_id = $1
+     FROM sub_products sp
+     LEFT JOIN sub_product_revisions spr ON spr.sub_product_id = sp.id
+     WHERE sp.product_id = $1
      ORDER BY sp.name, spr.revision_number`,
     [productId],
   );
@@ -182,13 +164,15 @@ router.get('/:productId', requireAuth, async (req, res) => {
         revisions: [],
       });
     }
-    subProductMap.get(row.id).revisions.push({
-      id: row.revId,
-      revisionNumber: row.revNumber,
-      label: row.revLabel,
-      status: row.revStatus,
-      changeNotes: row.revChangeNotes,
-    });
+    if (row.revId != null) {
+      subProductMap.get(row.id).revisions.push({
+        id: row.revId,
+        revisionNumber: row.revNumber,
+        label: row.revLabel,
+        status: row.revStatus,
+        changeNotes: row.revChangeNotes,
+      });
+    }
   }
 
   res.json({
@@ -222,7 +206,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = revisionSchema.parse(req.body);
+  const data = newRevisionSchema.parse(req.body);
 
   const client = await pool.connect();
   try {
@@ -279,9 +263,7 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = z
-    .object({ revisionId: z.number().nullable() })
-    .parse(req.body);
+  const data = setDefaultRevisionSchema.parse(req.body);
 
   // When setting (not clearing), the revision must belong to this product.
   if (data.revisionId != null) {
@@ -311,9 +293,7 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = z
-    .object({ status: z.enum(['active', 'archived']) })
-    .parse(req.body);
+  const data = setProductStatusSchema.parse(req.body);
 
   const result = await query(
     `UPDATE products SET status = $1, updated_at = NOW()
@@ -333,7 +313,7 @@ router.patch('/:productId', requireAuth, async (req, res) => {
   if (!productId || Number.isNaN(productId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
-  const data = updateSchema.parse(req.body);
+  const data = productPayloadSchema.parse(req.body);
 
   try {
     const result = await query(
