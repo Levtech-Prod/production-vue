@@ -77,8 +77,8 @@ export const subProductsApi = {
   getAll() {
     return api.get<SubProductSummary[]>('/sub-products');
   },
-  create(payload: SubProductPayload) {
-    return api.post<SubProductSummary>('/sub-products', payload);
+  create(productId: number, payload: SubProductPayload) {
+    return api.post<SubProductSummary>('/sub-products', { ...payload, productId });
   },
   update(id: number, payload: SubProductPayload) {
     return api.patch<SubProductSummary>(`/sub-products/${id}`, payload);

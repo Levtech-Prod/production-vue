@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'"
+    "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'",
+    "db:migrate": "dotenv -e .env -- sh -c 'for f in database/migrations/*.sql; do echo \"Applying $f\"; psql \"$DATABASE_URL\" -f \"$f\"; done'"
   },
   "dependencies": {
     "bcryptjs": "latest",
