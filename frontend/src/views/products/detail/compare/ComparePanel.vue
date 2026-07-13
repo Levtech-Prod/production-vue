@@ -135,7 +135,7 @@
 import { computed } from 'vue';
 import { ArrowLeftRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import type { ProductDetail } from '../../../types/products.ts';
+import type { ProductDetail } from '../../../../types/products.ts';
 
 import CompareRevisionBadge from './CompareRevisionBadge.vue';
 import CompareTableHeader from './CompareTableHeader.vue';

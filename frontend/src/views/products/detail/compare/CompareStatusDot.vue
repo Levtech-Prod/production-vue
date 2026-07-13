@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { CompareStatus } from '../../../types/products.ts';
+import type { CompareStatus } from '../../../../types/products.ts';
 import { statusSign } from './compareHelpers.ts';
 
 defineProps<{ status: CompareStatus | null }>();

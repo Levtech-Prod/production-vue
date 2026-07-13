@@ -1,5 +1,5 @@
 import { computed, onMounted, ref, watch } from 'vue';
-import type { ProductDetail } from '../../../../types/products.ts';
+import type { ProductDetail } from '../../../../../types/products.ts';
 
 export type CompareScope = 'product' | number; // 'product' or a sub-product id
 

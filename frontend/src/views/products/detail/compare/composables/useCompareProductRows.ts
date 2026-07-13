@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import type { CompareStatus, ProductDetail } from '../../../../types/products.ts';
+import type { CompareStatus, ProductDetail } from '../../../../../types/products.ts';
 import { statusRank } from '../compareHelpers.ts';
 import type { CompareProductRow } from '../types.ts';
 import type { CompareRevisionSelection } from './useCompareRevisionSelection.ts';

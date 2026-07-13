@@ -62,8 +62,8 @@
 <script setup lang="ts">
 import { Upload, Trash2, FileText, FileSpreadsheet, File, Image } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import { formatDate } from '../../../utils/formatDate.ts';
-import type { ProductDocument } from '../../../types/products.ts';
+import { formatDate } from '../../../../utils/formatDate.ts';
+import type { ProductDocument } from '../../../../types/products.ts';
 
 defineProps<{
   title: string;

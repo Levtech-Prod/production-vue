@@ -125,7 +125,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { BomSubProduct, RevisionPart } from '../../../types/products.ts';
+import type { BomSubProduct, RevisionPart } from '../../../../types/products.ts';
 
 defineProps<{
   mode: 'product' | 'subRev';

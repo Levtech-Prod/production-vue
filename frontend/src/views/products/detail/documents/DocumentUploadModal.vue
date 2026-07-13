@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
 import { FileText } from 'lucide-vue-next';
-import BaseModal from '../../../components/modal/BaseModal.vue';
+import BaseModal from '../../../../components/modal/BaseModal.vue';
 
 defineProps<{
   file: File | null;

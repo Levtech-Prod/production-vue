@@ -1,11 +1,15 @@
 import { computed, ref } from 'vue';
 import type { ComputedRef, Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { productRevisionsApi, subProductsApi } from '../../../../api/productsAPI.ts';
-import { useNotificationStore } from '../../../../stores/notificationStore.ts';
-import { translateApiError } from '../../../../utils/apiError.ts';
-import type { BomSubProduct, RevisionPart, RevisionPartInput } from '../../../../types/products.ts';
-import type { PanelScope, Selection } from '../types.ts';
+import { productRevisionsApi, subProductsApi } from '../../../../../api/productsAPI.ts';
+import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
+import { translateApiError } from '../../../../../utils/apiError.ts';
+import type {
+  BomSubProduct,
+  RevisionPart,
+  RevisionPartInput,
+} from '../../../../../types/products.ts';
+import type { PanelScope, Selection } from '../../types.ts';
 
 interface SpRevLookup {
   (spId: number, revId: number): { sp?: { name: string }; rev?: { label: string } };
