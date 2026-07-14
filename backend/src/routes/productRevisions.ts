@@ -96,6 +96,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
        sp.id          AS "subProductId",
        sp.name        AS "subProductName",
        sp.sku         AS "subProductSku",
+       sp.image       AS "subProductImage",
        spr.id         AS "subProductRevisionId",
        spr.label      AS "subProductRevisionLabel",
        p.id           AS "partId",
@@ -120,6 +121,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
     subProductId: number;
     subProductName: string;
     subProductSku: string;
+    subProductImage: string | null;
     subProductRevisionId: number;
     subProductRevisionLabel: string;
     parts: any[];
@@ -131,6 +133,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
         subProductId: row.subProductId,
         subProductName: row.subProductName,
         subProductSku: row.subProductSku,
+        subProductImage: row.subProductImage ?? null,
         subProductRevisionId: row.subProductRevisionId,
         subProductRevisionLabel: row.subProductRevisionLabel,
         parts: [],

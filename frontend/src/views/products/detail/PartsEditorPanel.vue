@@ -1,29 +1,42 @@
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <!-- Header -->
-    <div class="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+    <div
+      class="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"
+    >
       <h3 class="flex min-w-0 items-center gap-2 font-semibold text-slate-700">
         <span class="truncate">{{ t('tab_parts') }}</span>
-        <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+        <span
+          class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
+        >
           {{ spName }} · {{ revLabel }}
         </span>
       </h3>
-      <span v-if="saving" class="shrink-0 text-xs text-slate-400">{{ t('saving') }}</span>
+      <span v-if="saving" class="shrink-0 text-xs text-slate-400">{{
+        t('saving')
+      }}</span>
     </div>
 
     <div class="flex-1 overflow-y-auto">
       <!-- ── Current parts of the revision ─────────────────────────────── -->
-      <div v-if="loading || allPartsLoading" class="py-8 text-center text-sm text-slate-400">
+      <div
+        v-if="loading || allPartsLoading"
+        class="py-8 text-center text-sm text-slate-400"
+      >
         {{ t('loading') }}
       </div>
-      <PartsTable v-else :parts="currentRows" :empty-text="t('no_parts_in_revision')">
-        <template #actions="{ part }">
+      <PartsTable
+        v-else
+        :parts="currentRows"
+        :empty-text="t('no_parts_in_revision')"
+      >
+        <template #qty="{ part }">
           <div class="flex items-center gap-1.5">
             <input
               type="number"
               min="0"
               step="1"
-              class="input !w-20 !py-1 text-right text-sm"
+              class="input !w-20 !py-1 text-center text-sm"
               :value="revisionPartOf(part.id)?.quantity ?? ''"
               :disabled="!canEdit || saving"
               :title="t('quantity')"
@@ -32,6 +45,10 @@
             <span class="w-8 truncate text-xs text-slate-400">
               {{ revisionPartOf(part.id)?.unit || '' }}
             </span>
+          </div>
+        </template>
+        <template #actions="{ part }">
+          <div class="flex items-center justify-center gap-1.5">
             <button
               v-if="canEdit"
               type="button"
@@ -49,13 +66,17 @@
       <!-- ── Add parts ─────────────────────────────────────────────────── -->
       <div v-if="canEdit" class="border-t-4 border-slate-100">
         <div class="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
-          <span class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <span
+            class="text-xs font-semibold uppercase tracking-wide text-slate-400"
+          >
             {{ t('add_part') }}
           </span>
         </div>
         <div class="px-4 pb-3">
           <div class="relative max-w-sm">
-            <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Search
+              class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+            />
             <input
               v-model="search"
               type="text"
@@ -65,13 +86,23 @@
           </div>
         </div>
 
-        <div v-if="allPartsLoading" class="py-6 text-center text-sm text-slate-400">
+        <div
+          v-if="allPartsLoading"
+          class="py-6 text-center text-sm text-slate-400"
+        >
           {{ t('loading') }}
         </div>
-        <PartsTable v-else :parts="availableParts" :empty-text="t('no_parts_found')">
+        <PartsTable
+          v-else
+          :parts="availableParts"
+          :empty-text="t('no_parts_found')"
+        >
           <template #actions="{ part }">
             <!-- Quantity entry after clicking add -->
-            <div v-if="addingPartId === part.id" class="flex items-center gap-1.5">
+            <div
+              v-if="addingPartId === part.id"
+              class="flex items-center gap-1.5"
+            >
               <input
                 :ref="(el) => setQtyInputRef(el, part.id)"
                 v-model.number="addQty"
@@ -129,15 +160,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, ref, toRef } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { Check, Plus, Search, Trash2, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ConfirmModal from '../../../components/notification/ConfirmModal.vue';
 import PartsTable from '../../parts/PartsTable.vue';
 import { usePartsStore } from '../../../stores/partsStore.ts';
+import { useRevisionPartRows } from './bom/composables/useRevisionPartRows.ts';
 import type { Part } from '../../../types/parts.ts';
-import type { RevisionPart, RevisionPartInput } from '../../../types/products.ts';
+import type {
+  RevisionPart,
+  RevisionPartInput,
+} from '../../../types/products.ts';
 
 const props = defineProps<{
   spName: string;
@@ -159,33 +194,11 @@ const { t } = useI18n();
 // the entire parts catalog every time; it's loaded once and reused.
 const partsStore = usePartsStore();
 const allParts = computed(() => partsStore.parts);
-const allPartsLoading = computed(() => partsStore.loading && partsStore.parts.length === 0);
 
-onMounted(() => {
-  if (partsStore.parts.length === 0 && !partsStore.loading) {
-    void partsStore.loadParts().catch(() => {});
-  }
-});
-
-// Revision parts joined with the catalog, so the table can show category,
-// location and parameters. Falls back to the revision's own data if a part
-// is missing from the catalog.
-const currentRows = computed<Part[]>(() =>
-  props.parts.map((rp) => {
-    const found = allParts.value.find((p) => p.id === rp.id);
-    if (found) return found;
-    return {
-      id: rp.id,
-      categoryId: rp.categoryId,
-      name: rp.name,
-      code: rp.code,
-      pricePerPiece: rp.pricePerPiece,
-      image: rp.image ?? null,
-      category: { id: rp.categoryId, name: '—', description: '' },
-      parameters: [],
-    };
-  }),
-);
+// Revision parts joined with the catalog (loads the catalog on mount) so the
+// table can show category, location and parameters. Shared with the BOM panel.
+const { rows: currentRows, catalogLoading: allPartsLoading } =
+  useRevisionPartRows(toRef(props, 'parts'));
 
 function revisionPartOf(partId: number): RevisionPart | undefined {
   return props.parts.find((p) => p.id === partId);
@@ -225,7 +238,9 @@ function onQtyChange(partId: number, e: Event) {
   }
   emit(
     'update',
-    toInputs(props.parts).map((p) => (p.partId === partId ? { ...p, quantity: qty } : p)),
+    toInputs(props.parts).map((p) =>
+      p.partId === partId ? { ...p, quantity: qty } : p,
+    ),
   );
 }
 
@@ -234,7 +249,10 @@ const addingPartId = ref<number | null>(null);
 const addQty = ref(1);
 const qtyInputs = new Map<number, HTMLInputElement>();
 
-function setQtyInputRef(el: Element | ComponentPublicInstance | null, partId: number) {
+function setQtyInputRef(
+  el: Element | ComponentPublicInstance | null,
+  partId: number,
+) {
   if (el instanceof HTMLInputElement) qtyInputs.set(partId, el);
   else qtyInputs.delete(partId);
 }
