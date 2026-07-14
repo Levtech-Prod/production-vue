@@ -185,6 +185,7 @@ export interface BomSubProduct {
   subProductId: number;
   subProductName: string;
   subProductSku: string;
+  subProductImage?: string | null;
   subProductRevisionId: number;
   subProductRevisionLabel: string;
   parts: BomPart[];

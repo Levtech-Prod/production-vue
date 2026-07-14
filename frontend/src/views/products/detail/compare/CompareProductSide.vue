@@ -39,7 +39,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
 import { ChevronRight } from 'lucide-vue-next';
-import type { SubProductRevision } from '../../../types/products.ts';
+import type { SubProductRevision } from '../../../../types/products.ts';
 import { PRODUCT_SIDE_GRID, sideAccentClass } from './compareHelpers.ts';
 
 defineProps<{

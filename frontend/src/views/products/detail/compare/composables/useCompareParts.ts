@@ -1,14 +1,14 @@
 import { computed, ref, watch } from 'vue';
 import type { Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { subProductsApi } from '../../../../api/productsAPI.ts';
-import { translateApiError } from '../../../../utils/apiError.ts';
-import { useNotificationStore } from '../../../../stores/notificationStore.ts';
+import { subProductsApi } from '../../../../../api/productsAPI.ts';
+import { translateApiError } from '../../../../../utils/apiError.ts';
+import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
 import type {
   ComparePartRow,
   ComparePartsResult,
   CompareStatus,
-} from '../../../../types/products.ts';
+} from '../../../../../types/products.ts';
 import { statusRank } from '../compareHelpers.ts';
 import type { CompareScope } from './useCompareRevisionSelection.ts';
 

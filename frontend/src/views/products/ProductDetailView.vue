@@ -20,7 +20,11 @@
       <!-- Main grid: structure tree + right panel -->
       <div
         class="mt-4 grid h-[75vh] items-stretch gap-4 transition-[grid-template-columns] duration-200"
-        :class="treeCollapsed ? 'lg:grid-cols-[3.25rem_1fr]' : 'lg:grid-cols-[20rem_1fr]'"
+        :class="
+          treeCollapsed
+            ? 'lg:grid-cols-[3.25rem_1fr]'
+            : 'lg:grid-cols-[20rem_1fr]'
+        "
       >
         <ProductTree
           :detail="detail"
@@ -79,7 +83,9 @@
             :uploading="docsUploading"
             :can-edit="!isArchived"
             :empty-text="
-              panelScope.kind === 'product' ? t('no_product_documents') : t('no_sp_rev_documents')
+              panelScope.kind === 'product'
+                ? t('no_product_documents')
+                : t('no_sp_rev_documents')
             "
             @upload-file="onUploadFile"
             @delete-doc="openDocDeleteConfirm"
@@ -91,8 +97,12 @@
             <PartsEditorPanel
               v-if="revisionsMode && selection.type === 'subProduct'"
               :key="selection.spRevId"
-              :sp-name="spRevInfo(selection.spId, selection.spRevId).sp?.name ?? ''"
-              :rev-label="spRevInfo(selection.spId, selection.spRevId).rev?.label ?? ''"
+              :sp-name="
+                spRevInfo(selection.spId, selection.spRevId).sp?.name ?? ''
+              "
+              :rev-label="
+                spRevInfo(selection.spId, selection.spRevId).rev?.label ?? ''
+              "
               :parts="parts"
               :loading="contentLoading"
               :saving="partsSaving"
@@ -106,6 +116,13 @@
               :parts="parts"
               :loading="contentLoading"
               :header-chip="bomHeaderChip"
+              @select="
+                onSelect({
+                  type: 'subProduct',
+                  spId: $event.spId,
+                  spRevId: $event.spRevId,
+                })
+              "
             />
           </template>
 
@@ -209,22 +226,26 @@ import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ProductTree from './detail/ProductTree.vue';
-import DocumentsPanel from './detail/DocumentsPanel.vue';
-import BomPanel from './detail/BomPanel.vue';
-import ComparePanel from './detail/ComparePanel.vue';
+import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
+import BomPanel from './detail/bom/BomPanel.vue';
+import ComparePanel from './detail/compare/ComparePanel.vue';
 import EditRevisionModal from './detail/EditRevisionModal.vue';
 import ComposeRevisionModal from './detail/ComposeRevisionModal.vue';
 import PartsEditorPanel from './detail/PartsEditorPanel.vue';
 import ProductOverviewCard from './detail/ProductOverviewCard.vue';
-import DocumentUploadModal from './detail/DocumentUploadModal.vue';
+import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
-import { useDocuments } from './detail/composables/useDocuments.ts';
-import { useBomAndParts } from './detail/composables/useBomAndParts.ts';
+import { useDocuments } from './detail/documents/composables/useDocuments.ts';
+import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from './detail/composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
-import { productsApi, subProductsApi, productRevisionsApi } from '../../api/productsAPI.ts';
+import {
+  productsApi,
+  subProductsApi,
+  productRevisionsApi,
+} from '../../api/productsAPI.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
   ProductRevision,
@@ -273,9 +294,17 @@ type RightPanelTab = 'documents' | 'bom' | 'compare';
 const activeTab = ref<RightPanelTab>('documents');
 
 const tabs = computed(() => [
-  { key: 'documents' as RightPanelTab, labelKey: 'tab_documents', icon: FileText },
+  {
+    key: 'documents' as RightPanelTab,
+    labelKey: 'tab_documents',
+    icon: FileText,
+  },
   { key: 'bom' as RightPanelTab, labelKey: 'tab_bom', icon: List },
-  { key: 'compare' as RightPanelTab, labelKey: 'tab_compare', icon: GitCompare },
+  {
+    key: 'compare' as RightPanelTab,
+    labelKey: 'tab_compare',
+    icon: GitCompare,
+  },
 ]);
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
@@ -327,7 +356,10 @@ watch(panelScope, (scope) => {
 async function onSetDefaultRevision() {
   if (activeProductRevId.value == null) return;
   try {
-    await productsApi.setDefaultRevision(productId.value, activeProductRevId.value);
+    await productsApi.setDefaultRevision(
+      productId.value,
+      activeProductRevId.value,
+    );
     notify.showToast(t('success.set_default_revision'), 'success');
     await reload();
   } catch (err: any) {
@@ -343,7 +375,10 @@ async function onSetDefaultRevision() {
 const composeModalOpen = ref(false);
 const modalSaving = ref(false);
 
-async function onSaveComposition(payload: { label: string; changeNotes: string | null }) {
+async function onSaveComposition(payload: {
+  label: string;
+  changeNotes: string | null;
+}) {
   modalSaving.value = true;
   try {
     const res = await store.createRevision(productId.value, {
@@ -352,7 +387,10 @@ async function onSaveComposition(payload: { label: string; changeNotes: string |
       duplicateFromId: null,
     });
     const newRev = res.data;
-    await productRevisionsApi.setSubProducts(newRev.id, Object.values(composeSelection.value));
+    await productRevisionsApi.setSubProducts(
+      newRev.id,
+      Object.values(composeSelection.value),
+    );
     notify.showToast(t('success.save_revision'), 'success');
     composeModalOpen.value = false;
     await reload();
@@ -360,7 +398,10 @@ async function onSaveComposition(payload: { label: string; changeNotes: string |
     composingRevision.value = false;
     composeSelection.value = {};
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.save_revision_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.save_revision_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
@@ -400,7 +441,10 @@ async function onEditRevisionSaved(payload: EditRevisionPayload) {
     editTarget.value = null;
     await reload();
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.update_revision_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.update_revision_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
@@ -425,9 +469,14 @@ const {
   try {
     await subProductsApi.deleteRevision(target.spId, target.revId);
     dropPartsRevision(target.revId);
-    dropDocsCacheKey(docsKeyFor({ kind: 'spRev', spId: target.spId, revId: target.revId }));
+    dropDocsCacheKey(
+      docsKeyFor({ kind: 'spRev', spId: target.spId, revId: target.revId }),
+    );
     compareRefresh.value++;
-    if (selection.value.type === 'subProduct' && selection.value.spRevId === target.revId) {
+    if (
+      selection.value.type === 'subProduct' &&
+      selection.value.spRevId === target.revId
+    ) {
       selection.value = { type: 'product' };
     }
     notify.showToast(t('revision_deleted'), 'success');
@@ -436,13 +485,21 @@ const {
     dropFromComposition(target.spId, target.revId);
     return true;
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.delete_revision_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.delete_revision_failed'),
+      'error',
+    );
     return false;
   }
 });
 
 function openDeleteRevConfirm(sp: DetailSubProduct, rev: SubProductRevision) {
-  openRevDeleteTarget({ spId: sp.id, revId: rev.id, spName: sp.name, revLabel: rev.label });
+  openRevDeleteTarget({
+    spId: sp.id,
+    revId: rev.id,
+    spName: sp.name,
+    revLabel: rev.label,
+  });
 }
 
 // ── Delete a whole sub-product (with confirmation) ───────────────────────────
@@ -459,10 +516,15 @@ const {
     const sp = detail.value?.subProducts.find((s) => s.id === target.spId);
     for (const rev of sp?.revisions ?? []) {
       dropPartsRevision(rev.id);
-      dropDocsCacheKey(docsKeyFor({ kind: 'spRev', spId: target.spId, revId: rev.id }));
+      dropDocsCacheKey(
+        docsKeyFor({ kind: 'spRev', spId: target.spId, revId: rev.id }),
+      );
     }
     compareRefresh.value++;
-    if (selection.value.type === 'subProduct' && selection.value.spId === target.spId) {
+    if (
+      selection.value.type === 'subProduct' &&
+      selection.value.spId === target.spId
+    ) {
       selection.value = { type: 'product' };
     }
     dropFromComposition(target.spId);
@@ -471,7 +533,10 @@ const {
     await reload();
     return true;
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.delete_sub_product_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.delete_sub_product_failed'),
+      'error',
+    );
     return false;
   }
 });
@@ -497,13 +562,18 @@ async function reload() {
   clearBomCache();
 }
 
-async function onCreateSubProduct(payload: SubProductPayload, addToRevisionId: number | null) {
+async function onCreateSubProduct(
+  payload: SubProductPayload,
+  addToRevisionId: number | null,
+) {
   modalSaving.value = true;
   try {
     const res = await subProductsApi.create(productId.value, payload);
     const newRev = res.data.revisions?.[0];
     if (addToRevisionId && newRev) {
-      const existing = Array.from(membershipMap.value.get(addToRevisionId) ?? []);
+      const existing = Array.from(
+        membershipMap.value.get(addToRevisionId) ?? [],
+      );
       await productRevisionsApi.setSubProducts(
         addToRevisionId,
         Array.from(new Set([...existing, newRev.id])),
@@ -518,13 +588,18 @@ async function onCreateSubProduct(payload: SubProductPayload, addToRevisionId: n
       await reload();
     }
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.save_sub_product_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.save_sub_product_failed'),
+      'error',
+    );
   } finally {
     modalSaving.value = false;
   }
 }
 
-async function onCreateSubProductRevision(payload: NewSubProductRevisionPayload) {
+async function onCreateSubProductRevision(
+  payload: NewSubProductRevisionPayload,
+) {
   if (!activeSubProduct.value) return;
   const spId = activeSubProduct.value.id;
   modalSaving.value = true;
@@ -536,11 +611,18 @@ async function onCreateSubProductRevision(payload: NewSubProductRevisionPayload)
     // While actively composing a new revision, the fresh revision is what
     // the user most likely wants in it — check it right away.
     if (composingRevision.value && res.data?.id != null) {
-      composeSelection.value = { ...composeSelection.value, [spId]: res.data.id };
+      composeSelection.value = {
+        ...composeSelection.value,
+        [spId]: res.data.id,
+      };
     }
   } catch (err: any) {
     notify.showToast(
-      translateApiError(err, { t, te }, 'errors.save_sub_product_revision_failed'),
+      translateApiError(
+        err,
+        { t, te },
+        'errors.save_sub_product_revision_failed',
+      ),
       'error',
     );
   } finally {

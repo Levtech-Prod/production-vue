@@ -2,7 +2,7 @@
 // components. Kept dependency-free (no `ref`/`computed`) so they're easy to
 // unit test and reuse from any component without wiring up reactivity.
 
-import type { CompareStatus, ComparePartRow, ComparePartSide } from '../../../types/products.ts';
+import type { CompareStatus, ComparePartRow, ComparePartSide } from '../../../../types/products.ts';
 
 // ── Layout ────────────────────────────────────────────────────────────────
 // Grid-template-column strings shared by every compare table. Centralised

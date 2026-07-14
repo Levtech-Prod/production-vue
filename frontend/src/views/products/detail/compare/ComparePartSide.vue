@@ -55,7 +55,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { ComparePartRow, ComparePartSide as PartSideData } from '../../../types/products.ts';
+import type { ComparePartRow, ComparePartSide as PartSideData } from '../../../../types/products.ts';
 import { PART_SIDE_GRID, hasDetails, sideAccentClass, sideQty } from './compareHelpers.ts';
 
 defineProps<{

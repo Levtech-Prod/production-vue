@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ComparePartRow as ComparePartRowT } from '../../../types/products.ts';
+import type { ComparePartRow as ComparePartRowT } from '../../../../types/products.ts';
 import ComparePartSide from './ComparePartSide.vue';
 import CompareStatusDot from './CompareStatusDot.vue';
 import { outerGrid, partSame, qtyDelta } from './compareHelpers.ts';

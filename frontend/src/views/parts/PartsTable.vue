@@ -10,12 +10,16 @@
           <th class="p-4">{{ t('price_per_piece') }}</th>
           <th class="p-4">{{ t('location') }}</th>
           <th class="p-4">{{ t('parameters') }}</th>
+          <th class="p-4">{{ t('quantity') }}</th>
           <th v-if="hasActions" class="p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="parts.length === 0">
-          <td :colspan="hasActions ? 8 : 7" class="py-12 text-center text-sm text-slate-400">
+          <td
+            :colspan="hasActions ? 8 : 7"
+            class="py-12 text-center text-sm text-slate-400"
+          >
             {{ emptyText || t('no_parts_msg') }}
           </td>
         </tr>
@@ -61,8 +65,13 @@
               >
                 {{ v.parameter?.name }}: {{ v.value }}
               </span>
-              <span v-if="!part.parameters?.length" class="text-slate-300">—</span>
+              <span v-if="!part.parameters?.length" class="text-slate-300"
+                >—</span
+              >
             </div>
+          </td>
+          <td v-if="hasActions" class="p-4">
+            <slot name="qty" :part="part" />
           </td>
           <td v-if="hasActions" class="p-4">
             <slot name="actions" :part="part" />

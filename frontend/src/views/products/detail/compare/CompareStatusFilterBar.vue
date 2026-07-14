@@ -30,7 +30,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import type { CompareStatus } from '../../../types/products.ts';
+import type { CompareStatus } from '../../../../types/products.ts';
 import type { StatusFilterDef } from './composables/useCompareParts.ts';
 
 defineProps<{

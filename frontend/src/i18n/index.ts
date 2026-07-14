@@ -198,6 +198,7 @@ const messages = {
     bom_sub_product_header: '{name}',
     bom_main_product: 'Main product',
     bom_sub_rev_scope: '{name} · {label}',
+    view_sub_product_parts: 'View parts of this sub-product',
 
     // Product revisions section
     product_revisions_title: 'Product revisions',
@@ -556,6 +557,7 @@ const messages = {
     bom_sub_product_header: '{name}',
     bom_main_product: 'Fő termék',
     bom_sub_rev_scope: '{name} · {label}',
+    view_sub_product_parts: 'Az altermék alkatrészeinek megtekintése',
 
     // Termékrevíziók szekció
     product_revisions_title: 'Termékrevíziók',
