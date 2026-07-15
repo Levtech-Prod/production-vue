@@ -39,13 +39,14 @@
 </template>
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useI18n } from 'vue-i18n';
 import { translateApiError } from '../utils/apiError';
 
 const { t, te } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const error = ref('');
 const form = reactive({
@@ -58,7 +59,8 @@ const form = reactive({
 async function submit() {
   try {
     await auth.signup(form);
-    router.push('/dashboard');
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
+    router.push(redirect);
   } catch (err: any) {
     error.value = translateApiError(err, { t, te }, 'errors.could_not_create_user');
   }
