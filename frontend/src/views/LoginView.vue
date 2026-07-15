@@ -26,7 +26,7 @@
 </template>
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useI18n } from 'vue-i18n';
 import { translateApiError } from '../utils/apiError';
@@ -35,13 +35,15 @@ const email = ref('');
 const password = ref('');
 const error = ref('');
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const { t, te } = useI18n();
 
 async function submit() {
   try {
     await auth.login(email.value, password.value);
-    router.push('/dashboard');
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
+    router.push(redirect);
   } catch (err: any) {
     error.value = translateApiError(err, { t, te }, 'errors.invalid_login_data');
   }
