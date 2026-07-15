@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-levtechproduction}
+      POSTGRES_USER: ${POSTGRES_USER:-levtech}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/database:/docker-entrypoint-initdb.d/source:ro
+      - ./backend/database/init.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-levtech} -d ${POSTGRES_DB:-levtechproduction}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    # No "build:" here on purpose — the DS718+'s 2 GB RAM can't reliably
+    # compile this image. Build it on a machine with more RAM (see DEPLOY.md)
+    # and import it into Container Manager under this exact name/tag.
+    image: prodtrack-backend:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-levtech}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-levtechproduction}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      PORT: 4000
+      FRONTEND_URL: "*"
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    # Same reasoning as backend: built off-NAS, imported by name/tag.
+    image: prodtrack-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${HOST_PORT:-8080}:80"
+
+volumes:
+  pgdata:
+  uploads:
