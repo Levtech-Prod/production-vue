@@ -56,24 +56,53 @@ vi .env   # or: nano .env
 
 Via GUI: open `.env.example` in File Station's text editor, edit values, save as `.env` in the same folder.
 
-## 5. Build and start the containers
+## 5. Build the images on your Mac, then import them (required for a fixed 2 GB DS718+)
 
-**Via Container Manager (GUI):**
+The stock DS718+'s 2 GB RAM can't reliably run `npm ci`/`vue-tsc`/`vite build`/`tsc` — the kernel OOM-kills the build partway through (that's the "Exit handler never called!" error). Since this NAS's RAM can't be upgraded, the images have to be **built elsewhere and only run on the NAS**. `docker-compose.yml` is already set up for this: `backend` and `frontend` reference `image: prodtrack-backend:latest` / `image: prodtrack-frontend:latest` with no `build:` step, so once those images exist on the NAS, Container Manager only ever starts containers — it never compiles anything.
 
-1. Open **Container Manager > Project > Create**.
-2. Project name: `prodtrack`.
-3. Path: select `docker/prodtrack` (the folder from step 3, which contains `docker-compose.yml`).
-4. Source: choose **Use existing docker-compose.yml** — Container Manager will detect the file already in that folder.
-5. Click **Next**, review, then **Done/Build**.
+Running the finished containers (Postgres + compiled Node backend + static files behind Nginx) takes well under 1 GB combined, so the NAS handles the *running* app comfortably. It's only compiling that's off the table.
 
-**Via SSH instead:**
+### 5a. Install Docker Desktop on your Mac
+
+1. Download it from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) and install normally.
+2. Launch Docker Desktop once and let it finish starting (whale icon steady in the menu bar).
+
+### 5b. Build both images (targeting the NAS's CPU architecture)
+
+The DS718+ is x86_64/amd64, so build explicitly for that platform even if your Mac is Apple Silicon — Docker Desktop's buildx handles the cross-compile automatically.
 
 ```bash
-cd /volume1/docker/prodtrack
-sudo docker compose up -d --build
+cd /path/to/Levtech
+docker buildx build --platform linux/amd64 -t prodtrack-backend:latest --load ./backend
+docker buildx build --platform linux/amd64 -t prodtrack-frontend:latest --load -f frontend/Dockerfile --build-arg VITE_API_URL=/api .
 ```
 
-The first build compiles the TypeScript backend, runs `vue-tsc`/`vite build` for the frontend, and downloads the `postgres:16-alpine` and `nginx:alpine` base images. On DS718+ hardware this typically takes 5–15 minutes — this is a one-time cost; later restarts are fast. On the first successful start of the `db` container, `backend/database/schema.sql` and any files in `backend/database/migrations/` are applied automatically to create the tables.
+(`--load` puts the finished images into your local Docker Desktop so the next step can export them. The frontend build uses the repo root as context — same reason as before: it needs `backend/src/schemas`.)
+
+### 5c. Export both images to one file
+
+```bash
+docker save prodtrack-backend:latest prodtrack-frontend:latest -o prodtrack-images.tar
+```
+
+This produces a single `prodtrack-images.tar` (likely a few hundred MB).
+
+### 5d. Get the tar onto the NAS and import it — no registry account needed
+
+1. In DSM, open **File Station**, upload `prodtrack-images.tar` into `docker/prodtrack` (same folder as the project).
+2. Open **Container Manager > Image**.
+3. Click **Add > Add From File**, browse to the uploaded `prodtrack-images.tar`, and import it.
+4. Confirm both `prodtrack-backend:latest` and `prodtrack-frontend:latest` now appear in the Image list.
+
+### 5e. Create the project
+
+1. **Container Manager > Project > Create**.
+2. Project name: `prodtrack`.
+3. Path: select `docker/prodtrack` (contains `docker-compose.yml` and `.env`).
+4. Source: **Use existing docker-compose.yml**.
+5. Click **Next**, review, **Done**.
+
+Because the compose file has no `build:` steps, this only pulls `postgres:16-alpine` and `nginx:alpine` (small, prebuilt, low memory) and starts all three containers using the images you already imported — nothing gets compiled on the NAS. On the first successful start of the `db` container, `backend/database/schema.sql` and any files in `backend/database/migrations/` are applied automatically to create the tables.
 
 ## 6. Verify
 
@@ -91,7 +120,7 @@ If a container shows an error status, check its logs in Container Manager (click
 
 - **Database**: schedule a `pg_dump` via DSM **Task Scheduler** (Control Panel > Task Scheduler > Create > Scheduled Task > User-defined script):
   ```bash
-  docker exec prodtrack-db-1 pg_dump -U produser prodtrack | gzip > /volume1/docker/prodtrack-backups/db-$(date +%F).sql.gz
+  docker exec prodtrack-db-1 pg_dump -U levtech levtechproduction | gzip > /volume1/docker/prodtrack-backups/db-$(date +%F).sql.gz
   ```
 - **Uploaded files** (`uploads` volume, used for part-category images and documents): back up with
   ```bash
@@ -105,22 +134,26 @@ If a container shows an error status, check its logs in Container Manager (click
 
 ## Notes on DS718+ hardware limits
 
-The stock DS718+ ships with 2 GB RAM (expandable to 6 GB). Building all three images the first time (`npm ci`, `vue-tsc`, `vite build`, `tsc`) is the most memory/CPU-intensive moment. If the build stalls or the container gets OOM-killed:
+The stock DS718+ has 2 GB RAM. That's enough to *run* three small containers (Postgres + compiled Node + Nginx serving static files) comfortably, but not enough to reliably *compile* them (`npm ci` + `vue-tsc` + `vite build` + `tsc` are memory-hungry and get OOM-killed). That's why step 5 builds images on a separate machine and only imports the finished result — this isn't a workaround for a one-off failure, it's the standing approach for this hardware, since the RAM ceiling here is fixed.
 
-- Pause other running containers/services during the build, or
-- Add RAM, or
-- Build the images on your Mac instead (`docker buildx build --platform linux/amd64 ...`), push them to a registry (e.g. Docker Hub), and reference the pre-built image names in `docker-compose.yml` instead of `build:` — then the NAS only has to pull, not compile.
+If you ever see `error Exit handler never called!` again, it means something tried to run `npm ci` directly on the NAS — double check `docker-compose.yml` still has `image:` (not `build:`) for `backend` and `frontend`.
 
 ## Updating the app later
 
+Rebuild off the NAS and re-import, the same way as the initial deploy:
+
 ```bash
-cd /volume1/docker/prodtrack
+cd /path/to/Levtech
 git pull
-sudo docker compose up -d --build
+docker buildx build --platform linux/amd64 -t prodtrack-backend:latest --load ./backend
+docker buildx build --platform linux/amd64 -t prodtrack-frontend:latest --load -f frontend/Dockerfile --build-arg VITE_API_URL=/api .
+docker save prodtrack-backend:latest prodtrack-frontend:latest -o prodtrack-images.tar
 ```
+
+Upload the new `prodtrack-images.tar` via File Station and import it again (**Container Manager > Image > Add > Add From File**) — importing an image with a tag that already exists overwrites it. Then in **Container Manager > Project > prodtrack**, use **Action > Restart** (or **Stop** then **Start**) to pick up the new images; no rebuild happens on the NAS.
 
 New migration files placed in `backend/database/migrations/` after the database already exists won't run automatically (the init script only runs once, against an empty database). Apply them manually:
 
 ```bash
-docker exec -i prodtrack-db-1 psql -U produser -d prodtrack -f /docker-entrypoint-initdb.d/source/migrations/<new-file>.sql
+docker exec -i prodtrack-db-1 psql -U levtech -d levtechproduction -f /docker-entrypoint-initdb.d/source/migrations/<new-file>.sql
 ```

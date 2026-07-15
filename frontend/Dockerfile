@@ -7,10 +7,10 @@ FROM node:22-alpine AS build
 WORKDIR /repo
 
 COPY frontend/package*.json frontend/
-RUN npm ci --prefix frontend
+RUN npm ci --prefix frontend --no-audit --no-fund
 
 COPY backend/package*.json backend/
-RUN npm ci --prefix backend
+RUN npm ci --prefix backend --no-audit --no-fund
 COPY backend/src backend/src
 
 COPY frontend frontend
