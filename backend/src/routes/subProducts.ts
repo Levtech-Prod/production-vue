@@ -159,10 +159,10 @@ router.post('/', requireAuth, async (req, res) => {
       [
         data.productId,
         data.name,
-        data.sku,
-        data.type || null,
+        data.sku || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
       ],
     );
     const subProduct = spResult.rows[0];
@@ -222,10 +222,10 @@ router.patch('/:spId', requireAuth, async (req, res) => {
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         data.name,
-        data.sku,
-        data.type || null,
+        data.sku || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
         spId,
       ],
     );

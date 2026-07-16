@@ -274,7 +274,7 @@
                     {{ row.sp.name }}
                   </div>
                   <div class="truncate font-mono text-xs text-slate-400">
-                    {{ row.sp.sku }}
+                    {{ row.sp.sku || '—' }}
                   </div>
                 </div>
                 <span
@@ -314,7 +314,7 @@
                     {{ sp.name }}
                   </div>
                   <div class="truncate font-mono text-xs text-slate-400">
-                    {{ sp.sku }}
+                    {{ sp.sku || '—' }}
                   </div>
                 </div>
               </div>

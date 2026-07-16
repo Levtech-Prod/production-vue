@@ -3,7 +3,7 @@
     <label
       v-if="label"
       class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-      >{{ label }}</label
+      >{{ label }} <span v-if="required" class="text-red-500">*</span></label
     >
 
     <!-- Existing image preview -->
@@ -43,8 +43,11 @@
       :label="label"
       :target="target"
       :is-file-uploaded="false"
+      :required="required"
       @uploaded="(url: string) => (modelValue = url)"
     />
+
+    <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
   </div>
 </template>
 
@@ -60,6 +63,12 @@ defineProps<{
   target: UploadTarget;
   // Alt text for the saved-image preview thumbnail. Falls back to `label`.
   previewAlt?: string;
+  // When true and no image is set yet, the underlying file input is marked
+  // required so native form validation blocks submission without one.
+  required?: boolean;
+  // Translated validation message shown under the field (e.g. "is
+  // required") — set by the parent form after a failed submit attempt.
+  error?: string | null;
 }>();
 
 const { t } = useI18n();

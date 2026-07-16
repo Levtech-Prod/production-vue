@@ -4,7 +4,7 @@
     :title="`${t('new_sub_product_revision')}${subProduct ? ' — ' + subProduct.name : ''}`"
     size="xl"
   >
-    <form id="spr-form" class="flex flex-col gap-4" @submit.prevent="submit">
+    <form id="spr-form" novalidate class="flex flex-col gap-4" @submit.prevent="submit">
       <div v-if="saveError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
         {{ saveError }}
       </div>
@@ -12,7 +12,7 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {{ t('label') }}
+            {{ t('label') }} <span class="text-red-500">*</span>
           </label>
           <input
             v-model="form.label"
@@ -20,6 +20,7 @@
             required
             :placeholder="t('revision_label_placeholder')"
           />
+          <p v-if="fieldErrors.label" class="text-xs text-red-500">{{ fieldErrors.label }}</p>
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -45,7 +46,7 @@
         <textarea v-model="form.changeNotes" rows="2" class="input" />
       </div>
 
-      <PartsPicker v-model="selectedParts" />
+      <PartsPicker ref="partsPickerRef" v-model="selectedParts" />
     </form>
 
     <template #footer>
@@ -60,13 +61,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import PartsPicker from './PartsPicker.vue';
 import { subProductsApi } from '../../api/productsAPI.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
+import { requiredFieldErrors } from '../../utils/zodErrors.ts';
 import type {
   DetailSubProduct,
   NewSubProductRevisionPayload,
@@ -91,6 +93,15 @@ const form = ref<{ label: string; changeNotes: string }>({
 });
 const copyFromId = ref<number | null>(null);
 const selectedParts = ref<SelectedPart[]>([]);
+const partsPickerRef = ref<InstanceType<typeof PartsPicker> | null>(null);
+const attemptedSubmit = ref(false);
+const fieldErrors = computed<Record<string, string>>(() => {
+  if (!attemptedSubmit.value) return {};
+  return requiredFieldErrors(
+    [{ key: 'label', label: t('label'), missing: !form.value.label.trim() }],
+    t,
+  );
+});
 
 // Prefill the parts list from an existing revision (edited locally, then sent
 // explicitly — so we do NOT also pass duplicateFromId to the API).
@@ -123,9 +134,18 @@ watch(open, (isOpen) => {
   form.value = { label: `Rev. ${next}`, changeNotes: '' };
   selectedParts.value = [];
   copyFromId.value = null;
+  attemptedSubmit.value = false;
+  partsPickerRef.value?.resetValidation();
 });
 
 function submit() {
+  attemptedSubmit.value = true;
+  // The quantity <input> normally blocks submission natively when cleared
+  // — that's disabled (novalidate) in favor of PartsPicker's own inline
+  // validation, so it must be checked explicitly here too.
+  const partsValid = partsPickerRef.value?.validate() ?? true;
+  if (Object.keys(fieldErrors.value).length || !partsValid) return;
+
   emit('saved', {
     label: form.value.label.trim(),
     changeNotes: form.value.changeNotes.trim() || null,

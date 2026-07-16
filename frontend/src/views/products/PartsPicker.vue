@@ -43,7 +43,7 @@
       <thead class="bg-slate-50 text-xs uppercase text-slate-500">
         <tr>
           <th class="px-4 py-2">{{ t('name') }}</th>
-          <th class="w-28 px-4 py-2">{{ t('quantity') }}</th>
+          <th class="w-28 px-4 py-2">{{ t('quantity') }} <span class="text-red-500">*</span></th>
           <th class="w-28 px-4 py-2">{{ t('unit') }}</th>
           <th class="px-4 py-2">{{ t('notes') }}</th>
           <th class="w-10 px-4 py-2"></th>
@@ -66,6 +66,7 @@
               @keydown="(e) => ['.', ',', 'e', 'E', '+', '-'].includes(e.key) && e.preventDefault()"
               @input="row.quantity = Math.trunc(row.quantity)"
             />
+            <p v-if="rowErrors[i]" class="mt-1 text-xs text-red-500">{{ rowErrors[i] }}</p>
           </td>
           <td class="px-4 py-2">
             <input v-model="row.unit" class="input !py-1" placeholder="pcs" />
@@ -96,6 +97,7 @@ import { Trash2 } from 'lucide-vue-next';
 import { partsApi } from '../../api/partsAPI.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
+import { requiredFieldErrors } from '../../utils/zodErrors.ts';
 import type { Part } from '../../types/parts.ts';
 import type { SelectedPart } from '../../types/products.ts';
 
@@ -108,6 +110,35 @@ const model = defineModel<SelectedPart[]>({ default: () => [] });
 const parts = ref<Part[]>([]);
 const partsLoading = ref(false);
 const partToAdd = ref(0);
+
+// Quantity is the only required field per row (its <input> normally blocks
+// submission natively when cleared, but the parent form uses `novalidate`
+// so this replaces that with an inline, translated message instead).
+const attemptedSubmit = ref(false);
+const rowErrors = computed<Record<string, string>>(() => {
+  if (!attemptedSubmit.value) return {};
+  return requiredFieldErrors(
+    model.value.map((row, i) => ({
+      key: String(i),
+      label: t('quantity'),
+      missing: !Number.isFinite(Number(row.quantity)) || `${row.quantity}`.trim() === '',
+    })),
+    t,
+  );
+});
+
+// Called by the parent form on submit. Returns whether all rows are valid.
+function validate(): boolean {
+  attemptedSubmit.value = true;
+  return Object.keys(rowErrors.value).length === 0;
+}
+
+// Called by the parent form when it resets (e.g. modal reopened).
+function resetValidation() {
+  attemptedSubmit.value = false;
+}
+
+defineExpose({ validate, resetValidation });
 
 const availableParts = computed(() =>
   parts.value.filter((p) => !model.value.some((s) => s.partId === p.id)),

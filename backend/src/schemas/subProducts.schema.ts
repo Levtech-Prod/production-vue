@@ -4,10 +4,11 @@ import { revisionPartInputSchema } from './parts.schema.js';
 /** Base sub-product fields shared by create and update. */
 export const subProductPayloadSchema = z.object({
   name: z.string().min(2),
-  sku: z.string().min(1),
-  type: z.string().optional().nullable(),
+  // Optional, unlike products.sku: sub-products may be created without one.
+  sku: z.string().min(1).optional().nullable(),
+  type: z.string().min(1),
   description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
+  image: z.string().min(1),
 });
 export type SubProductPayload = z.input<typeof subProductPayloadSchema>;
 

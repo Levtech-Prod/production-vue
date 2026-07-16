@@ -1,15 +1,16 @@
 <template>
   <BaseModal v-model="open" :title="t('new_revision')" size="md">
-    <form id="revision-form" class="flex flex-col gap-4" @submit.prevent="submit">
+    <form id="revision-form" novalidate class="flex flex-col gap-4" @submit.prevent="submit">
       <div v-if="saveError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
         {{ saveError }}
       </div>
 
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {{ t('label') }}
+          {{ t('label') }} <span class="text-red-500">*</span>
         </label>
         <input v-model="form.label" class="input" required :placeholder="t('revision_label_placeholder')" />
+        <p v-if="fieldErrors.label" class="text-xs text-red-500">{{ fieldErrors.label }}</p>
       </div>
 
       <div class="flex flex-col gap-1">
@@ -45,9 +46,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
+import { requiredFieldErrors } from '../../utils/zodErrors.ts';
 import type { ProductRevision, NewRevisionPayload } from '../../types/products.ts';
 
 const props = defineProps<{
@@ -66,6 +68,14 @@ const form = reactive<NewRevisionPayload>({
   changeNotes: '',
   duplicateFromId: null,
 });
+const attemptedSubmit = ref(false);
+const fieldErrors = computed<Record<string, string>>(() => {
+  if (!attemptedSubmit.value) return {};
+  return requiredFieldErrors(
+    [{ key: 'label', label: t('label'), missing: !form.label.trim() }],
+    t,
+  );
+});
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -76,9 +86,13 @@ watch(open, (isOpen) => {
   form.duplicateFromId = props.revisions.length
     ? props.revisions[props.revisions.length - 1].id
     : null;
+  attemptedSubmit.value = false;
 });
 
 function submit() {
+  attemptedSubmit.value = true;
+  if (Object.keys(fieldErrors.value).length) return;
+
   emit('saved', {
     label: form.label.trim(),
     changeNotes: form.changeNotes?.trim() || null,

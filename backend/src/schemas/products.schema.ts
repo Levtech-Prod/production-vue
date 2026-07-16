@@ -7,9 +7,9 @@ export type ProductStatus = z.infer<typeof productStatusSchema>;
 export const productPayloadSchema = z.object({
   name: z.string().min(2),
   sku: z.string().min(1),
-  type: z.string().optional().nullable(),
+  type: z.string().min(1),
   description: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
+  image: z.string().min(1),
 });
 export type ProductPayload = z.input<typeof productPayloadSchema>;
 

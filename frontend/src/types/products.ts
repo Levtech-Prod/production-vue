@@ -17,8 +17,8 @@ export interface ProductSummary {
   id: number;
   name: string;
   sku: string;
-  type?: string | null;
-  image?: string | null;
+  type: string;
+  image: string;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;
@@ -41,9 +41,9 @@ export interface SubProductRevision {
 export interface SubProductSummary {
   id: number;
   name: string;
-  sku: string;
-  type?: string | null;
-  image?: string | null;
+  sku: string | null;
+  type: string;
+  image: string;
   description?: string | null;
   revisions: SubProductRevision[];
 }
@@ -61,9 +61,9 @@ export interface RevisionMembership {
 export interface DetailSubProduct {
   id: number;
   name: string;
-  sku: string;
-  type?: string | null;
-  image?: string | null;
+  sku: string | null;
+  type: string;
+  image: string;
   revisions: SubProductRevision[];
 }
 
@@ -71,8 +71,8 @@ export interface ProductDetail {
   id: number;
   name: string;
   sku: string;
-  type?: string | null;
-  image?: string | null;
+  type: string;
+  image: string;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;
@@ -112,7 +112,7 @@ export interface CompareSide {
 export interface CompareSubProduct {
   subProductId: number;
   name: string;
-  sku: string;
+  sku: string | null;
   inA: CompareSide | null;
   inB: CompareSide | null;
   status: CompareStatus;
@@ -184,7 +184,7 @@ export interface BomPart {
 export interface BomSubProduct {
   subProductId: number;
   subProductName: string;
-  subProductSku: string;
+  subProductSku: string | null;
   subProductImage?: string | null;
   subProductRevisionId: number;
   subProductRevisionLabel: string;

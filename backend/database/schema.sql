@@ -104,8 +104,9 @@ CREATE TABLE IF NOT EXISTS products (
   id          SERIAL PRIMARY KEY,
   name        VARCHAR(255) NOT NULL,
   sku         VARCHAR(100) NOT NULL UNIQUE,
-  type        VARCHAR(100),
-  image       TEXT,
+  -- Required (see migration 003).
+  type        VARCHAR(100) NOT NULL,
+  image       TEXT NOT NULL,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -116,9 +117,12 @@ CREATE TABLE IF NOT EXISTS sub_products (
   -- Every sub-product belongs to one main product (see migration 001).
   product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
   name        VARCHAR(255) NOT NULL,
-  sku         VARCHAR(100) NOT NULL UNIQUE,
-  type        VARCHAR(100),
-  image       TEXT,
+  -- Optional (see migration 002): unlike products.sku, a sub-product may be
+  -- created without one. UNIQUE still allows any number of NULLs in Postgres.
+  sku         VARCHAR(100) UNIQUE,
+  -- Required (see migration 003).
+  type        VARCHAR(100) NOT NULL,
+  image       TEXT NOT NULL,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()

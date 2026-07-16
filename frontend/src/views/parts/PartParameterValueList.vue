@@ -65,20 +65,54 @@
           :placeholder="p.name"
           :required="p.required"
         />
+
+        <p v-if="fieldErrors[p.id!]" class="text-xs text-red-500">{{ fieldErrors[p.id!] }}</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { requiredFieldErrors } from '../../utils/zodErrors.ts';
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
 const { t } = useI18n();
 
-defineProps<{
+const props = defineProps<{
   parameters: PartCategoryParameter[];
 }>();
 
 const values = defineModel<Record<number, string>>({ required: true });
+
+// Booleans are always "set" (checked or not) — same as the native `required`
+// this replaces, only text/number/dropdown parameters are checked here.
+const attemptedSubmit = ref(false);
+const fieldErrors = computed<Record<string, string>>(() => {
+  if (!attemptedSubmit.value) return {};
+  return requiredFieldErrors(
+    props.parameters
+      .filter((p) => p.required && p.type !== 'boolean')
+      .map((p) => ({
+        key: String(p.id),
+        label: p.name,
+        missing: !(values.value[p.id!] ?? '').toString().trim(),
+      })),
+    t,
+  );
+});
+
+// Called by the parent form on submit. Returns whether all fields are valid.
+function validate(): boolean {
+  attemptedSubmit.value = true;
+  return Object.keys(fieldErrors.value).length === 0;
+}
+
+// Called by the parent form when it resets (e.g. modal reopened).
+function resetValidation() {
+  attemptedSubmit.value = false;
+}
+
+defineExpose({ validate, resetValidation });
 </script>
