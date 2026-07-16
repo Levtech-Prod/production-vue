@@ -46,10 +46,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { ProductRevision, NewRevisionPayload } from '../../types/products.ts';
 
 const props = defineProps<{
@@ -68,14 +68,9 @@ const form = reactive<NewRevisionPayload>({
   changeNotes: '',
   duplicateFromId: null,
 });
-const attemptedSubmit = ref(false);
-const fieldErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    [{ key: 'label', label: t('label'), missing: !form.label.trim() }],
-    t,
-  );
-});
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'label', label: t('label'), missing: !form.label.trim() },
+]);
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -86,12 +81,11 @@ watch(open, (isOpen) => {
   form.duplicateFromId = props.revisions.length
     ? props.revisions[props.revisions.length - 1].id
     : null;
-  attemptedSubmit.value = false;
+  resetValidation();
 });
 
 function submit() {
-  attemptedSubmit.value = true;
-  if (Object.keys(fieldErrors.value).length) return;
+  if (!validate()) return;
 
   emit('saved', {
     label: form.label.trim(),

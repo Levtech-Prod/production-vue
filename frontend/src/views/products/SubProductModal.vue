@@ -84,12 +84,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartsPicker from './PartsPicker.vue';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type {
   SubProductPayload,
   SelectedPart,
@@ -127,18 +127,11 @@ const form = reactive<SubProductPayload>({
 });
 const selectedParts = ref<SelectedPart[]>([]);
 const partsPickerRef = ref<InstanceType<typeof PartsPicker> | null>(null);
-const attemptedSubmit = ref(false);
-const fieldErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    [
-      { key: 'name', label: t('name'), missing: !form.name.trim() },
-      { key: 'type', label: t('type'), missing: !form.type.trim() },
-      { key: 'image', label: t('image'), missing: !form.image },
-    ],
-    t,
-  );
-});
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'type', label: t('type'), missing: !form.type.trim() },
+  { key: 'image', label: t('image'), missing: !form.image },
+]);
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -152,17 +145,16 @@ watch(open, (isOpen) => {
   targetRevisionId.value =
     props.defaultRevisionId ?? props.productRevisions[0]?.id ?? null;
   addToProduct.value = false;
-  attemptedSubmit.value = false;
+  resetValidation();
   partsPickerRef.value?.resetValidation();
 });
 
 function submit() {
-  attemptedSubmit.value = true;
   // The quantity <input> normally blocks submission natively when cleared
   // — that's disabled (novalidate) in favor of PartsPicker's own inline
   // validation, so it must be checked explicitly here too.
   const partsValid = partsPickerRef.value?.validate() ?? true;
-  if (Object.keys(fieldErrors.value).length || !partsValid) return;
+  if (!validate() || !partsValid) return;
 
   emit(
     'saved',

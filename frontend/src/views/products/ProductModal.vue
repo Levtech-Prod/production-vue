@@ -68,11 +68,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { ProductSummary, ProductPayload } from '../../types/products.ts';
 
 const props = defineProps<{
@@ -96,19 +96,12 @@ const form = reactive<ProductPayload>({
   description: '',
   image: '',
 });
-const attemptedSubmit = ref(false);
-const fieldErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    [
-      { key: 'name', label: t('name'), missing: !form.name.trim() },
-      { key: 'sku', label: t('sku'), missing: !form.sku.trim() },
-      { key: 'type', label: t('type'), missing: !form.type.trim() },
-      { key: 'image', label: t('image'), missing: !form.image },
-    ],
-    t,
-  );
-});
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'sku', label: t('sku'), missing: !form.sku.trim() },
+  { key: 'type', label: t('type'), missing: !form.type.trim() },
+  { key: 'image', label: t('image'), missing: !form.image },
+]);
 
 // Reset the form whenever the modal opens (populate for edit, blank for new).
 watch(open, (isOpen) => {
@@ -118,12 +111,11 @@ watch(open, (isOpen) => {
   form.type = props.product?.type ?? '';
   form.description = props.product?.description ?? '';
   form.image = props.product?.image ?? '';
-  attemptedSubmit.value = false;
+  resetValidation();
 });
 
 function submit() {
-  attemptedSubmit.value = true;
-  if (Object.keys(fieldErrors.value).length) return;
+  if (!validate()) return;
 
   emit('saved', {
     name: form.name.trim(),

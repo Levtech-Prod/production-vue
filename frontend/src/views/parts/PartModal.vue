@@ -140,7 +140,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
 import type { Part, CreatePartPayload } from '../../types/parts.ts';
 import { useI18n } from 'vue-i18n';
@@ -177,18 +177,11 @@ const form = reactive({
 
 const parameterValues = ref<Record<number, string>>({});
 const parameterListRef = ref<InstanceType<typeof PartParameterValueList> | null>(null);
-const attemptedSubmit = ref(false);
-const fieldErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    [
-      { key: 'categoryId', label: t('category'), missing: !form.categoryId },
-      { key: 'code', label: t('code'), missing: !form.code.trim() },
-      { key: 'name', label: t('name'), missing: !form.name.trim() },
-    ],
-    t,
-  );
-});
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'categoryId', label: t('category'), missing: !form.categoryId },
+  { key: 'code', label: t('code'), missing: !form.code.trim() },
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+]);
 
 const selectedCategory = computed(() =>
   props.categories.find((c) => c.id === form.categoryId),
@@ -199,7 +192,7 @@ watch(
   () => [props.modelValue, props.part] as const,
   ([open, part]) => {
     if (!open) return;
-    attemptedSubmit.value = false;
+    resetValidation();
     parameterListRef.value?.resetValidation();
     if (part) {
       form.categoryId = part.categoryId;
@@ -259,9 +252,8 @@ function save() {
       value: String(value),
     }));
 
-  attemptedSubmit.value = true;
   const parametersValid = parameterListRef.value?.validate() ?? true;
-  if (Object.keys(fieldErrors.value).length || !parametersValid) return;
+  if (!validate() || !parametersValid) return;
 
   emit('saved', {
     categoryId: form.categoryId,

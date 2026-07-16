@@ -97,7 +97,7 @@ import { Trash2 } from 'lucide-vue-next';
 import { partsApi } from '../../api/partsAPI.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { Part } from '../../types/parts.ts';
 import type { SelectedPart } from '../../types/products.ts';
 
@@ -114,29 +114,14 @@ const partToAdd = ref(0);
 // Quantity is the only required field per row (its <input> normally blocks
 // submission natively when cleared, but the parent form uses `novalidate`
 // so this replaces that with an inline, translated message instead).
-const attemptedSubmit = ref(false);
-const rowErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    model.value.map((row, i) => ({
-      key: String(i),
-      label: t('quantity'),
-      missing: !Number.isFinite(Number(row.quantity)) || `${row.quantity}`.trim() === '',
-    })),
-    t,
-  );
-});
-
-// Called by the parent form on submit. Returns whether all rows are valid.
-function validate(): boolean {
-  attemptedSubmit.value = true;
-  return Object.keys(rowErrors.value).length === 0;
-}
-
-// Called by the parent form when it resets (e.g. modal reopened).
-function resetValidation() {
-  attemptedSubmit.value = false;
-}
+// validate()/resetValidation() are called by the parent form directly.
+const { fieldErrors: rowErrors, validate, resetValidation } = useRequiredFieldValidation(() =>
+  model.value.map((row, i) => ({
+    key: String(i),
+    label: t('quantity'),
+    missing: !Number.isFinite(Number(row.quantity)) || `${row.quantity}`.trim() === '',
+  })),
+);
 
 defineExpose({ validate, resetValidation });
 

@@ -85,11 +85,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { reactive, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
-import { requiredFieldErrors } from '../../utils/zodErrors.ts';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type {
   PartCategory,
   PartCategoryParameter,
@@ -129,21 +129,16 @@ const form = reactive({
   image: '',
   parameters: [] as PartCategoryParameter[],
 });
-const attemptedSubmit = ref(false);
-const fieldErrors = computed<Record<string, string>>(() => {
-  if (!attemptedSubmit.value) return {};
-  return requiredFieldErrors(
-    [{ key: 'name', label: t('name'), missing: !form.name.trim() }],
-    t,
-  );
-});
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+]);
 
 // Populate form when the modal opens or the category prop changes
 watch(
   () => [props.modelValue, props.category] as const,
   ([open, category]) => {
     if (!open) return;
-    attemptedSubmit.value = false;
+    resetValidation();
     if (category) {
       form.name = category.name;
       form.description = category.description ?? '';
@@ -175,8 +170,7 @@ function resetForm() {
 function save() {
   emit('clearError');
 
-  attemptedSubmit.value = true;
-  if (Object.keys(fieldErrors.value).length) return;
+  if (!validate()) return;
 
   emit('saved', {
     name: form.name,
