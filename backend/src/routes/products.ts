@@ -59,9 +59,9 @@ router.post('/', requireAuth, async (req, res) => {
       [
         data.name,
         data.sku,
-        data.type || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
       ],
     );
     const product = productResult.rows[0];
@@ -326,9 +326,9 @@ router.patch('/:productId', requireAuth, async (req, res) => {
       [
         data.name,
         data.sku,
-        data.type || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
         productId,
       ],
     );

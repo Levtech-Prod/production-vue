@@ -8,7 +8,7 @@ import type { CompareStatus, SubProductRevision } from '../../../../types/produc
 export interface CompareProductRow {
   spId: number;
   name: string;
-  sku: string;
+  sku: string | null;
   image: string | null;
   revA: SubProductRevision | null;
   revB: SubProductRevision | null;

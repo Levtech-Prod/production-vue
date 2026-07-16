@@ -101,7 +101,7 @@
                   </span>
                 </div>
                 <div class="font-mono text-xs text-slate-500">
-                  {{ sp.subProductSku }}
+                  {{ sp.subProductSku || '—' }}
                 </div>
               </td>
             </tr>

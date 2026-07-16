@@ -1,11 +1,12 @@
 <template>
   <BaseModal v-model="open" :title="`${t('edit_revision')} — ${revision?.label ?? ''}`" size="md">
-    <form id="edit-revision-form" class="flex flex-col gap-4" @submit.prevent="submit">
+    <form id="edit-revision-form" novalidate class="flex flex-col gap-4" @submit.prevent="submit">
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {{ t('label') }}
+          {{ t('label') }} <span class="text-red-500">*</span>
         </label>
         <input v-model="form.label" class="input" required />
+        <p v-if="fieldErrors.label" class="text-xs text-red-500">{{ fieldErrors.label }}</p>
       </div>
 
       <div class="flex flex-col gap-1">
@@ -42,6 +43,7 @@
 import { reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../../components/modal/BaseModal.vue';
+import { useRequiredFieldValidation } from '../../../composables/useRequiredFieldValidation.ts';
 import type { RevisionStatus } from '../../../types/products.ts';
 import type { EditRevisionPayload } from './types.ts';
 
@@ -66,15 +68,21 @@ const form = reactive<EditRevisionPayload>({
   status: 'draft',
   changeNotes: '',
 });
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'label', label: t('label'), missing: !form.label.trim() },
+]);
 
 watch(open, (isOpen) => {
   if (!isOpen || !props.revision) return;
   form.label = props.revision.label;
   form.status = props.revision.status;
   form.changeNotes = props.revision.changeNotes ?? '';
+  resetValidation();
 });
 
 function submit() {
+  if (!validate()) return;
+
   emit('saved', {
     label: form.label.trim(),
     status: form.status,

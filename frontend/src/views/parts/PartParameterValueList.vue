@@ -65,6 +65,8 @@
           :placeholder="p.name"
           :required="p.required"
         />
+
+        <p v-if="fieldErrors[p.id!]" class="text-xs text-red-500">{{ fieldErrors[p.id!] }}</p>
       </div>
     </div>
   </div>
@@ -72,13 +74,29 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
 const { t } = useI18n();
 
-defineProps<{
+const props = defineProps<{
   parameters: PartCategoryParameter[];
 }>();
 
 const values = defineModel<Record<number, string>>({ required: true });
+
+// Booleans are always "set" (checked or not) — same as the native `required`
+// this replaces, only text/number/dropdown parameters are checked here.
+// validate()/resetValidation() are called by the parent form directly.
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() =>
+  props.parameters
+    .filter((p) => p.required && p.type !== 'boolean')
+    .map((p) => ({
+      key: String(p.id),
+      label: p.name,
+      missing: !(values.value[p.id!] ?? '').toString().trim(),
+    })),
+);
+
+defineExpose({ validate, resetValidation });
 </script>

@@ -43,7 +43,7 @@ router.get('/compare', requireAuth, async (req, res) => {
 
   const map = new Map<
     number,
-    { subProductId: number; name: string; sku: string; inA: Side; inB: Side }
+    { subProductId: number; name: string; sku: string | null; inA: Side; inB: Side }
   >();
 
   for (const row of rowsResult.rows) {
@@ -120,7 +120,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   const map = new Map<number, {
     subProductId: number;
     subProductName: string;
-    subProductSku: string;
+    subProductSku: string | null;
     subProductImage: string | null;
     subProductRevisionId: number;
     subProductRevisionLabel: string;

@@ -40,10 +40,12 @@ function sanitizeSegment(input: string): string {
 }
 
 // Build the "{name}-{sku}" style folder name. Spaces in the name are turned
-// into dashes so the folder is a single tidy token.
-function folderName(prefix: string, name: string, sku: string): string {
+// into dashes so the folder is a single tidy token. Sub-products may have no
+// SKU (see migration 002) — in that case the folder is just "{name}".
+function folderName(prefix: string, name: string, sku: string | null): string {
   const dashedName = name.replace(/\s+/g, '-');
-  return sanitizeSegment(`${prefix}${dashedName}-${sku}`);
+  const suffix = sku ? `-${sku}` : '';
+  return sanitizeSegment(`${prefix}${dashedName}${suffix}`);
 }
 
 // Resolve the final on-disk file name inside `dirAbs`, based on a desired base

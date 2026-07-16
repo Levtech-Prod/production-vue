@@ -1,6 +1,6 @@
 <template>
   <BaseModal v-model="open" :title="t('new_sub_product')" size="lg">
-    <form id="sub-product-form" class="flex flex-col gap-4" @submit.prevent="submit">
+    <form id="sub-product-form" novalidate class="flex flex-col gap-4" @submit.prevent="submit">
       <div v-if="saveError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
         {{ saveError }}
       </div>
@@ -8,23 +8,25 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {{ t('name') }}
+            {{ t('name') }} <span class="text-red-500">*</span>
           </label>
           <input v-model="form.name" class="input" required />
+          <p v-if="fieldErrors.name" class="text-xs text-red-500">{{ fieldErrors.name }}</p>
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
             SKU
           </label>
-          <input v-model="form.sku" class="input" required />
+          <input v-model="form.sku" class="input" />
         </div>
       </div>
 
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {{ t('type') }}
+          {{ t('type') }} <span class="text-red-500">*</span>
         </label>
-        <input v-model="form.type" class="input" />
+        <input v-model="form.type" class="input" required />
+        <p v-if="fieldErrors.type" class="text-xs text-red-500">{{ fieldErrors.type }}</p>
       </div>
 
       <div class="flex flex-col gap-1">
@@ -39,9 +41,11 @@
         :label="t('image')"
         target="sub-products"
         :preview-alt="form.name"
+        required
+        :error="fieldErrors.image"
       />
 
-      <PartsPicker v-model="selectedParts" />
+      <PartsPicker ref="partsPickerRef" v-model="selectedParts" />
 
       <!-- Optionally link the new sub-product to a product revision -->
       <div class="rounded-xl border border-slate-200 p-3">
@@ -85,6 +89,7 @@ import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartsPicker from './PartsPicker.vue';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type {
   SubProductPayload,
   SelectedPart,
@@ -121,6 +126,12 @@ const form = reactive<SubProductPayload>({
   image: '',
 });
 const selectedParts = ref<SelectedPart[]>([]);
+const partsPickerRef = ref<InstanceType<typeof PartsPicker> | null>(null);
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'type', label: t('type'), missing: !form.type.trim() },
+  { key: 'image', label: t('image'), missing: !form.image },
+]);
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -134,17 +145,25 @@ watch(open, (isOpen) => {
   targetRevisionId.value =
     props.defaultRevisionId ?? props.productRevisions[0]?.id ?? null;
   addToProduct.value = false;
+  resetValidation();
+  partsPickerRef.value?.resetValidation();
 });
 
 function submit() {
+  // The quantity <input> normally blocks submission natively when cleared
+  // — that's disabled (novalidate) in favor of PartsPicker's own inline
+  // validation, so it must be checked explicitly here too.
+  const partsValid = partsPickerRef.value?.validate() ?? true;
+  if (!validate() || !partsValid) return;
+
   emit(
     'saved',
     {
       name: form.name.trim(),
-      sku: form.sku.trim(),
-      type: form.type?.trim() || null,
+      sku: form.sku?.trim() || null,
+      type: form.type.trim(),
       description: form.description?.trim() || null,
-      image: form.image || null,
+      image: form.image,
       parts: selectedParts.value.map((p) => ({
         partId: p.partId,
         quantity: Number(p.quantity),

@@ -71,3 +71,38 @@ export function extractZodIssues(err: any): ZodIssue[] | null {
   const issues = err?.response?.data?.issues;
   return Array.isArray(issues) ? issues : null;
 }
+
+// ── Client-side required-field checks ───────────────────────────────────────
+//
+// The backend already reports missing required fields via ZodError (see
+// extractZodIssues/localizeZodIssues above), but a native HTML `required`
+// attribute intercepts the browser's own submit event before our JS handler
+// (and the API call) ever runs — so the browser shows its own, untranslated
+// validation bubble instead. Forms use `novalidate` plus this helper to run
+// the same kind of check client-side, keyed by field so each one can render
+// its own translated message right under its input (rather than a single
+// summary list) — the same "is required" wording backend ZodErrors use.
+
+export interface RequiredFieldCheck {
+  // Key the caller uses to look up this field's message (e.g. 'name',
+  // 'sku', or a part/parameter id for dynamic, per-row fields).
+  key: string;
+  // The field's already-resolved display label (e.g. t('name'), or a
+  // dynamic parameter's own name for per-category custom fields) — shown
+  // in the message itself so it reads correctly even out of context.
+  label: string;
+  // Caller decides what "empty" means for this field (trimmed string,
+  // placeholder sentinel for a <select>, etc.).
+  missing: boolean;
+}
+
+export function requiredFieldErrors(
+  checks: RequiredFieldCheck[],
+  t: TranslateFn,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const c of checks) {
+    if (c.missing) errors[c.key] = `${c.label}: ${t('validation.required')}`;
+  }
+  return errors;
+}
