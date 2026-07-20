@@ -13,7 +13,7 @@
     </div>
     <div class="min-w-0 break-words">
       <div class="font-semibold text-slate-800">{{ name }}</div>
-      <div class="font-mono text-xs text-slate-400">{{ sku }}</div>
+      <div class="font-mono text-xs text-slate-400">{{ sku || '—' }}</div>
     </div>
     <div class="min-w-0 break-words">
       <div class="text-center text-xs text-slate-600">{{ revision.label }}</div>
@@ -45,7 +45,7 @@ import { PRODUCT_SIDE_GRID, sideAccentClass } from './compareHelpers.ts';
 defineProps<{
   revision: SubProductRevision | null;
   name: string;
-  sku: string;
+  sku: string | null;
   image: string | null;
   same: boolean | null;
   showDrill?: boolean;

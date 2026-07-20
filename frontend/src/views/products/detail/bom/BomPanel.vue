@@ -26,16 +26,23 @@
         :empty-text="t('no_parts_in_revision')"
       />
 
-      <!-- Main product BOM: each linked sub-product, with its parts below. -->
+      <!-- Main product BOM, empty: same treatment as the Documents panel —
+           header stays, just a centered text line where the table would be. -->
+      <div
+        v-else-if="isEmptyProductBom"
+        class="py-4 text-center text-sm text-slate-400"
+      >
+        {{ t('no_bom_parts') }}
+      </div>
+
+      <!-- Main product BOM: every part across all linked sub-products,
+           flattened into a single, uncategorized table. -->
       <div v-else class="overflow-x-auto">
         <table class="w-full text-left text-sm">
-          <!-- One main header: image + name columns have no label; the
-               part-only fields (SKU, quantity, location, price) are labelled
-               and packed to the left, with a flexible spacer on the right. -->
           <thead class="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
               <th class="w-px px-4 py-2"></th>
-              <th class="w-48 px-3 py-2"></th>
+              <th class="w-48 px-3 py-2">{{ t('name') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('quantity') }}
@@ -50,76 +57,13 @@
             </tr>
           </thead>
 
-          <tbody v-if="bom.length === 0">
-            <tr>
-              <td colspan="7" class="py-12 text-center text-sm text-slate-400">
-                {{ t('no_linked_sub_products') }}
-              </td>
-            </tr>
-          </tbody>
-
-          <tbody
-            v-for="sp in bom"
-            :key="sp.subProductId"
-            class="border-t border-slate-100"
-          >
-            <!-- Sub-product row: image, then name with SKU under it and the
-                 revision label next to the name (click to open its parts). -->
+          <tbody>
             <tr
-              class="cursor-pointer bg-slate-100 transition-colors hover:bg-slate-200/70"
-              :title="t('view_sub_product_parts')"
-              @click="
-                emit('select', {
-                  spId: sp.subProductId,
-                  spRevId: sp.subProductRevisionId,
-                })
-              "
-            >
-              <td class="px-4 py-2.5">
-                <img
-                  v-if="sp.subProductImage"
-                  :src="sp.subProductImage"
-                  class="h-10 w-10 rounded-lg border border-slate-200 object-cover"
-                  :alt="sp.subProductName"
-                />
-                <div
-                  v-else
-                  class="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-slate-200 text-slate-400"
-                >
-                  ▣
-                </div>
-              </td>
-              <td class="px-3 py-2.5" colspan="6">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-slate-800">{{
-                    sp.subProductName
-                  }}</span>
-                  <span
-                    class="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium text-slate-500"
-                  >
-                    {{ sp.subProductRevisionLabel }}
-                  </span>
-                </div>
-                <div class="font-mono text-xs text-slate-500">
-                  {{ sp.subProductSku }}
-                </div>
-              </td>
-            </tr>
-
-            <!-- Parts of this sub-product -->
-            <tr v-if="sp.parts.length === 0">
-              <td></td>
-              <td colspan="6" class="px-3 py-2 text-xs text-slate-400">
-                {{ t('no_bom_parts') }}
-              </td>
-            </tr>
-            <tr
-              v-for="part in sp.parts"
-              v-else
+              v-for="part in flatParts"
               :key="part.id"
-              class="border-t border-slate-50"
+              class="border-t border-slate-100"
             >
-              <td class="px-4 py-2 pl-8">
+              <td class="px-4 py-2">
                 <img
                   v-if="part.image"
                   :src="part.image"
@@ -197,4 +141,14 @@ const catalogById = computed(() => {
   for (const p of partsStore.parts) m.set(p.id, p);
   return m;
 });
+
+// Main-product BOM view: parts from every linked sub-product, flattened into
+// a single uncategorized list (no per-sub-product grouping/header rows).
+const flatParts = computed(() => props.bom.flatMap((sp) => sp.parts));
+
+// An empty product BOM skips the table (and its column headers) in favor of
+// a plain centered message, matching how DocumentsPanel shows its empty state.
+const isEmptyProductBom = computed(
+  () => props.mode === 'product' && flatParts.value.length === 0,
+);
 </script>

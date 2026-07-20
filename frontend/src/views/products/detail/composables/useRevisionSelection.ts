@@ -139,7 +139,12 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
    *  and reset the selection to the product itself. */
   function applyDefaults() {
     const d = detail.value;
-    if (!d || d.revisions.length === 0) return;
+    if (!d) return;
+    // Nothing to browse yet (no sub-products, so no revision can exist
+    // either) — switch straight to Revisions mode so "New sub-product" is
+    // immediately visible instead of making the user find the toggle.
+    if (d.subProducts.length === 0) revisionsMode.value = true;
+    if (d.revisions.length === 0) return;
     const latest = d.revisions.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a));
     const initial =
       d.defaultRevisionId != null && d.revisions.some((r) => r.id === d.defaultRevisionId)

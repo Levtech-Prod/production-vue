@@ -7,9 +7,54 @@ import {
   newRevisionSchema,
   setDefaultRevisionSchema,
   setProductStatusSchema,
+  type ProductStatus,
 } from '../schemas/products.schema.js';
 
 const router = Router();
+
+// How many "<sku>-N" candidates to try in resolveSkuConflictOnReactivate
+// before giving up. Collisions are resolved on the first or second try in
+// practice; this is just a sane upper bound against pathological data.
+const MAX_SKU_SUFFIX_ATTEMPTS = 50;
+
+/**
+ * Reactivating a product can collide with a different active product that
+ * has since taken its SKU (the unique index only covers active rows). Rather
+ * than blocking the user with an error, free up a SKU automatically: strip
+ * any suffix left over from a previous auto-resolve, then try "<sku>-2",
+ * "<sku>-3", ... until one isn't taken, applying the status change together
+ * with the winning SKU.
+ *
+ * Returns the updated row, or `null` if the product no longer exists.
+ */
+async function resolveSkuConflictOnReactivate(
+  productId: number,
+  status: ProductStatus,
+) {
+  const current = await query(`SELECT sku FROM products WHERE id = $1`, [
+    productId,
+  ]);
+  if (current.rowCount === 0) return null;
+  const baseSku = current.rows[0].sku.replace(/-\d+$/, '');
+
+  for (let suffix = 2; suffix <= MAX_SKU_SUFFIX_ATTEMPTS; suffix++) {
+    try {
+      const result = await query(
+        `UPDATE products SET status = $1, sku = $2, updated_at = NOW()
+         WHERE id = $3
+         RETURNING id, sku, status, updated_at AS "updatedAt"`,
+        [status, `${baseSku}-${suffix}`, productId],
+      );
+      return result.rows[0];
+    } catch (err: any) {
+      if (err?.code !== '23505') throw err;
+      // candidate also taken — try the next suffix
+    }
+  }
+  throw new Error(
+    `No free SKU found for product ${productId} after ${MAX_SKU_SUFFIX_ATTEMPTS} attempts`,
+  );
+}
 
 // GET /api/products — list with latest revision info
 router.get('/', requireAuth, async (_req, res) => {
@@ -44,14 +89,13 @@ router.get('/', requireAuth, async (_req, res) => {
   res.json(result.rows);
 });
 
-// POST /api/products — create product + auto-create revision 1
+// POST /api/products — create product (no revision yet; the first revision
+// is created the same way as any later one — see POST /:productId/revisions
+// — once sub-products exist and are selected for it).
 router.post('/', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-
-    const productResult = await client.query(
+    const productResult = await query(
       `INSERT INTO products (name, sku, type, description, image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, sku, type, description, image,
@@ -59,32 +103,23 @@ router.post('/', requireAuth, async (req, res) => {
       [
         data.name,
         data.sku,
-        data.type || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
       ],
     );
-    const product = productResult.rows[0];
-
-    const revisionResult = await client.query(
-      `INSERT INTO product_revisions (product_id, revision_number, label, status)
-       VALUES ($1, 1, 'Rev. 1', 'draft')
-       RETURNING id, revision_number AS "revisionNumber", label, status`,
-      [product.id],
-    );
-
-    await client.query('COMMIT');
-    res.json({ ...product, revisions: [revisionResult.rows[0]] });
+    res.json({ ...productResult.rows[0], revisions: [] });
   } catch (err: any) {
-    await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res
         .status(409)
         .json({ code: ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS });
     }
+    // `type` must reference an existing product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
+    }
     throw err;
-  } finally {
-    client.release();
   }
 });
 
@@ -139,6 +174,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
        sp.sku AS "sku",
        sp.type AS "type",
        sp.image AS "image",
+       sp.description AS "description",
        spr.id AS "revId",
        spr.revision_number AS "revNumber",
        spr.label AS "revLabel",
@@ -161,6 +197,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
         sku: row.sku,
         type: row.type,
         image: row.image,
+        description: row.description,
         revisions: [],
       });
     }
@@ -235,6 +272,17 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
     );
     const newRevision = newRevResult.rows[0];
 
+    // A product's first-ever revision has nothing to be "default" instead
+    // of — make it the default automatically. (There's no delete endpoint
+    // for product revisions, so revisionNumber === 1 reliably means this is
+    // still the product's only revision, not a renumbered one.)
+    if (newRevision.revisionNumber === 1) {
+      await client.query(
+        `UPDATE products SET default_revision_id = $1 WHERE id = $2`,
+        [newRevision.id, productId],
+      );
+    }
+
     // When duplicating, copy the sub-product-revision links from the source.
     if (data.duplicateFromId) {
       await client.query(
@@ -295,16 +343,32 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
   }
   const data = setProductStatusSchema.parse(req.body);
 
-  const result = await query(
-    `UPDATE products SET status = $1, updated_at = NOW()
-     WHERE id = $2
-     RETURNING id, status, updated_at AS "updatedAt"`,
-    [data.status, productId],
-  );
-  if (result.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+  try {
+    const result = await query(
+      `UPDATE products SET status = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, sku, status, updated_at AS "updatedAt"`,
+      [data.status, productId],
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+    return res.json(result.rows[0]);
+  } catch (err: any) {
+    // Archiving never conflicts (archived rows sit outside the partial
+    // unique index), so a 23505 here only happens on reactivation.
+    if (err?.code !== '23505' || data.status !== 'active') {
+      throw err;
+    }
+    const reactivated = await resolveSkuConflictOnReactivate(
+      productId,
+      data.status,
+    );
+    if (!reactivated) {
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+    return res.json(reactivated);
   }
-  res.json(result.rows[0]);
 });
 
 // PATCH /api/products/:productId — update product fields
@@ -326,9 +390,9 @@ router.patch('/:productId', requireAuth, async (req, res) => {
       [
         data.name,
         data.sku,
-        data.type || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
         productId,
       ],
     );
@@ -341,6 +405,10 @@ router.patch('/:productId', requireAuth, async (req, res) => {
       return res
         .status(409)
         .json({ code: ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS });
+    }
+    // `type` must reference an existing product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
     }
     throw err;
   }

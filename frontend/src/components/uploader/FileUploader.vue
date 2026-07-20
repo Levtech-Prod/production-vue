@@ -10,6 +10,7 @@ const props = defineProps<{
   label?: string;
   target: UploadTarget;
   isFileUploaded?: boolean;
+  required?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -54,6 +55,7 @@ async function handleFileChange(event: Event) {
       ref="fileInput"
       type="file"
       accept="image/png,image/jpeg,image/webp"
+      :required="required"
       @change="handleFileChange"
       class="block w-full rounded-lg border border-gray-300 p-2 text-sm"
     />

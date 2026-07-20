@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query, pool } from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   createSubProductSchema,
@@ -159,10 +159,10 @@ router.post('/', requireAuth, async (req, res) => {
       [
         data.productId,
         data.name,
-        data.sku,
-        data.type || null,
+        data.sku || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
       ],
     );
     const subProduct = spResult.rows[0];
@@ -198,14 +198,18 @@ router.post('/', requireAuth, async (req, res) => {
         .status(409)
         .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
     }
+    // `type` must reference an existing sub_product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
+    }
     throw err;
   } finally {
     client.release();
   }
 });
 
-// PATCH /api/sub-products/:spId — update sub-product fields
-router.patch('/:spId', requireAuth, async (req, res) => {
+// PATCH /api/sub-products/:spId — update sub-product fields (admin only)
+router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
   const spId = Number(req.params.spId);
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
@@ -222,10 +226,10 @@ router.patch('/:spId', requireAuth, async (req, res) => {
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         data.name,
-        data.sku,
-        data.type || null,
+        data.sku || null,
+        data.type,
         data.description || null,
-        data.image || null,
+        data.image,
         spId,
       ],
     );
@@ -238,6 +242,10 @@ router.patch('/:spId', requireAuth, async (req, res) => {
       return res
         .status(409)
         .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
+    }
+    // `type` must reference an existing sub_product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
     }
     throw err;
   }

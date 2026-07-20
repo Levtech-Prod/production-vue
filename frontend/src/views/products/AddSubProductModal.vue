@@ -32,7 +32,7 @@
           />
           <label :for="`sp-${sp.id}`" class="flex-1 cursor-pointer">
             <div class="font-medium text-slate-800">{{ sp.name }}</div>
-            <div class="font-mono text-xs text-slate-400">{{ sp.sku }}</div>
+            <div class="font-mono text-xs text-slate-400">{{ sp.sku || '—' }}</div>
           </label>
           <span
             v-if="isLinked(sp.id)"
@@ -101,7 +101,8 @@ const filtered = computed(() => {
   if (!q) return withRevs;
   return withRevs.filter(
     (sp) =>
-      sp.name.toLowerCase().includes(q) || sp.sku.toLowerCase().includes(q),
+      sp.name.toLowerCase().includes(q) ||
+      (sp.sku ?? '').toLowerCase().includes(q),
   );
 });
 

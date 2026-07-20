@@ -159,7 +159,9 @@
           <button
             v-if="!composingRevision"
             type="button"
-            class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+            class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-blue-600"
+            :disabled="!hasSubProducts"
+            :title="!hasSubProducts ? t('add_new_revision_disabled_hint') : ''"
             @click="emit('start-new-revision')"
           >
             <Plus class="h-3.5 w-3.5" /> {{ t('add_new_revision') }}
@@ -274,7 +276,7 @@
                     {{ row.sp.name }}
                   </div>
                   <div class="truncate font-mono text-xs text-slate-400">
-                    {{ row.sp.sku }}
+                    {{ row.sp.sku || '—' }}
                   </div>
                 </div>
                 <span
@@ -314,7 +316,7 @@
                     {{ sp.name }}
                   </div>
                   <div class="truncate font-mono text-xs text-slate-400">
-                    {{ sp.sku }}
+                    {{ sp.sku || '—' }}
                   </div>
                 </div>
               </div>
@@ -325,6 +327,15 @@
                 @click="emit('new-sp-revision', sp)"
               >
                 <Plus class="h-4 w-4" />
+              </button>
+              <button
+                v-if="isAdmin"
+                type="button"
+                class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                :title="t('edit_sub_product')"
+                @click="emit('edit-sub-product', sp)"
+              >
+                <Pencil class="h-4 w-4" />
               </button>
               <button
                 type="button"
@@ -459,6 +470,8 @@ const props = defineProps<{
   composeSelection: ComposeSelection;
   isArchived: boolean;
   collapsed: boolean;
+  /** Sub-product general-info editing is restricted to admins. */
+  isAdmin: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -467,6 +480,7 @@ const emit = defineEmits<{
   (e: 'toggle-revisions-mode'): void;
   (e: 'toggle-compose', spId: number, revId: number): void;
   (e: 'new-sub-product'): void;
+  (e: 'edit-sub-product', sp: DetailSubProduct): void;
   (e: 'new-sp-revision', sp: DetailSubProduct): void;
   (e: 'edit-sp-revision', sp: DetailSubProduct, rev: SubProductRevision): void;
   (
@@ -530,6 +544,10 @@ const canSetDefault = computed(
 const composedCount = computed(
   () => Object.keys(props.composeSelection).length,
 );
+
+// A revision has nothing to compose without at least one sub-product to
+// pick from — gates the "Add new revision" button.
+const hasSubProducts = computed(() => props.detail.subProducts.length > 0);
 
 // ── Normal mode rows ─────────────────────────────────────────────────────────
 

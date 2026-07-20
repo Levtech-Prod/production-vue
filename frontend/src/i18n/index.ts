@@ -107,6 +107,7 @@ const messages = {
     revisions: 'Revisions',
     open: 'Open',
     type: 'Type',
+    select_type: 'Select type',
     sub_products: 'Sub-products',
     new_revision: 'New revision',
     label: 'Label',
@@ -117,14 +118,14 @@ const messages = {
       'Copies the sub-product links from the chosen revision.',
     change_notes: 'Change notes',
     new_sub_product: 'New sub-product',
+    edit_sub_product: 'Edit sub-product',
     add_sub_product: 'Add sub-product',
     add_sub_product_to_revision: 'Add sub-product to revision',
     add_sub_product_hint:
       'Select which sub-product revisions to include in this product revision.',
     loading: 'Loading...',
     no_sub_products_msg: 'No sub-products available.',
-    no_sub_products_in_product:
-      'No sub-products in this product yet. Select a revision and add some.',
+    no_sub_products_in_product: 'No sub-products in this product yet.',
     no_parts_in_revision: 'No parts in this revision.',
     add: 'Add',
     select_one_revision_hint:
@@ -195,6 +196,8 @@ const messages = {
     bom_title: 'Bill of Materials',
     bom_select_revision: 'Select a revision to view the BOM.',
     no_bom_parts: 'No parts in this revision.',
+    no_sub_products_for_bom:
+      'No sub-products added yet. Add one to start building the BOM.',
     bom_sub_product_header: '{name}',
     bom_main_product: 'Main product',
     bom_sub_rev_scope: '{name} · {label}',
@@ -223,6 +226,8 @@ const messages = {
     linked_revision: 'Linked revision',
     n_selected: '{n} selected',
     add_new_revision: 'Add new revision',
+    add_new_revision_disabled_hint:
+      'Add at least one sub-product before creating a revision.',
     save_as_new_revision: 'Save as new revision',
     compose_check_hint: 'Include this revision in the new product revision',
     compose_disabled_hint: 'Click "Add new revision" to edit the composition',
@@ -253,6 +258,22 @@ const messages = {
     status_archived: 'Archived',
     archived_product_banner:
       'This product is archived and cannot be modified. Re-activate it first to make changes.',
+
+    // Product & Sub-product types (Settings page)
+    product_types_settings: 'Product Types',
+    product_types_settings_title: 'Product Types Settings',
+    product_types_section_title: 'Product Types',
+    sub_product_types_section_title: 'Sub-product Types',
+    add_product_type: 'Add Product Type',
+    edit_product_type: 'Edit Product Type',
+    delete_product_type: 'Delete Product Type',
+    no_product_types_msg:
+      'No product types yet. Click "Add Product Type" to create the first one.',
+    add_sub_product_type: 'Add Sub-product Type',
+    edit_sub_product_type: 'Edit Sub-product Type',
+    delete_sub_product_type: 'Delete Sub-product Type',
+    no_sub_product_types_msg:
+      'No sub-product types yet. Click "Add Sub-product Type" to create the first one.',
 
     errors: {
       // Mirror the `code` field returned by the backend (see
@@ -310,6 +331,8 @@ const messages = {
       INVALID_REVISION_ID: 'Invalid revision id',
       REVISION_UPDATE_FAILED: 'Failed to update revision',
       COMPARE_INVALID_PARAMS: 'Invalid comparison parameters',
+      INVALID_PRODUCT_TYPE: 'The selected product type is not valid',
+      INVALID_SUB_PRODUCT_TYPE: 'The selected sub-product type is not valid',
       // Products module — frontend-only fallbacks
       load_products_failed: 'Failed to load products',
       load_product_failed: 'Failed to load the product',
@@ -323,6 +346,25 @@ const messages = {
       delete_sub_product_failed: 'The sub-product could not be deleted',
       set_default_revision_failed: 'Could not set the default revision',
       set_product_status_failed: 'Could not update the product status',
+
+      // Product/Sub-product types module — backend codes
+      INVALID_PRODUCT_TYPE_ID: 'Invalid product type id',
+      PRODUCT_TYPE_NOT_FOUND: 'Product type not found',
+      PRODUCT_TYPE_ALREADY_EXISTS: 'A product type with this name already exists.',
+      PRODUCT_TYPE_IN_USE:
+        'This product type cannot be deleted because it is used by one or more products.',
+      INVALID_SUB_PRODUCT_TYPE_ID: 'Invalid sub-product type id',
+      SUB_PRODUCT_TYPE_NOT_FOUND: 'Sub-product type not found',
+      SUB_PRODUCT_TYPE_ALREADY_EXISTS:
+        'A sub-product type with this name already exists.',
+      SUB_PRODUCT_TYPE_IN_USE:
+        'This sub-product type cannot be deleted because it is used by one or more sub-products.',
+      // Product/Sub-product types module — frontend-only fallbacks
+      save_product_type_failed: 'The product type could not be saved',
+      delete_product_type_failed: 'The product type could not be deleted',
+      save_sub_product_type_failed: 'The sub-product type could not be saved',
+      delete_sub_product_type_failed:
+        'The sub-product type could not be deleted',
     },
 
     success: {
@@ -342,6 +384,16 @@ const messages = {
       set_default_revision: 'Default revision updated',
       archive_product: 'The product has been archived',
       activate_product: 'The product has been re-activated',
+      activate_product_sku_changed:
+        'The product has been re-activated. Its SKU "{oldSku}" was already in use by another active product, so it was changed to "{newSku}".',
+      save_product_type: 'The product type was saved successfully',
+      update_product_type: 'The product type was updated successfully',
+      delete_product_type: 'The product type was deleted successfully.',
+      save_sub_product_type: 'The sub-product type was saved successfully',
+      update_sub_product_type:
+        'The sub-product type was updated successfully',
+      delete_sub_product_type:
+        'The sub-product type was deleted successfully.',
     },
 
     validation: {
@@ -361,12 +413,19 @@ const messages = {
       delete_document_msg: 'Are you sure you want to delete this document',
       archive_product_msg:
         'Are you sure you want to archive this product? It will become read-only until re-activated.',
+      activate_product_msg:
+        'Are you sure you want to re-activate this product?',
+      activate_product_sku_conflict_msg:
+        'Are you sure you want to re-activate this product?\nIts SKU "{sku}" is already used by another active product, so a number will automatically be appended to it (e.g. "{sku}-2").',
       delete_revision_msg:
         'Are you sure you want to delete this revision? It will be removed from every product revision that includes it',
       delete_sub_product_msg:
         'Are you sure you want to delete this sub-product? All of its revisions, parts and documents will be removed, and it will be removed from every product revision that includes it',
       remove_part_msg:
         'Are you sure you want to remove this part from the revision',
+      delete_product_type_msg: 'Are you sure you want to delete this product type',
+      delete_sub_product_type_msg:
+        'Are you sure you want to delete this sub-product type',
     },
   },
   hu: {
@@ -465,6 +524,7 @@ const messages = {
     revisions: 'Revíziók',
     open: 'Megnyitás',
     type: 'Típus',
+    select_type: 'Válassz típust',
     sub_products: 'Altermékek',
     new_revision: 'Új revízió',
     label: 'Címke',
@@ -475,14 +535,14 @@ const messages = {
       'Átmásolja a kiválasztott revízió alaktermék-hivatkozásait.',
     change_notes: 'Változásleírás',
     new_sub_product: 'Új altermék',
+    edit_sub_product: 'Altermék szerkesztése',
     add_sub_product: 'Altermék hozzáadása',
     add_sub_product_to_revision: 'Altermék hozzáadása a revízióhoz',
     add_sub_product_hint:
       'Válaszd ki, mely altermék-revíziók kerüljenek ebbe a termékrevízióba.',
     loading: 'Betöltés…',
     no_sub_products_msg: 'Nincs elérhető altermék.',
-    no_sub_products_in_product:
-      'Ehhez a termékhez még nincs altermék. Válassz revíziót és adj hozzá.',
+    no_sub_products_in_product: 'Ehhez a termékhez még nincs altermék.',
     no_parts_in_revision: 'Ebben a revízióban nincs alkatrész.',
     add: 'Hozzáadás',
     select_one_revision_hint:
@@ -554,6 +614,8 @@ const messages = {
     bom_title: 'Anyagjegyzék',
     bom_select_revision: 'Válassz revíziót az anyagjegyzék megtekintéséhez.',
     no_bom_parts: 'Ebben a revízióban nincs alkatrész.',
+    no_sub_products_for_bom:
+      'Még nincs hozzáadva altermék. Adj hozzá egyet az anyagjegyzék elkészítéséhez.',
     bom_sub_product_header: '{name}',
     bom_main_product: 'Fő termék',
     bom_sub_rev_scope: '{name} · {label}',
@@ -582,6 +644,8 @@ const messages = {
     linked_revision: 'Kapcsolt revízió',
     n_selected: '{n} kiválasztva',
     add_new_revision: 'Új revízió',
+    add_new_revision_disabled_hint:
+      'Adj hozzá legalább egy alterméket a revízió létrehozása előtt.',
     save_as_new_revision: 'Mentés új revízióként',
     compose_check_hint: 'Ez a revízió kerüljön az új termékrevízióba',
     compose_disabled_hint:
@@ -613,6 +677,22 @@ const messages = {
     status_archived: 'Archivált',
     archived_product_banner:
       'Ez a termék archivált, nem módosítható. A szerkesztéshez először állítsd vissza aktív állapotba.',
+
+    // Termék- és altermék-típusok (Beállítások oldal)
+    product_types_settings: 'Terméktípusok',
+    product_types_settings_title: 'Terméktípusok beállításai',
+    product_types_section_title: 'Terméktípusok',
+    sub_product_types_section_title: 'Altermék-típusok',
+    add_product_type: 'Terméktípus hozzáadása',
+    edit_product_type: 'Terméktípus szerkesztése',
+    delete_product_type: 'Terméktípus törlése',
+    no_product_types_msg:
+      'Még nincs terméktípus. Kattints a „Terméktípus hozzáadása" gombra az első létrehozásához.',
+    add_sub_product_type: 'Altermék-típus hozzáadása',
+    edit_sub_product_type: 'Altermék-típus szerkesztése',
+    delete_sub_product_type: 'Altermék-típus törlése',
+    no_sub_product_types_msg:
+      'Még nincs altermék-típus. Kattints az „Altermék-típus hozzáadása" gombra az első létrehozásához.',
 
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
@@ -665,6 +745,8 @@ const messages = {
       INVALID_REVISION_ID: 'Érvénytelen revízióazonosító',
       REVISION_UPDATE_FAILED: 'Nem sikerült módosítani a revíziót',
       COMPARE_INVALID_PARAMS: 'Érvénytelen összehasonlítási paraméterek',
+      INVALID_PRODUCT_TYPE: 'A kiválasztott terméktípus érvénytelen',
+      INVALID_SUB_PRODUCT_TYPE: 'A kiválasztott altermék-típus érvénytelen',
       // Products module — frontend fallbackok
       load_products_failed: 'Nem sikerült betölteni a termékeket',
       load_product_failed: 'Nem sikerült betölteni a terméket',
@@ -679,6 +761,25 @@ const messages = {
       set_default_revision_failed:
         'Nem sikerült beállítani az alapértelmezett revíziót',
       set_product_status_failed: 'Nem sikerült módosítani a termék állapotát',
+
+      // Termék-/altermék-típusok modul — backend kódok
+      INVALID_PRODUCT_TYPE_ID: 'Érvénytelen terméktípus-azonosító',
+      PRODUCT_TYPE_NOT_FOUND: 'A terméktípus nem található',
+      PRODUCT_TYPE_ALREADY_EXISTS: 'Már létezik terméktípus ezzel a névvel.',
+      PRODUCT_TYPE_IN_USE:
+        'A terméktípus nem törölhető, mert egy vagy több termék használja.',
+      INVALID_SUB_PRODUCT_TYPE_ID: 'Érvénytelen altermék-típus-azonosító',
+      SUB_PRODUCT_TYPE_NOT_FOUND: 'Az altermék-típus nem található',
+      SUB_PRODUCT_TYPE_ALREADY_EXISTS:
+        'Már létezik altermék-típus ezzel a névvel.',
+      SUB_PRODUCT_TYPE_IN_USE:
+        'Az altermék-típus nem törölhető, mert egy vagy több altermék használja.',
+      // Termék-/altermék-típusok modul — frontend fallbackok
+      save_product_type_failed: 'A terméktípus mentése nem sikerült',
+      delete_product_type_failed: 'A terméktípus törlése nem sikerült',
+      save_sub_product_type_failed: 'Az altermék-típus mentése nem sikerült',
+      delete_sub_product_type_failed:
+        'Az altermék-típus törlése nem sikerült',
     },
 
     success: {
@@ -698,6 +799,15 @@ const messages = {
       set_default_revision: 'Alapértelmezett revízió frissítve',
       archive_product: 'A termék archiválva lett',
       activate_product: 'A termék visszaállítva aktív állapotba',
+      activate_product_sku_changed:
+        'A termék visszaállítva aktív állapotba. A(z) "{oldSku}" SKU-t már egy másik aktív termék használta, ezért "{newSku}"-ra módosult.',
+      save_product_type: 'A terméktípus mentése sikeresen megtörtént',
+      update_product_type: 'A terméktípus módosítása sikeresen megtörtént',
+      delete_product_type: 'A terméktípus sikeresen törölve.',
+      save_sub_product_type: 'Az altermék-típus mentése sikeresen megtörtént',
+      update_sub_product_type:
+        'Az altermék-típus módosítása sikeresen megtörtént',
+      delete_sub_product_type: 'Az altermék-típus sikeresen törölve.',
     },
 
     validation: {
@@ -717,11 +827,18 @@ const messages = {
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
       archive_product_msg:
         'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
+      activate_product_msg:
+        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?',
+      activate_product_sku_conflict_msg:
+        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?\nA(z) "{sku}" SKU-t már egy másik aktív termék használja, ezért a rendszer automatikusan egy sorszámot fűz hozzá (pl. "{sku}-2").',
       delete_revision_msg:
         'Biztosan törölni szeretnéd ezt a revíziót? Minden termékrevízióból eltávolításra kerül, amely tartalmazza',
       delete_sub_product_msg:
         'Biztosan törölni szeretnéd ezt az alterméket? Minden revíziója, alkatrésze és dokumentuma törlődik, és eltávolításra kerül minden termékrevízióból, amely tartalmazza',
       remove_part_msg: 'Biztosan eltávolítod ezt az alkatrészt a revízióból',
+      delete_product_type_msg: 'Biztosan törölni szeretnéd ezt a terméktípust',
+      delete_sub_product_type_msg:
+        'Biztosan törölni szeretnéd ezt az altermék-típust',
     },
   },
 };

@@ -7,14 +7,15 @@ import PartCategoriesView from '../views/part-categories/PartCategoriesView.vue'
 import PartsView from '../views/parts/PartsView.vue';
 import ProductsListView from '../views/products/ProductsListView.vue';
 import ProductDetailView from '../views/products/ProductDetailView.vue';
+import ProductTypesView from '../views/settings/ProductTypesView.vue';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/dashboard' },
-    { path: '/login', component: LoginView },
-    { path: '/signup', component: SignupView },
+    { path: '/login', component: LoginView, meta: { guestOnly: true } },
+    { path: '/signup', component: SignupView, meta: { guestOnly: true } },
     { path: '/dashboard', component: DashboardView, meta: { auth: true } },
     { path: '/users', component: UsersView, meta: { auth: true, admin: true } },
     {
@@ -37,13 +38,34 @@ const router = createRouter({
       component: ProductDetailView,
       meta: { auth: true },
     },
+    {
+      path: '/settings/product-types',
+      component: ProductTypesView,
+      meta: { auth: true, admin: true },
+    },
   ],
 });
 
 router.beforeEach((to) => {
   const auth = useAuthStore();
-  if (to.meta.auth && !auth.isLoggedIn) return '/login';
-  if (to.meta.admin && !auth.isAdmin) return '/dashboard';
+
+  // Route requires a logged-in user: send anonymous visitors to Login,
+  // remembering where they were headed so we can return them afterwards.
+  if (to.meta.auth && !auth.isLoggedIn) {
+    return { path: '/login', query: { redirect: to.fullPath } };
+  }
+
+  // Route requires admin rights: logged-in non-admins are bounced to the dashboard.
+  if (to.meta.admin && !auth.isAdmin) {
+    return '/dashboard';
+  }
+
+  // Guest-only route (Login/Signup): an already-logged-in user gets sent
+  // straight to whatever page they were trying to reach (or the dashboard).
+  if (to.meta.guestOnly && auth.isLoggedIn) {
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard';
+    return redirect;
+  }
 });
 
 export default router;

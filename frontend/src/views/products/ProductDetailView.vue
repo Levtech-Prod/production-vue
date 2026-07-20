@@ -34,12 +34,14 @@
           :composing-revision="composingRevision"
           :compose-selection="composeSelection"
           :is-archived="isArchived"
+          :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
-          @new-sub-product="subProductModalOpen = true"
+          @new-sub-product="openNewSubProduct"
+          @edit-sub-product="openEditSubProduct"
           @new-sp-revision="openNewSubProductRevision"
           @edit-sp-revision="openEditSpRevision"
           @delete-sp-revision="openDeleteRevConfirm"
@@ -76,14 +78,14 @@
           </div>
 
           <DocumentsPanel
-            v-if="activeTab === 'documents' && panelScope"
+            v-if="activeTab === 'documents' && docsScope"
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
             :uploading="docsUploading"
             :can-edit="!isArchived"
             :empty-text="
-              panelScope.kind === 'product'
+              docsScope.kind === 'product'
                 ? t('no_product_documents')
                 : t('no_sp_rev_documents')
             "
@@ -93,6 +95,12 @@
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
                sub-product revision becomes editable right here. -->
+          <div
+            v-else-if="activeTab === 'bom' && detail.subProducts.length === 0"
+            class="py-4 text-center text-sm text-slate-400"
+          >
+            {{ t('no_sub_products_for_bom') }}
+          </div>
           <template v-else-if="activeTab === 'bom' && panelScope">
             <PartsEditorPanel
               v-if="revisionsMode && selection.type === 'subProduct'"
@@ -149,7 +157,8 @@
       :saving="modalSaving"
       :product-revisions="detail.revisions"
       :default-revision-id="activeProductRevId"
-      @saved="onCreateSubProduct"
+      :sub-product="spEditTarget"
+      @saved="onSubProductSaved"
     />
     <SubProductRevisionModal
       v-model="sprModalOpen"
@@ -241,6 +250,7 @@ import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from './detail/composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
+import { useAuthStore } from '../../stores/auth.ts';
 import {
   productsApi,
   subProductsApi,
@@ -260,10 +270,12 @@ const { t, te } = useI18n();
 const route = useRoute();
 const store = useProductsStore();
 const notify = useNotificationStore();
+const authStore = useAuthStore();
 
 const productId = computed(() => Number(route.params.id));
 const detail = computed(() => store.detail);
 const isArchived = computed(() => detail.value?.status === 'archived');
+const isAdmin = computed(() => authStore.isAdmin);
 
 // ── Selection / revision-switching state ──────────────────────────────────────
 
@@ -309,7 +321,10 @@ const tabs = computed(() => [
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
 
-const { panelScope, docsKeyFor } = usePanelScope(selection, activeProductRevId);
+const { panelScope, docsScope, docsKeyFor } = usePanelScope(
+  selection,
+  activeProductRevId,
+);
 
 const {
   docs,
@@ -330,7 +345,7 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
-} = useDocuments(productId, panelScope, docsKeyFor, spRevInfo);
+} = useDocuments(productId, docsScope, docsKeyFor, spRevInfo);
 
 const {
   bom,
@@ -346,9 +361,18 @@ const {
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
 
-// Load docs and BOM/parts in parallel whenever the scope changes.
+// Load BOM/parts whenever their scope changes (needs a real revision).
 watch(panelScope, (scope) => {
-  if (scope) void Promise.all([loadDocs(scope), loadContent(scope)]);
+  if (scope) void loadContent(scope);
+});
+// Load docs whenever their scope changes (e.g. selecting a different
+// sub-product) — product-level docs don't need a revision to exist, so this
+// can fire even before the product has one. The initial/per-product load is
+// handled explicitly in loadAndApplyDefaults() below instead of relying on
+// this watcher, since for a brand-new, revision-less product `docsScope`
+// never changes value across navigation (always `{ kind: 'product', revId: 0 }`).
+watch(docsScope, (scope) => {
+  if (scope) void loadDocs(scope);
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
@@ -551,6 +575,26 @@ const subProductModalOpen = ref(false);
 const sprModalOpen = ref(false);
 const activeSubProduct = ref<DetailSubProduct | null>(null);
 
+// Sub-product general-info create/edit — set before opening the modal;
+// its presence tells SubProductModal (and the save handler) whether this is
+// a create or an edit. Cleared whenever the modal closes so a later "New
+// sub-product" click can't accidentally reuse a stale edit target.
+const spEditTarget = ref<DetailSubProduct | null>(null);
+
+watch(subProductModalOpen, (isOpen) => {
+  if (!isOpen) spEditTarget.value = null;
+});
+
+function openNewSubProduct() {
+  spEditTarget.value = null;
+  subProductModalOpen.value = true;
+}
+
+function openEditSubProduct(sp: DetailSubProduct) {
+  spEditTarget.value = sp;
+  subProductModalOpen.value = true;
+}
+
 function openNewSubProductRevision(sp: DetailSubProduct) {
   activeSubProduct.value = sp;
   sprModalOpen.value = true;
@@ -562,12 +606,21 @@ async function reload() {
   clearBomCache();
 }
 
-async function onCreateSubProduct(
+async function onSubProductSaved(
   payload: SubProductPayload,
   addToRevisionId: number | null,
 ) {
   modalSaving.value = true;
   try {
+    if (spEditTarget.value) {
+      // Edit mode: general-info-only update, no revision/parts changes.
+      await subProductsApi.update(spEditTarget.value.id, payload);
+      notify.showToast(t('success.save_sub_product'), 'success');
+      subProductModalOpen.value = false;
+      await reload();
+      return;
+    }
+
     const res = await subProductsApi.create(productId.value, payload);
     const newRev = res.data.revisions?.[0];
     if (addToRevisionId && newRev) {
@@ -635,6 +688,11 @@ async function onCreateSubProductRevision(
 async function loadAndApplyDefaults() {
   await reload();
   applyDefaults();
+  // Explicit (rather than relying solely on the docsScope watcher below):
+  // for a brand-new product with no revisions yet, docsScope's value never
+  // actually changes across a product switch (always product-level, revId
+  // placeholder), so the watcher alone wouldn't fire here.
+  if (docsScope.value) void loadDocs(docsScope.value);
 }
 
 onMounted(loadAndApplyDefaults);

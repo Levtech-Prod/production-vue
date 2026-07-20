@@ -9,12 +9,12 @@
     size="lg"
   >
     <!-- Form body -->
-    <form class="space-y-5" @submit.prevent="save">
+    <form novalidate class="space-y-5" @submit.prevent="save">
       <div class="grid gap-4 md:grid-cols-2">
         <div class="flex flex-col gap-1">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >{{ t('name') }}</label
+            >{{ t('name') }} <span class="text-red-500">*</span></label
           >
           <input
             v-model="form.name"
@@ -22,6 +22,7 @@
             :placeholder="t('name')"
             required
           />
+          <p v-if="fieldErrors.name" class="text-xs text-red-500">{{ fieldErrors.name }}</p>
         </div>
         <div class="flex flex-col gap-1">
           <label
@@ -88,6 +89,7 @@ import { reactive, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type {
   PartCategory,
   PartCategoryParameter,
@@ -127,12 +129,16 @@ const form = reactive({
   image: '',
   parameters: [] as PartCategoryParameter[],
 });
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+]);
 
 // Populate form when the modal opens or the category prop changes
 watch(
   () => [props.modelValue, props.category] as const,
   ([open, category]) => {
     if (!open) return;
+    resetValidation();
     if (category) {
       form.name = category.name;
       form.description = category.description ?? '';
@@ -163,6 +169,8 @@ function resetForm() {
 
 function save() {
   emit('clearError');
+
+  if (!validate()) return;
 
   emit('saved', {
     name: form.name,

@@ -103,9 +103,12 @@ ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
 CREATE TABLE IF NOT EXISTS products (
   id          SERIAL PRIMARY KEY,
   name        VARCHAR(255) NOT NULL,
-  sku         VARCHAR(100) NOT NULL UNIQUE,
-  type        VARCHAR(100),
-  image       TEXT,
+  -- Unique only among active products (see migration 004) — the plain
+  -- UNIQUE this used to carry blocked reusing an archived product's SKU.
+  sku         VARCHAR(100) NOT NULL,
+  -- Required (see migration 003).
+  type        VARCHAR(100) NOT NULL,
+  image       TEXT NOT NULL,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -116,9 +119,12 @@ CREATE TABLE IF NOT EXISTS sub_products (
   -- Every sub-product belongs to one main product (see migration 001).
   product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
   name        VARCHAR(255) NOT NULL,
-  sku         VARCHAR(100) NOT NULL UNIQUE,
-  type        VARCHAR(100),
-  image       TEXT,
+  -- Optional (see migration 002): unlike products.sku, a sub-product may be
+  -- created without one. UNIQUE still allows any number of NULLs in Postgres.
+  sku         VARCHAR(100) UNIQUE,
+  -- Required (see migration 003).
+  type        VARCHAR(100) NOT NULL,
+  image       TEXT NOT NULL,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -210,6 +216,14 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 
+-- SKU uniqueness is scoped to active products (see migration 004). Drop the
+-- old table-wide UNIQUE constraint (if a pre-migration-004 install still has
+-- it) and replace it with a partial unique index that ignores archived rows,
+-- so a new or reactivated product can reuse an archived product's SKU.
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key;
+CREATE UNIQUE INDEX IF NOT EXISTS products_sku_active_unique
+  ON products (sku) WHERE status = 'active';
+
 -- ===========================================================================
 -- Documents module
 -- Files attached to products (product-level) or sub-product revisions.
@@ -239,3 +253,49 @@ CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
 
 CREATE INDEX IF NOT EXISTS idx_product_documents_product_id ON product_documents(product_id);
 CREATE INDEX IF NOT EXISTS idx_sp_rev_documents_sp_rev_id ON sub_product_revision_documents(sub_product_revision_id);
+
+-- ===========================================================================
+-- Product / Sub-product types (Settings page)
+-- ---------------------------------------------------------------------------
+-- `products.type` / `sub_products.type` used to be free text. They now must
+-- reference one of these managed lists, enforced with a FK on the `name`
+-- column (kept UNIQUE) rather than swapping to an id column, so existing
+-- data and application code that reads/writes `type` as a string keep
+-- working unchanged. ON UPDATE CASCADE means renaming a type from the
+-- Settings page automatically updates every product/sub-product using it;
+-- deleting a type that is still in use is rejected by the FK (no ON DELETE
+-- clause defaults to RESTRICT) and surfaced as a friendly error by the API.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS product_types (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_types (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Backfill: turn every distinct value already used by an existing
+-- product/sub-product into a real type row, so the FK constraints below
+-- don't reject pre-existing data.
+INSERT INTO product_types (name)
+  SELECT DISTINCT type FROM products WHERE type IS NOT NULL AND type <> ''
+  ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO sub_product_types (name)
+  SELECT DISTINCT type FROM sub_products WHERE type IS NOT NULL AND type <> ''
+  ON CONFLICT (name) DO NOTHING;
+
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_type_fkey;
+ALTER TABLE products
+  ADD CONSTRAINT products_type_fkey FOREIGN KEY (type)
+    REFERENCES product_types (name) ON UPDATE CASCADE;
+
+ALTER TABLE sub_products DROP CONSTRAINT IF EXISTS sub_products_type_fkey;
+ALTER TABLE sub_products
+  ADD CONSTRAINT sub_products_type_fkey FOREIGN KEY (type)
+    REFERENCES sub_product_types (name) ON UPDATE CASCADE;

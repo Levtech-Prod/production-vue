@@ -5,11 +5,11 @@
     size="lg"
   >
     <!-- Form body -->
-    <form class="space-y-5" @submit.prevent="save">
+    <form novalidate class="space-y-5" @submit.prevent="save">
       <div class="grid gap-4 md:grid-cols-2">
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
-            {{ t('category') }}
+            {{ t('category') }} <span class="text-red-500">*</span>
           </label>
           <select v-model.number="form.categoryId" class="input" required>
             <option :value="0" disabled>{{ t('select_category') }}</option>
@@ -17,11 +17,12 @@
               {{ c.name }}
             </option>
           </select>
+          <p v-if="fieldErrors.categoryId" class="text-xs text-red-500">{{ fieldErrors.categoryId }}</p>
         </div>
 
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
-            {{ t('code') }}
+            {{ t('code') }} <span class="text-red-500">*</span>
           </label>
           <input
             v-model="form.code"
@@ -29,11 +30,12 @@
             :placeholder="t('code')"
             required
           />
+          <p v-if="fieldErrors.code" class="text-xs text-red-500">{{ fieldErrors.code }}</p>
         </div>
 
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
-            {{ t('name') }}
+            {{ t('name') }} <span class="text-red-500">*</span>
           </label>
           <input
             v-model="form.name"
@@ -41,6 +43,7 @@
             :placeholder="t('name')"
             required
           />
+          <p v-if="fieldErrors.name" class="text-xs text-red-500">{{ fieldErrors.name }}</p>
         </div>
 
         <div class="flex flex-col gap-1">
@@ -105,6 +108,7 @@
       </div>
 
       <PartParameterValueList
+        ref="parameterListRef"
         v-model="parameterValues"
         :parameters="selectedCategory?.parameters || []"
       />
@@ -136,6 +140,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
 import type { Part, CreatePartPayload } from '../../types/parts.ts';
 import { useI18n } from 'vue-i18n';
@@ -171,6 +176,12 @@ const form = reactive({
 });
 
 const parameterValues = ref<Record<number, string>>({});
+const parameterListRef = ref<InstanceType<typeof PartParameterValueList> | null>(null);
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'categoryId', label: t('category'), missing: !form.categoryId },
+  { key: 'code', label: t('code'), missing: !form.code.trim() },
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+]);
 
 const selectedCategory = computed(() =>
   props.categories.find((c) => c.id === form.categoryId),
@@ -181,6 +192,8 @@ watch(
   () => [props.modelValue, props.part] as const,
   ([open, part]) => {
     if (!open) return;
+    resetValidation();
+    parameterListRef.value?.resetValidation();
     if (part) {
       form.categoryId = part.categoryId;
       form.name = part.name;
@@ -238,6 +251,9 @@ function save() {
       parameterId: Number(parameterId),
       value: String(value),
     }));
+
+  const parametersValid = parameterListRef.value?.validate() ?? true;
+  if (!validate() || !parametersValid) return;
 
   emit('saved', {
     categoryId: form.categoryId,

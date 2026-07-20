@@ -4,7 +4,7 @@
     :title="product ? t('edit_product') : t('add_product')"
     size="lg"
   >
-    <form id="product-form" class="flex flex-col gap-4" @submit.prevent="submit">
+    <form id="product-form" novalidate class="flex flex-col gap-4" @submit.prevent="submit">
       <div v-if="saveError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
         {{ saveError }}
       </div>
@@ -12,23 +12,31 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {{ t('name') }}
+            {{ t('name') }} <span class="text-red-500">*</span>
           </label>
           <input v-model="form.name" class="input" required />
+          <p v-if="fieldErrors.name" class="text-xs text-red-500">{{ fieldErrors.name }}</p>
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-            SKU
+            SKU <span class="text-red-500">*</span>
           </label>
           <input v-model="form.sku" class="input" required />
+          <p v-if="fieldErrors.sku" class="text-xs text-red-500">{{ fieldErrors.sku }}</p>
         </div>
       </div>
 
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {{ t('type') }}
+          {{ t('type') }} <span class="text-red-500">*</span>
         </label>
-        <input v-model="form.type" class="input" />
+        <select v-model="form.type" class="input" required>
+          <option value="" disabled>{{ t('select_type') }}</option>
+          <option v-for="pt in productTypesStore.productTypes" :key="pt.id" :value="pt.name">
+            {{ pt.name }}
+          </option>
+        </select>
+        <p v-if="fieldErrors.type" class="text-xs text-red-500">{{ fieldErrors.type }}</p>
       </div>
 
       <div class="flex flex-col gap-1">
@@ -43,6 +51,8 @@
         :label="t('image')"
         target="products"
         :preview-alt="form.name"
+        required
+        :error="fieldErrors.image"
       />
     </form>
 
@@ -67,6 +77,8 @@ import { reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
+import { useProductTypesStore } from '../../stores/productTypesStore.ts';
 import type { ProductSummary, ProductPayload } from '../../types/products.ts';
 
 const props = defineProps<{
@@ -80,6 +92,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const productTypesStore = useProductTypesStore();
 
 const open = defineModel<boolean>({ default: false });
 
@@ -90,24 +103,34 @@ const form = reactive<ProductPayload>({
   description: '',
   image: '',
 });
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
+  { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'sku', label: t('sku'), missing: !form.sku.trim() },
+  { key: 'type', label: t('type'), missing: !form.type.trim() },
+  { key: 'image', label: t('image'), missing: !form.image },
+]);
 
 // Reset the form whenever the modal opens (populate for edit, blank for new).
 watch(open, (isOpen) => {
   if (!isOpen) return;
+  productTypesStore.loadProductTypes();
   form.name = props.product?.name ?? '';
   form.sku = props.product?.sku ?? '';
   form.type = props.product?.type ?? '';
   form.description = props.product?.description ?? '';
   form.image = props.product?.image ?? '';
+  resetValidation();
 });
 
 function submit() {
+  if (!validate()) return;
+
   emit('saved', {
     name: form.name.trim(),
     sku: form.sku.trim(),
-    type: form.type?.trim() || null,
+    type: form.type.trim(),
     description: form.description?.trim() || null,
-    image: form.image || null,
+    image: form.image,
   });
 }
 </script>
