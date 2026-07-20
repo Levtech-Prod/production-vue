@@ -159,7 +159,9 @@
           <button
             v-if="!composingRevision"
             type="button"
-            class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+            class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-blue-600"
+            :disabled="!hasSubProducts"
+            :title="!hasSubProducts ? t('add_new_revision_disabled_hint') : ''"
             @click="emit('start-new-revision')"
           >
             <Plus class="h-3.5 w-3.5" /> {{ t('add_new_revision') }}
@@ -530,6 +532,10 @@ const canSetDefault = computed(
 const composedCount = computed(
   () => Object.keys(props.composeSelection).length,
 );
+
+// A revision has nothing to compose without at least one sub-product to
+// pick from — gates the "Add new revision" button.
+const hasSubProducts = computed(() => props.detail.subProducts.length > 0);
 
 // ── Normal mode rows ─────────────────────────────────────────────────────────
 
