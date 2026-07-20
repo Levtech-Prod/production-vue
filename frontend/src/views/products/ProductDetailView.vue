@@ -76,14 +76,14 @@
           </div>
 
           <DocumentsPanel
-            v-if="activeTab === 'documents' && panelScope"
+            v-if="activeTab === 'documents' && docsScope"
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
             :uploading="docsUploading"
             :can-edit="!isArchived"
             :empty-text="
-              panelScope.kind === 'product'
+              docsScope.kind === 'product'
                 ? t('no_product_documents')
                 : t('no_sp_rev_documents')
             "
@@ -93,6 +93,12 @@
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
                sub-product revision becomes editable right here. -->
+          <div
+            v-else-if="activeTab === 'bom' && detail.subProducts.length === 0"
+            class="py-4 text-center text-sm text-slate-400"
+          >
+            {{ t('no_sub_products_for_bom') }}
+          </div>
           <template v-else-if="activeTab === 'bom' && panelScope">
             <PartsEditorPanel
               v-if="revisionsMode && selection.type === 'subProduct'"
@@ -309,7 +315,10 @@ const tabs = computed(() => [
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
 
-const { panelScope, docsKeyFor } = usePanelScope(selection, activeProductRevId);
+const { panelScope, docsScope, docsKeyFor } = usePanelScope(
+  selection,
+  activeProductRevId,
+);
 
 const {
   docs,
@@ -330,7 +339,7 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
-} = useDocuments(productId, panelScope, docsKeyFor, spRevInfo);
+} = useDocuments(productId, docsScope, docsKeyFor, spRevInfo);
 
 const {
   bom,
@@ -346,9 +355,18 @@ const {
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
 
-// Load docs and BOM/parts in parallel whenever the scope changes.
+// Load BOM/parts whenever their scope changes (needs a real revision).
 watch(panelScope, (scope) => {
-  if (scope) void Promise.all([loadDocs(scope), loadContent(scope)]);
+  if (scope) void loadContent(scope);
+});
+// Load docs whenever their scope changes (e.g. selecting a different
+// sub-product) — product-level docs don't need a revision to exist, so this
+// can fire even before the product has one. The initial/per-product load is
+// handled explicitly in loadAndApplyDefaults() below instead of relying on
+// this watcher, since for a brand-new, revision-less product `docsScope`
+// never changes value across navigation (always `{ kind: 'product', revId: 0 }`).
+watch(docsScope, (scope) => {
+  if (scope) void loadDocs(scope);
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
@@ -635,6 +653,11 @@ async function onCreateSubProductRevision(
 async function loadAndApplyDefaults() {
   await reload();
   applyDefaults();
+  // Explicit (rather than relying solely on the docsScope watcher below):
+  // for a brand-new product with no revisions yet, docsScope's value never
+  // actually changes across a product switch (always product-level, revId
+  // placeholder), so the watcher alone wouldn't fire here.
+  if (docsScope.value) void loadDocs(docsScope.value);
 }
 
 onMounted(loadAndApplyDefaults);
