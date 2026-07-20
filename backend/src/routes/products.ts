@@ -7,9 +7,54 @@ import {
   newRevisionSchema,
   setDefaultRevisionSchema,
   setProductStatusSchema,
+  type ProductStatus,
 } from '../schemas/products.schema.js';
 
 const router = Router();
+
+// How many "<sku>-N" candidates to try in resolveSkuConflictOnReactivate
+// before giving up. Collisions are resolved on the first or second try in
+// practice; this is just a sane upper bound against pathological data.
+const MAX_SKU_SUFFIX_ATTEMPTS = 50;
+
+/**
+ * Reactivating a product can collide with a different active product that
+ * has since taken its SKU (the unique index only covers active rows). Rather
+ * than blocking the user with an error, free up a SKU automatically: strip
+ * any suffix left over from a previous auto-resolve, then try "<sku>-2",
+ * "<sku>-3", ... until one isn't taken, applying the status change together
+ * with the winning SKU.
+ *
+ * Returns the updated row, or `null` if the product no longer exists.
+ */
+async function resolveSkuConflictOnReactivate(
+  productId: number,
+  status: ProductStatus,
+) {
+  const current = await query(`SELECT sku FROM products WHERE id = $1`, [
+    productId,
+  ]);
+  if (current.rowCount === 0) return null;
+  const baseSku = current.rows[0].sku.replace(/-\d+$/, '');
+
+  for (let suffix = 2; suffix <= MAX_SKU_SUFFIX_ATTEMPTS; suffix++) {
+    try {
+      const result = await query(
+        `UPDATE products SET status = $1, sku = $2, updated_at = NOW()
+         WHERE id = $3
+         RETURNING id, sku, status, updated_at AS "updatedAt"`,
+        [status, `${baseSku}-${suffix}`, productId],
+      );
+      return result.rows[0];
+    } catch (err: any) {
+      if (err?.code !== '23505') throw err;
+      // candidate also taken — try the next suffix
+    }
+  }
+  throw new Error(
+    `No free SKU found for product ${productId} after ${MAX_SKU_SUFFIX_ATTEMPTS} attempts`,
+  );
+}
 
 // GET /api/products — list with latest revision info
 router.get('/', requireAuth, async (_req, res) => {
@@ -295,16 +340,32 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
   }
   const data = setProductStatusSchema.parse(req.body);
 
-  const result = await query(
-    `UPDATE products SET status = $1, updated_at = NOW()
-     WHERE id = $2
-     RETURNING id, status, updated_at AS "updatedAt"`,
-    [data.status, productId],
-  );
-  if (result.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+  try {
+    const result = await query(
+      `UPDATE products SET status = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, sku, status, updated_at AS "updatedAt"`,
+      [data.status, productId],
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+    return res.json(result.rows[0]);
+  } catch (err: any) {
+    // Archiving never conflicts (archived rows sit outside the partial
+    // unique index), so a 23505 here only happens on reactivation.
+    if (err?.code !== '23505' || data.status !== 'active') {
+      throw err;
+    }
+    const reactivated = await resolveSkuConflictOnReactivate(
+      productId,
+      data.status,
+    );
+    if (!reactivated) {
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+    return res.json(reactivated);
   }
-  res.json(result.rows[0]);
 });
 
 // PATCH /api/products/:productId — update product fields

@@ -103,7 +103,9 @@ ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
 CREATE TABLE IF NOT EXISTS products (
   id          SERIAL PRIMARY KEY,
   name        VARCHAR(255) NOT NULL,
-  sku         VARCHAR(100) NOT NULL UNIQUE,
+  -- Unique only among active products (see migration 004) — the plain
+  -- UNIQUE this used to carry blocked reusing an archived product's SKU.
+  sku         VARCHAR(100) NOT NULL,
   -- Required (see migration 003).
   type        VARCHAR(100) NOT NULL,
   image       TEXT NOT NULL,
@@ -213,6 +215,14 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+
+-- SKU uniqueness is scoped to active products (see migration 004). Drop the
+-- old table-wide UNIQUE constraint (if a pre-migration-004 install still has
+-- it) and replace it with a partial unique index that ignores archived rows,
+-- so a new or reactivated product can reuse an archived product's SKU.
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key;
+CREATE UNIQUE INDEX IF NOT EXISTS products_sku_active_unique
+  ON products (sku) WHERE status = 'active';
 
 -- ===========================================================================
 -- Documents module

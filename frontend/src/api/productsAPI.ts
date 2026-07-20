@@ -45,7 +45,10 @@ export const productsApi = {
     );
   },
   setStatus(id: number, status: ProductStatus) {
-    return api.patch<{ id: number; status: ProductStatus; updatedAt: string }>(
+    // `sku` is included because reactivating can silently rename it (see
+    // resolveSkuConflictOnReactivate on the backend) — callers need it to
+    // detect and surface that change.
+    return api.patch<{ id: number; sku: string; status: ProductStatus; updatedAt: string }>(
       `/products/${id}/status`,
       { status },
     );

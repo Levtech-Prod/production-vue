@@ -248,7 +248,7 @@
                   type="button"
                   class="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
                   :title="t('activate')"
-                  @click="activateProduct(product)"
+                  @click="promptActivate(product)"
                 >
                   <ArchiveRestore class="h-4 w-4" />
                 </button>
@@ -276,6 +276,17 @@
       :loading="archiving"
       @confirm="confirmArchive"
       @cancel="archiveModalVisible = false"
+    />
+
+    <!-- Re-activate confirmation modal -->
+    <ConfirmModal
+      :visible="activateModalVisible"
+      :title="t('activate')"
+      :message="activateModalMessage"
+      :confirm-text="t('activate')"
+      :loading="activating"
+      @confirm="confirmActivate"
+      @cancel="activateModalVisible = false"
     />
   </div>
 </template>
@@ -416,14 +427,22 @@ const archiveModalVisible = ref(false);
 const productToArchive = ref<ProductSummary | null>(null);
 const archiving = ref(false);
 
+// Picks the toast copy for a status change. Reactivation can silently rename
+// the SKU on the backend (resolveSkuConflictOnReactivate) when another active
+// product has since taken it — surface that here so the user isn't left
+// wondering why the SKU looks different.
+function statusChangeMessage(status: ProductStatus, previousSku: string, updatedSku: string): string {
+  if (status === 'archived') return t('success.archive_product');
+  return updatedSku === previousSku
+    ? t('success.activate_product')
+    : t('success.activate_product_sku_changed', { oldSku: previousSku, newSku: updatedSku });
+}
+
 // Shared status-change handler — updates store, shows toast, swallows errors.
 async function changeStatus(product: ProductSummary, status: ProductStatus): Promise<boolean> {
   try {
-    await store.setProductStatus(product.id, status);
-    notify.showToast(
-      t(status === 'archived' ? 'success.archive_product' : 'success.activate_product'),
-      'success',
-    );
+    const updated = await store.setProductStatus(product.id, status);
+    notify.showToast(statusChangeMessage(status, product.sku, updated.sku), 'success');
     return true;
   } catch (err: any) {
     notify.showToast(translateApiError(err, { t, te }, 'errors.set_product_status_failed'), 'error');
@@ -447,8 +466,41 @@ async function confirmArchive() {
   }
 }
 
-async function activateProduct(product: ProductSummary) {
-  await changeStatus(product, 'active');
+const activateModalVisible = ref(false);
+const productToActivate = ref<ProductSummary | null>(null);
+const activating = ref(false);
+
+// True when a different *active* product already holds this SKU — the sign
+// that reactivating will trigger the backend's automatic SKU suffixing
+// (resolveSkuConflictOnReactivate). Used to warn the user up front.
+function hasActiveSkuConflict(product: ProductSummary): boolean {
+  return products.value.some(
+    (p) => p.id !== product.id && p.status === 'active' && p.sku === product.sku,
+  );
+}
+
+const activateModalMessage = computed(() => {
+  const product = productToActivate.value;
+  if (!product) return '';
+  return hasActiveSkuConflict(product)
+    ? t('confirmations.activate_product_sku_conflict_msg', { sku: product.sku })
+    : t('confirmations.activate_product_msg');
+});
+
+function promptActivate(product: ProductSummary) {
+  productToActivate.value = product;
+  activateModalVisible.value = true;
+}
+
+async function confirmActivate() {
+  if (!productToActivate.value) return;
+  activating.value = true;
+  const ok = await changeStatus(productToActivate.value, 'active');
+  activating.value = false;
+  if (ok) {
+    activateModalVisible.value = false;
+    productToActivate.value = null;
+  }
 }
 
 onMounted(() => {
