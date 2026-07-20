@@ -31,3 +31,8 @@ These rules apply to all code written or edited in this project.
 ## Structure
 
 - Match existing folder conventions in `backend/src` and `frontend/src` — don't introduce a new pattern without a reason.
+
+## Collaboration
+
+- If a better approach exists besides what was asked, propose it in addition to doing the requested task — don't silently substitute it.
+- If a request is ambiguous or missing details needed to do it correctly, ask before proceeding rather than guessing.
