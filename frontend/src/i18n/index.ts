@@ -342,6 +342,8 @@ const messages = {
       set_default_revision: 'Default revision updated',
       archive_product: 'The product has been archived',
       activate_product: 'The product has been re-activated',
+      activate_product_sku_changed:
+        'The product has been re-activated. Its SKU "{oldSku}" was already in use by another active product, so it was changed to "{newSku}".',
     },
 
     validation: {
@@ -361,6 +363,10 @@ const messages = {
       delete_document_msg: 'Are you sure you want to delete this document',
       archive_product_msg:
         'Are you sure you want to archive this product? It will become read-only until re-activated.',
+      activate_product_msg:
+        'Are you sure you want to re-activate this product?',
+      activate_product_sku_conflict_msg:
+        'Are you sure you want to re-activate this product?\nIts SKU "{sku}" is already used by another active product, so it will automatically be changed to a new value.',
       delete_revision_msg:
         'Are you sure you want to delete this revision? It will be removed from every product revision that includes it',
       delete_sub_product_msg:
@@ -698,6 +704,8 @@ const messages = {
       set_default_revision: 'Alapértelmezett revízió frissítve',
       archive_product: 'A termék archiválva lett',
       activate_product: 'A termék visszaállítva aktív állapotba',
+      activate_product_sku_changed:
+        'A termék visszaállítva aktív állapotba. A(z) "{oldSku}" SKU-t már egy másik aktív termék használta, ezért "{newSku}"-ra módosult.',
     },
 
     validation: {
@@ -717,6 +725,10 @@ const messages = {
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
       archive_product_msg:
         'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
+      activate_product_msg:
+        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?',
+      activate_product_sku_conflict_msg:
+        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?\nA(z) "{sku}" SKU-t már egy másik aktív termék használja, ezért automatikusan egy új értékre módosul.',
       delete_revision_msg:
         'Biztosan törölni szeretnéd ezt a revíziót? Minden termékrevízióból eltávolításra kerül, amely tartalmazza',
       delete_sub_product_msg:

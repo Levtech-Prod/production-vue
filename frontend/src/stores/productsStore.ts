@@ -86,7 +86,7 @@ export const useProductsStore = defineStore('products', () => {
         list.value[index] = { ...list.value[index], ...response.data };
       }
       if (detail.value?.id === id) {
-        detail.value = { ...detail.value, status: response.data.status };
+        detail.value = { ...detail.value, sku: response.data.sku, status: response.data.status };
       }
       return response.data;
     } catch (err) {

@@ -29,7 +29,7 @@ const { t } = useI18n();
           {{ title || t('confirm') }}
         </h3>
 
-        <p class="mb-6 text-sm text-gray-600">
+        <p class="mb-6 whitespace-pre-line text-sm text-gray-600">
           {{ message || t('confirmations.action_msg') }}
         </p>
 
