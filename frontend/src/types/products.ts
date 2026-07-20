@@ -64,6 +64,7 @@ export interface DetailSubProduct {
   sku: string | null;
   type: string;
   image: string;
+  description?: string | null;
   revisions: SubProductRevision[];
 }
 

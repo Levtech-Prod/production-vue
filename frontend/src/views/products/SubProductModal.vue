@@ -1,5 +1,9 @@
 <template>
-  <BaseModal v-model="open" :title="t('new_sub_product')" size="lg">
+  <BaseModal
+    v-model="open"
+    :title="subProduct ? t('edit_sub_product') : t('new_sub_product')"
+    size="lg"
+  >
     <form
       id="sub-product-form"
       novalidate
@@ -74,12 +78,14 @@
         :error="fieldErrors.image"
       />
 
-      <PartsPicker ref="partsPickerRef" v-model="selectedParts" />
+      <PartsPicker v-if="!subProduct" ref="partsPickerRef" v-model="selectedParts" />
 
-      <!-- Optionally link the new sub-product to a product revision -->
+      <!-- Optionally link the new sub-product to a product revision
+           (creation only — editing only touches the sub-product's own
+           general info, not revision membership). -->
       <div
         class="rounded-xl border border-slate-200 p-3"
-        v-if="productRevisions.length"
+        v-if="!subProduct && productRevisions.length"
       >
         <label
           class="flex items-center gap-2 text-sm font-medium text-slate-700"
@@ -124,7 +130,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue';
+import { reactive, ref, toRefs, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
@@ -135,6 +141,7 @@ import type {
   SubProductPayload,
   SelectedPart,
   ProductRevision,
+  DetailSubProduct,
 } from '../../types/products.ts';
 
 const props = withDefaults(
@@ -145,9 +152,13 @@ const props = withDefaults(
     productRevisions?: ProductRevision[];
     // Pre-selected target revision (e.g. the one currently selected on screen).
     defaultRevisionId?: number | null;
+    // When set, the modal edits this sub-product's general info instead of
+    // creating a new one.
+    subProduct?: DetailSubProduct | null;
   }>(),
-  { productRevisions: () => [] },
+  { productRevisions: () => [], subProduct: null },
 );
+const { subProduct } = toRefs(props);
 
 const emit = defineEmits<{
   saved: [payload: SubProductPayload, addToRevisionId: number | null];
@@ -180,11 +191,20 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(
 watch(open, (isOpen) => {
   if (!isOpen) return;
   productTypesStore.loadSubProductTypes();
-  form.name = '';
-  form.sku = '';
-  form.type = '';
-  form.description = '';
-  form.image = '';
+  if (subProduct.value) {
+    // Edit mode: pre-fill from the sub-product being edited.
+    form.name = subProduct.value.name;
+    form.sku = subProduct.value.sku ?? '';
+    form.type = subProduct.value.type;
+    form.description = subProduct.value.description ?? '';
+    form.image = subProduct.value.image;
+  } else {
+    form.name = '';
+    form.sku = '';
+    form.type = '';
+    form.description = '';
+    form.image = '';
+  }
   selectedParts.value = [];
   // Default the link target to the currently selected revision, if any.
   targetRevisionId.value =
@@ -195,10 +215,12 @@ watch(open, (isOpen) => {
 });
 
 function submit() {
+  const isEdit = !!subProduct.value;
   // The quantity <input> normally blocks submission natively when cleared
   // — that's disabled (novalidate) in favor of PartsPicker's own inline
-  // validation, so it must be checked explicitly here too.
-  const partsValid = partsPickerRef.value?.validate() ?? true;
+  // validation, so it must be checked explicitly here too. Not relevant in
+  // edit mode, where the parts picker isn't shown.
+  const partsValid = isEdit ? true : (partsPickerRef.value?.validate() ?? true);
   if (!validate() || !partsValid) return;
 
   emit(
@@ -209,14 +231,16 @@ function submit() {
       type: form.type.trim(),
       description: form.description?.trim() || null,
       image: form.image,
-      parts: selectedParts.value.map((p) => ({
-        partId: p.partId,
-        quantity: Number(p.quantity),
-        unit: p.unit.trim() || null,
-        notes: p.notes.trim() || null,
-      })),
+      parts: isEdit
+        ? []
+        : selectedParts.value.map((p) => ({
+            partId: p.partId,
+            quantity: Number(p.quantity),
+            unit: p.unit.trim() || null,
+            notes: p.notes.trim() || null,
+          })),
     },
-    addToProduct.value ? targetRevisionId.value : null,
+    isEdit ? null : addToProduct.value ? targetRevisionId.value : null,
   );
 }
 </script>

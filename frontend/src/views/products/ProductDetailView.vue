@@ -34,12 +34,14 @@
           :composing-revision="composingRevision"
           :compose-selection="composeSelection"
           :is-archived="isArchived"
+          :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
-          @new-sub-product="subProductModalOpen = true"
+          @new-sub-product="openNewSubProduct"
+          @edit-sub-product="openEditSubProduct"
           @new-sp-revision="openNewSubProductRevision"
           @edit-sp-revision="openEditSpRevision"
           @delete-sp-revision="openDeleteRevConfirm"
@@ -155,7 +157,8 @@
       :saving="modalSaving"
       :product-revisions="detail.revisions"
       :default-revision-id="activeProductRevId"
-      @saved="onCreateSubProduct"
+      :sub-product="spEditTarget"
+      @saved="onSubProductSaved"
     />
     <SubProductRevisionModal
       v-model="sprModalOpen"
@@ -247,6 +250,7 @@ import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from './detail/composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
+import { useAuthStore } from '../../stores/auth.ts';
 import {
   productsApi,
   subProductsApi,
@@ -266,10 +270,12 @@ const { t, te } = useI18n();
 const route = useRoute();
 const store = useProductsStore();
 const notify = useNotificationStore();
+const authStore = useAuthStore();
 
 const productId = computed(() => Number(route.params.id));
 const detail = computed(() => store.detail);
 const isArchived = computed(() => detail.value?.status === 'archived');
+const isAdmin = computed(() => authStore.isAdmin);
 
 // ── Selection / revision-switching state ──────────────────────────────────────
 
@@ -569,6 +575,26 @@ const subProductModalOpen = ref(false);
 const sprModalOpen = ref(false);
 const activeSubProduct = ref<DetailSubProduct | null>(null);
 
+// Sub-product general-info create/edit — set before opening the modal;
+// its presence tells SubProductModal (and the save handler) whether this is
+// a create or an edit. Cleared whenever the modal closes so a later "New
+// sub-product" click can't accidentally reuse a stale edit target.
+const spEditTarget = ref<DetailSubProduct | null>(null);
+
+watch(subProductModalOpen, (isOpen) => {
+  if (!isOpen) spEditTarget.value = null;
+});
+
+function openNewSubProduct() {
+  spEditTarget.value = null;
+  subProductModalOpen.value = true;
+}
+
+function openEditSubProduct(sp: DetailSubProduct) {
+  spEditTarget.value = sp;
+  subProductModalOpen.value = true;
+}
+
 function openNewSubProductRevision(sp: DetailSubProduct) {
   activeSubProduct.value = sp;
   sprModalOpen.value = true;
@@ -580,12 +606,21 @@ async function reload() {
   clearBomCache();
 }
 
-async function onCreateSubProduct(
+async function onSubProductSaved(
   payload: SubProductPayload,
   addToRevisionId: number | null,
 ) {
   modalSaving.value = true;
   try {
+    if (spEditTarget.value) {
+      // Edit mode: general-info-only update, no revision/parts changes.
+      await subProductsApi.update(spEditTarget.value.id, payload);
+      notify.showToast(t('success.save_sub_product'), 'success');
+      subProductModalOpen.value = false;
+      await reload();
+      return;
+    }
+
     const res = await subProductsApi.create(productId.value, payload);
     const newRev = res.data.revisions?.[0];
     if (addToRevisionId && newRev) {

@@ -329,6 +329,15 @@
                 <Plus class="h-4 w-4" />
               </button>
               <button
+                v-if="isAdmin"
+                type="button"
+                class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                :title="t('edit_sub_product')"
+                @click="emit('edit-sub-product', sp)"
+              >
+                <Pencil class="h-4 w-4" />
+              </button>
+              <button
                 type="button"
                 class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 :title="t('delete_sub_product')"
@@ -461,6 +470,8 @@ const props = defineProps<{
   composeSelection: ComposeSelection;
   isArchived: boolean;
   collapsed: boolean;
+  /** Sub-product general-info editing is restricted to admins. */
+  isAdmin: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -469,6 +480,7 @@ const emit = defineEmits<{
   (e: 'toggle-revisions-mode'): void;
   (e: 'toggle-compose', spId: number, revId: number): void;
   (e: 'new-sub-product'): void;
+  (e: 'edit-sub-product', sp: DetailSubProduct): void;
   (e: 'new-sp-revision', sp: DetailSubProduct): void;
   (e: 'edit-sp-revision', sp: DetailSubProduct, rev: SubProductRevision): void;
   (
