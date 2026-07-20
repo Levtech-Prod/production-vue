@@ -41,7 +41,16 @@
         >
           {{ t('type') }} <span class="text-red-500">*</span>
         </label>
-        <input v-model="form.type" class="input" required />
+        <select v-model="form.type" class="input" required>
+          <option value="" disabled>{{ t('select_type') }}</option>
+          <option
+            v-for="spt in productTypesStore.subProductTypes"
+            :key="spt.id"
+            :value="spt.name"
+          >
+            {{ spt.name }}
+          </option>
+        </select>
         <p v-if="fieldErrors.type" class="text-xs text-red-500">
           {{ fieldErrors.type }}
         </p>
@@ -121,6 +130,7 @@ import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartsPicker from './PartsPicker.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
+import { useProductTypesStore } from '../../stores/productTypesStore.ts';
 import type {
   SubProductPayload,
   SelectedPart,
@@ -144,6 +154,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const productTypesStore = useProductTypesStore();
 const open = defineModel<boolean>({ default: false });
 
 const addToProduct = ref(false);
@@ -168,6 +179,7 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
+  productTypesStore.loadSubProductTypes();
   form.name = '';
   form.sku = '';
   form.type = '';

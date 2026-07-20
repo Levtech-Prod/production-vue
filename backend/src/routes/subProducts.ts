@@ -198,6 +198,10 @@ router.post('/', requireAuth, async (req, res) => {
         .status(409)
         .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
     }
+    // `type` must reference an existing sub_product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
+    }
     throw err;
   } finally {
     client.release();
@@ -238,6 +242,10 @@ router.patch('/:spId', requireAuth, async (req, res) => {
       return res
         .status(409)
         .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
+    }
+    // `type` must reference an existing sub_product_types.name (see schema.sql).
+    if (err?.code === '23503') {
+      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
     }
     throw err;
   }

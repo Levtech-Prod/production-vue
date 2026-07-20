@@ -9,6 +9,8 @@ import partRoutes from './routes/parts.js';
 import productRoutes from './routes/products.js';
 import productRevisionRoutes from './routes/productRevisions.js';
 import subProductRoutes from './routes/subProducts.js';
+import productTypeRoutes from './routes/productTypes.js';
+import subProductTypeRoutes from './routes/subProductTypes.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
@@ -26,6 +28,8 @@ app.use('/api/parts', partRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/product-revisions', productRevisionRoutes);
 app.use('/api/sub-products', subProductRoutes);
+app.use('/api/product-types', productTypeRoutes);
+app.use('/api/sub-product-types', subProductTypeRoutes);
 
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/api', uploadRoutes);
