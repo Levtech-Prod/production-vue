@@ -366,7 +366,7 @@ const messages = {
       activate_product_msg:
         'Are you sure you want to re-activate this product?',
       activate_product_sku_conflict_msg:
-        'Are you sure you want to re-activate this product?\nIts SKU "{sku}" is already used by another active product, so it will automatically be changed to a new value.',
+        'Are you sure you want to re-activate this product?\nIts SKU "{sku}" is already used by another active product, so a number will automatically be appended to it (e.g. "{sku}-2").',
       delete_revision_msg:
         'Are you sure you want to delete this revision? It will be removed from every product revision that includes it',
       delete_sub_product_msg:
@@ -728,7 +728,7 @@ const messages = {
       activate_product_msg:
         'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?',
       activate_product_sku_conflict_msg:
-        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?\nA(z) "{sku}" SKU-t már egy másik aktív termék használja, ezért automatikusan egy új értékre módosul.',
+        'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?\nA(z) "{sku}" SKU-t már egy másik aktív termék használja, ezért a rendszer automatikusan egy sorszámot fűz hozzá (pl. "{sku}-2").',
       delete_revision_msg:
         'Biztosan törölni szeretnéd ezt a revíziót? Minden termékrevízióból eltávolításra kerül, amely tartalmazza',
       delete_sub_product_msg:
