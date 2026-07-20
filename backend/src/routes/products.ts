@@ -174,6 +174,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
        sp.sku AS "sku",
        sp.type AS "type",
        sp.image AS "image",
+       sp.description AS "description",
        spr.id AS "revId",
        spr.revision_number AS "revNumber",
        spr.label AS "revLabel",
@@ -196,6 +197,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
         sku: row.sku,
         type: row.type,
         image: row.image,
+        description: row.description,
         revisions: [],
       });
     }

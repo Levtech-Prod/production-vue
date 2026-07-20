@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query, pool } from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   createSubProductSchema,
@@ -208,8 +208,8 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /api/sub-products/:spId — update sub-product fields
-router.patch('/:spId', requireAuth, async (req, res) => {
+// PATCH /api/sub-products/:spId — update sub-product fields (admin only)
+router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
   const spId = Number(req.params.spId);
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
