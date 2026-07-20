@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'"
+    "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'",
+    "db:migrate": "dotenv -e .env -- sh -c 'for f in database/migrations/*.sql; do echo \"Applying $f\"; psql \"$DATABASE_URL\" -f \"$f\"; done'"
   },
   "dependencies": {
     "bcryptjs": "latest",
@@ -14,6 +15,7 @@
     "dotenv": "latest",
     "express": "latest",
     "jsonwebtoken": "latest",
+    "multer": "^2.2.0",
     "pg": "latest",
     "zod": "latest"
   },
@@ -22,6 +24,7 @@
     "@types/cors": "latest",
     "@types/express": "latest",
     "@types/jsonwebtoken": "latest",
+    "@types/multer": "^2.1.0",
     "@types/node": "latest",
     "@types/pg": "latest",
     "dotenv-cli": "^11.0.0",
@@ -29,5 +32,3 @@
     "typescript": "latest"
   }
 }
-
-

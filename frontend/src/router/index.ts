@@ -3,8 +3,10 @@ import LoginView from '../views/LoginView.vue';
 import SignupView from '../views/SignupView.vue';
 import DashboardView from '../views/DashboardView.vue';
 import UsersView from '../views/UsersView.vue';
-import PartCategoriesView from '../views/PartCategoriesView.vue';
-import PartsView from '../views/PartsView.vue';
+import PartCategoriesView from '../views/part-categories/PartCategoriesView.vue';
+import PartsView from '../views/parts/PartsView.vue';
+import ProductsListView from '../views/products/ProductsListView.vue';
+import ProductDetailView from '../views/products/ProductDetailView.vue';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
@@ -15,12 +17,30 @@ const router = createRouter({
     { path: '/signup', component: SignupView },
     { path: '/dashboard', component: DashboardView, meta: { auth: true } },
     { path: '/users', component: UsersView, meta: { auth: true, admin: true } },
-    { path: '/stock/categories', component: PartCategoriesView, meta: { auth: true, admin: true } },
-    { path: '/stock/parts', component: PartsView, meta: { auth: true, admin: true } }
-  ]
+    {
+      path: '/stock/categories',
+      component: PartCategoriesView,
+      meta: { auth: true, admin: true },
+    },
+    {
+      path: '/stock/parts',
+      component: PartsView,
+      meta: { auth: true, admin: true },
+    },
+    {
+      path: '/products',
+      component: ProductsListView,
+      meta: { auth: true },
+    },
+    {
+      path: '/products/:id',
+      component: ProductDetailView,
+      meta: { auth: true },
+    },
+  ],
 });
 
-router.beforeEach(to => {
+router.beforeEach((to) => {
   const auth = useAuthStore();
   if (to.meta.auth && !auth.isLoggedIn) return '/login';
   if (to.meta.admin && !auth.isAdmin) return '/dashboard';

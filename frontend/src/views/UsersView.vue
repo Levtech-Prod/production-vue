@@ -1,15 +1,15 @@
 <template>
   <div>
-    <h1 class="text-3xl font-bold">Felhasználók</h1>
+    <h1 class="text-3xl font-bold">{{ t('users') }}</h1>
     <div class="card mt-6 overflow-hidden">
       <table class="w-full text-left text-sm">
         <thead class="bg-slate-50 text-xs uppercase text-slate-500">
           <tr>
-            <th class="p-4">Username</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Role</th>
-            <th>Created</th>
+            <th class="p-4">{{ t('username') }}</th>
+            <th>{{ t('email') }}</th>
+            <th>{{ t('phone') }}</th>
+            <th>{{ t('role') }}</th>
+            <th>{{ t('created') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -25,7 +25,7 @@
                     ? 'bg-blue-100 text-blue-700'
                     : 'bg-slate-100 text-slate-700'
                 "
-                >{{ u.admin ? 'Admin' : 'Client' }}</span
+                >{{ u.admin ? t('admin') : t('client') }}</span
               >
             </td>
             <td>{{ new Date(u.createdAt).toLocaleString() }}</td>
@@ -38,6 +38,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { api } from '../api/client';
+
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
+
 const users = ref<any[]>([]);
 onMounted(async () => {
   users.value = (await api.get('/users')).data;

@@ -3,6 +3,7 @@ import { api } from './client.ts';
 import type {
   PartCategory,
   CreatePartCategoryPayload,
+  UpdatePartCategoryPayload,
 } from '../types/partCategories.ts';
 
 export const partCategoriesApi = {
@@ -18,7 +19,7 @@ export const partCategoriesApi = {
     return api.post<PartCategory>('/part-categories', payload);
   },
 
-  update(id: number, payload: CreatePartCategoryPayload) {
+  update(id: number, payload: UpdatePartCategoryPayload) {
     return api.put<PartCategory>(`/part-categories/${id}`, payload);
   },
 

@@ -1,0 +1,141 @@
+<template>
+  <BaseModal
+    v-model="open"
+    :title="`${t('new_sub_product_revision')}${subProduct ? ' — ' + subProduct.name : ''}`"
+    size="xl"
+  >
+    <form id="spr-form" class="flex flex-col gap-4" @submit.prevent="submit">
+      <div v-if="saveError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+        {{ saveError }}
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {{ t('label') }}
+          </label>
+          <input
+            v-model="form.label"
+            class="input"
+            required
+            :placeholder="t('revision_label_placeholder')"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {{ t('copy_parts_from') }}
+          </label>
+          <select v-model="copyFromId" class="input" @change="onCopyFromChange">
+            <option :value="null">{{ t('start_empty') }}</option>
+            <option
+              v-for="rev in subProduct?.revisions ?? []"
+              :key="rev.id"
+              :value="rev.id"
+            >
+              {{ rev.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+          {{ t('change_notes') }}
+        </label>
+        <textarea v-model="form.changeNotes" rows="2" class="input" />
+      </div>
+
+      <PartsPicker v-model="selectedParts" />
+    </form>
+
+    <template #footer>
+      <button type="button" class="btn-secondary" @click="open = false">
+        {{ t('cancel') }}
+      </button>
+      <button type="submit" form="spr-form" class="btn-primary" :disabled="saving">
+        {{ saving ? t('saving') : t('save') }}
+      </button>
+    </template>
+  </BaseModal>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import BaseModal from '../../components/modal/BaseModal.vue';
+import PartsPicker from './PartsPicker.vue';
+import { subProductsApi } from '../../api/productsAPI.ts';
+import { useNotificationStore } from '../../stores/notificationStore.ts';
+import { translateApiError } from '../../utils/apiError.ts';
+import type {
+  DetailSubProduct,
+  NewSubProductRevisionPayload,
+  SelectedPart,
+} from '../../types/products.ts';
+
+const props = defineProps<{
+  subProduct?: DetailSubProduct | null;
+  saveError?: string | null;
+  saving?: boolean;
+}>();
+
+const emit = defineEmits<{ saved: [payload: NewSubProductRevisionPayload] }>();
+
+const { t, te } = useI18n();
+const notify = useNotificationStore();
+const open = defineModel<boolean>({ default: false });
+
+const form = ref<{ label: string; changeNotes: string }>({
+  label: '',
+  changeNotes: '',
+});
+const copyFromId = ref<number | null>(null);
+const selectedParts = ref<SelectedPart[]>([]);
+
+// Prefill the parts list from an existing revision (edited locally, then sent
+// explicitly — so we do NOT also pass duplicateFromId to the API).
+async function onCopyFromChange() {
+  if (!copyFromId.value || !props.subProduct) return;
+  try {
+    const response = await subProductsApi.getRevisionParts(
+      props.subProduct.id,
+      copyFromId.value,
+    );
+    selectedParts.value = response.data.map((p) => ({
+      partId: p.id,
+      name: p.name,
+      code: p.code,
+      quantity: Number(p.quantity),
+      unit: p.unit ?? '',
+      notes: p.notes ?? '',
+    }));
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.load_parts_failed'),
+      'error',
+    );
+  }
+}
+
+watch(open, (isOpen) => {
+  if (!isOpen) return;
+  const next = (props.subProduct?.revisions.length ?? 0) + 1;
+  form.value = { label: `Rev. ${next}`, changeNotes: '' };
+  selectedParts.value = [];
+  copyFromId.value = null;
+});
+
+function submit() {
+  emit('saved', {
+    label: form.value.label.trim(),
+    changeNotes: form.value.changeNotes.trim() || null,
+    duplicateFromId: null,
+    parts: selectedParts.value.map((p) => ({
+      partId: p.partId,
+      quantity: Number(p.quantity),
+      unit: p.unit.trim() || null,
+      notes: p.notes.trim() || null,
+    })),
+  });
+}
+</script>
