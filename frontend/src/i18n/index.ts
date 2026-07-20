@@ -118,6 +118,7 @@ const messages = {
       'Copies the sub-product links from the chosen revision.',
     change_notes: 'Change notes',
     new_sub_product: 'New sub-product',
+    edit_sub_product: 'Edit sub-product',
     add_sub_product: 'Add sub-product',
     add_sub_product_to_revision: 'Add sub-product to revision',
     add_sub_product_hint:
@@ -534,6 +535,7 @@ const messages = {
       'Átmásolja a kiválasztott revízió alaktermék-hivatkozásait.',
     change_notes: 'Változásleírás',
     new_sub_product: 'Új altermék',
+    edit_sub_product: 'Altermék szerkesztése',
     add_sub_product: 'Altermék hozzáadása',
     add_sub_product_to_revision: 'Altermék hozzáadása a revízióhoz',
     add_sub_product_hint:
