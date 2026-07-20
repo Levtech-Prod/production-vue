@@ -253,3 +253,49 @@ CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
 
 CREATE INDEX IF NOT EXISTS idx_product_documents_product_id ON product_documents(product_id);
 CREATE INDEX IF NOT EXISTS idx_sp_rev_documents_sp_rev_id ON sub_product_revision_documents(sub_product_revision_id);
+
+-- ===========================================================================
+-- Product / Sub-product types (Settings page)
+-- ---------------------------------------------------------------------------
+-- `products.type` / `sub_products.type` used to be free text. They now must
+-- reference one of these managed lists, enforced with a FK on the `name`
+-- column (kept UNIQUE) rather than swapping to an id column, so existing
+-- data and application code that reads/writes `type` as a string keep
+-- working unchanged. ON UPDATE CASCADE means renaming a type from the
+-- Settings page automatically updates every product/sub-product using it;
+-- deleting a type that is still in use is rejected by the FK (no ON DELETE
+-- clause defaults to RESTRICT) and surfaced as a friendly error by the API.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS product_types (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_types (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Backfill: turn every distinct value already used by an existing
+-- product/sub-product into a real type row, so the FK constraints below
+-- don't reject pre-existing data.
+INSERT INTO product_types (name)
+  SELECT DISTINCT type FROM products WHERE type IS NOT NULL AND type <> ''
+  ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO sub_product_types (name)
+  SELECT DISTINCT type FROM sub_products WHERE type IS NOT NULL AND type <> ''
+  ON CONFLICT (name) DO NOTHING;
+
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_type_fkey;
+ALTER TABLE products
+  ADD CONSTRAINT products_type_fkey FOREIGN KEY (type)
+    REFERENCES product_types (name) ON UPDATE CASCADE;
+
+ALTER TABLE sub_products DROP CONSTRAINT IF EXISTS sub_products_type_fkey;
+ALTER TABLE sub_products
+  ADD CONSTRAINT sub_products_type_fkey FOREIGN KEY (type)
+    REFERENCES sub_product_types (name) ON UPDATE CASCADE;
