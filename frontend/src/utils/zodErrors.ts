@@ -25,6 +25,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   description: 'description',
   parameters: 'parameters',
   image: 'image',
+  type: 'type',
 };
 
 function fieldLabel(issue: ZodIssue, t: TranslateFn): string {
