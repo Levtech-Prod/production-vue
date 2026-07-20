@@ -30,7 +30,12 @@
         <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
           {{ t('type') }} <span class="text-red-500">*</span>
         </label>
-        <input v-model="form.type" class="input" required />
+        <select v-model="form.type" class="input" required>
+          <option value="" disabled>{{ t('select_type') }}</option>
+          <option v-for="pt in productTypesStore.productTypes" :key="pt.id" :value="pt.name">
+            {{ pt.name }}
+          </option>
+        </select>
         <p v-if="fieldErrors.type" class="text-xs text-red-500">{{ fieldErrors.type }}</p>
       </div>
 
@@ -73,6 +78,7 @@ import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
+import { useProductTypesStore } from '../../stores/productTypesStore.ts';
 import type { ProductSummary, ProductPayload } from '../../types/products.ts';
 
 const props = defineProps<{
@@ -86,6 +92,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const productTypesStore = useProductTypesStore();
 
 const open = defineModel<boolean>({ default: false });
 
@@ -106,6 +113,7 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(()
 // Reset the form whenever the modal opens (populate for edit, blank for new).
 watch(open, (isOpen) => {
   if (!isOpen) return;
+  productTypesStore.loadProductTypes();
   form.name = props.product?.name ?? '';
   form.sku = props.product?.sku ?? '';
   form.type = props.product?.type ?? '';
