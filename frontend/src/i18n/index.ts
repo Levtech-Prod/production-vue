@@ -123,8 +123,7 @@ const messages = {
       'Select which sub-product revisions to include in this product revision.',
     loading: 'Loading...',
     no_sub_products_msg: 'No sub-products available.',
-    no_sub_products_in_product:
-      'No sub-products in this product yet. Select a revision and add some.',
+    no_sub_products_in_product: 'No sub-products in this product yet.',
     no_parts_in_revision: 'No parts in this revision.',
     add: 'Add',
     select_one_revision_hint:
@@ -195,6 +194,8 @@ const messages = {
     bom_title: 'Bill of Materials',
     bom_select_revision: 'Select a revision to view the BOM.',
     no_bom_parts: 'No parts in this revision.',
+    no_sub_products_for_bom:
+      'No sub-products added yet. Add one to start building the BOM.',
     bom_sub_product_header: '{name}',
     bom_main_product: 'Main product',
     bom_sub_rev_scope: '{name} · {label}',
@@ -223,6 +224,8 @@ const messages = {
     linked_revision: 'Linked revision',
     n_selected: '{n} selected',
     add_new_revision: 'Add new revision',
+    add_new_revision_disabled_hint:
+      'Add at least one sub-product before creating a revision.',
     save_as_new_revision: 'Save as new revision',
     compose_check_hint: 'Include this revision in the new product revision',
     compose_disabled_hint: 'Click "Add new revision" to edit the composition',
@@ -487,8 +490,7 @@ const messages = {
       'Válaszd ki, mely altermék-revíziók kerüljenek ebbe a termékrevízióba.',
     loading: 'Betöltés…',
     no_sub_products_msg: 'Nincs elérhető altermék.',
-    no_sub_products_in_product:
-      'Ehhez a termékhez még nincs altermék. Válassz revíziót és adj hozzá.',
+    no_sub_products_in_product: 'Ehhez a termékhez még nincs altermék.',
     no_parts_in_revision: 'Ebben a revízióban nincs alkatrész.',
     add: 'Hozzáadás',
     select_one_revision_hint:
@@ -560,6 +562,8 @@ const messages = {
     bom_title: 'Anyagjegyzék',
     bom_select_revision: 'Válassz revíziót az anyagjegyzék megtekintéséhez.',
     no_bom_parts: 'Ebben a revízióban nincs alkatrész.',
+    no_sub_products_for_bom:
+      'Még nincs hozzáadva altermék. Adj hozzá egyet az anyagjegyzék elkészítéséhez.',
     bom_sub_product_header: '{name}',
     bom_main_product: 'Fő termék',
     bom_sub_rev_scope: '{name} · {label}',
@@ -588,6 +592,8 @@ const messages = {
     linked_revision: 'Kapcsolt revízió',
     n_selected: '{n} kiválasztva',
     add_new_revision: 'Új revízió',
+    add_new_revision_disabled_hint:
+      'Adj hozzá legalább egy alterméket a revízió létrehozása előtt.',
     save_as_new_revision: 'Mentés új revízióként',
     compose_check_hint: 'Ez a revízió kerüljön az új termékrevízióba',
     compose_disabled_hint:

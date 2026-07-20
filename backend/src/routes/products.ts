@@ -89,14 +89,13 @@ router.get('/', requireAuth, async (_req, res) => {
   res.json(result.rows);
 });
 
-// POST /api/products — create product + auto-create revision 1
+// POST /api/products — create product (no revision yet; the first revision
+// is created the same way as any later one — see POST /:productId/revisions
+// — once sub-products exist and are selected for it).
 router.post('/', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-
-    const productResult = await client.query(
+    const productResult = await query(
       `INSERT INTO products (name, sku, type, description, image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, sku, type, description, image,
@@ -109,27 +108,14 @@ router.post('/', requireAuth, async (req, res) => {
         data.image,
       ],
     );
-    const product = productResult.rows[0];
-
-    const revisionResult = await client.query(
-      `INSERT INTO product_revisions (product_id, revision_number, label, status)
-       VALUES ($1, 1, 'Rev. 1', 'draft')
-       RETURNING id, revision_number AS "revisionNumber", label, status`,
-      [product.id],
-    );
-
-    await client.query('COMMIT');
-    res.json({ ...product, revisions: [revisionResult.rows[0]] });
+    res.json({ ...productResult.rows[0], revisions: [] });
   } catch (err: any) {
-    await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res
         .status(409)
         .json({ code: ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS });
     }
     throw err;
-  } finally {
-    client.release();
   }
 });
 
@@ -279,6 +265,17 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
       [productId, data.label, data.changeNotes || null],
     );
     const newRevision = newRevResult.rows[0];
+
+    // A product's first-ever revision has nothing to be "default" instead
+    // of — make it the default automatically. (There's no delete endpoint
+    // for product revisions, so revisionNumber === 1 reliably means this is
+    // still the product's only revision, not a renumbered one.)
+    if (newRevision.revisionNumber === 1) {
+      await client.query(
+        `UPDATE products SET default_revision_id = $1 WHERE id = $2`,
+        [newRevision.id, productId],
+      );
+    }
 
     // When duplicating, copy the sub-product-revision links from the source.
     if (data.duplicateFromId) {

@@ -26,6 +26,15 @@
         :empty-text="t('no_parts_in_revision')"
       />
 
+      <!-- Main product BOM, empty: same treatment as the Documents panel —
+           header stays, just a centered text line where the table would be. -->
+      <div
+        v-else-if="isEmptyProductBom"
+        class="py-4 text-center text-sm text-slate-400"
+      >
+        {{ t('no_bom_parts') }}
+      </div>
+
       <!-- Main product BOM: every part across all linked sub-products,
            flattened into a single, uncategorized table. -->
       <div v-else class="overflow-x-auto">
@@ -48,15 +57,7 @@
             </tr>
           </thead>
 
-          <tbody v-if="flatParts.length === 0">
-            <tr>
-              <td colspan="7" class="py-12 text-center text-sm text-slate-400">
-                {{ t('no_bom_parts') }}
-              </td>
-            </tr>
-          </tbody>
-
-          <tbody v-else>
+          <tbody>
             <tr
               v-for="part in flatParts"
               :key="part.id"
@@ -144,4 +145,10 @@ const catalogById = computed(() => {
 // Main-product BOM view: parts from every linked sub-product, flattened into
 // a single uncategorized list (no per-sub-product grouping/header rows).
 const flatParts = computed(() => props.bom.flatMap((sp) => sp.parts));
+
+// An empty product BOM skips the table (and its column headers) in favor of
+// a plain centered message, matching how DocumentsPanel shows its empty state.
+const isEmptyProductBom = computed(
+  () => props.mode === 'product' && flatParts.value.length === 0,
+);
 </script>
