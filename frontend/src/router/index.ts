@@ -7,6 +7,7 @@ import PartCategoriesView from '../views/part-categories/PartCategoriesView.vue'
 import PartsView from '../views/parts/PartsView.vue';
 import ProductsListView from '../views/products/ProductsListView.vue';
 import ProductDetailView from '../views/products/ProductDetailView.vue';
+import ProductTypesView from '../views/settings/ProductTypesView.vue';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
@@ -36,6 +37,11 @@ const router = createRouter({
       path: '/products/:id',
       component: ProductDetailView,
       meta: { auth: true },
+    },
+    {
+      path: '/settings/product-types',
+      component: ProductTypesView,
+      meta: { auth: true, admin: true },
     },
   ],
 });

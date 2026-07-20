@@ -24,6 +24,10 @@
       <RouterLink class="nav" to="/stock/parts">{{ t('stock') }}</RouterLink>
       <div class="section">Gyártás</div>
       <RouterLink class="nav" to="/products">{{ t('products') }}</RouterLink>
+      <div class="section">Beállítások</div>
+      <RouterLink class="nav" to="/settings/product-types">{{
+        t('product_types_settings')
+      }}</RouterLink>
     </nav>
     <button
       class="absolute bottom-4 left-3 right-3 rounded-xl px-4 py-3 text-left text-sm hover:bg-slate-900"
