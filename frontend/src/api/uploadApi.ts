@@ -11,7 +11,6 @@ export type UploadTarget =
 export interface UploadResponse {
   filename: string;
   path: string;
-  url: string;
 }
 
 export const uploadApi = {
