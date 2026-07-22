@@ -4,6 +4,6 @@ export const uploadService = {
   async uploadFile(target: UploadTarget, file: File): Promise<string> {
     const response = await uploadApi.uploadFile(target, file);
 
-    return response.data.url;
+    return response.data.path;
   },
 };
