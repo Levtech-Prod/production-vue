@@ -1,6 +1,6 @@
 # Deploying PRODTRACK to a Synology DS718+ (DSM 7.2.2)
 
-Target setup: Docker containers managed by Synology's **Container Manager**, running on the LAN only (no external/HTTPS access). Three containers: `db` (PostgreSQL), `backend` (Node/Express API), `frontend` (Nginx serving the built Vue app, proxying `/api` and `/uploads` to the backend). Data lives in two persistent Docker volumes (`pgdata`, `uploads`) so it survives container rebuilds.
+Target setup: Docker containers managed by Synology's **Container Manager**, running on the LAN only (no external/HTTPS access). Three containers: `db` (PostgreSQL), `backend` (Node/Express API), `frontend` (Nginx serving the built Vue app, proxying `/api` and `/uploads` to the backend). Database data lives in a persistent Docker volume (`pgdata`); uploaded files are bind-mounted from `backend/uploads` in the project folder — both survive container rebuilds and are visible/browsable directly in File Station.
 
 The DS718+ (Intel Celeron J3455, x86_64) fully supports Container Manager on DSM 7.2, so no workarounds are needed for CPU architecture.
 
@@ -122,9 +122,9 @@ If a container shows an error status, check its logs in Container Manager (click
   ```bash
   docker exec prodtrack-db-1 pg_dump -U levtech levtechproduction | gzip > /volume1/docker/prodtrack-backups/db-$(date +%F).sql.gz
   ```
-- **Uploaded files** (`uploads` volume, used for part-category images and documents): back up with
+- **Uploaded files** (`backend/uploads`, bind-mounted from the project folder — used for part-category/part/product/sub-product images and documents): it's a regular folder under `/volume1/docker/prodtrack/backend/uploads`, so Hyper Backup (or any File Station-based backup) covers it directly with no `docker run` step needed. For a manual snapshot:
   ```bash
-  docker run --rm -v prodtrack_uploads:/data -v /volume1/docker/prodtrack-backups:/backup alpine tar czf /backup/uploads-$(date +%F).tar.gz -C /data .
+  tar czf /volume1/docker/prodtrack-backups/uploads-$(date +%F).tar.gz -C /volume1/docker/prodtrack/backend uploads
   ```
 - Point **Hyper Backup** at `/volume1/docker/prodtrack-backups` to get these off-box.
 

@@ -113,8 +113,12 @@ router.post('/upload/:target', upload.single('file'), (req, res) => {
 
   res.json({
     filename: req.file.filename,
+    // Relative path only — the app is always served behind a reverse proxy
+    // (nginx) that also proxies /uploads/ to this service, so a relative
+    // path resolves correctly against whatever origin the client used.
+    // Building an absolute URL here from req.protocol/req.get('host') picks
+    // up the proxy's internal address instead of a client-reachable one.
     path: `/uploads/${target}/${req.file.filename}`,
-    url: `${req.protocol}://${req.get('host')}/uploads/${target}/${req.file.filename}`,
   });
 });
 
