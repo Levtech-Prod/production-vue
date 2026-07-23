@@ -1,7 +1,7 @@
 <template>
   <div class="overflow-x-auto">
     <table class="w-full text-left text-sm">
-      <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+      <thead class="bg-blue-50 text-xs uppercase text-black">
         <tr>
           <th class="p-4">{{ t('image') }}</th>
           <th class="p-4">{{ t('code') }}</th>
@@ -26,7 +26,7 @@
         <tr
           v-for="part in parts"
           :key="part.id"
-          class="border-t border-slate-100 transition-colors hover:bg-slate-50"
+          class="border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
         >
           <td class="p-4">
             <button

@@ -35,7 +35,7 @@
       </div>
 
       <table class="w-full text-left text-sm">
-        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+        <thead class="bg-blue-50 text-xs uppercase text-black">
           <tr>
             <th class="p-4">{{ t('name') }}</th>
             <th class="p-4">{{ t('image') }}</th>
@@ -58,7 +58,7 @@
           <tr
             v-for="category in filteredCategories"
             :key="category.id"
-            class="border-t border-slate-100 hover:bg-slate-50 transition-colors"
+            class="border-t border-slate-100 even:bg-slate-50 hover:bg-slate-200 transition-colors"
           >
             <td class="p-4 font-semibold">{{ category.name }}</td>
             <td class="p-4">

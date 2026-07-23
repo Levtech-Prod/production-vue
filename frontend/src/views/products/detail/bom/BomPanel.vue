@@ -39,7 +39,7 @@
            flattened into a single, uncategorized table. -->
       <div v-else class="overflow-x-auto">
         <table class="w-full text-left text-sm">
-          <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <thead class="bg-blue-50 text-xs uppercase text-black">
             <tr>
               <th class="w-px px-4 py-2"></th>
               <th class="w-48 px-3 py-2">{{ t('name') }}</th>
@@ -61,7 +61,7 @@
             <tr
               v-for="part in flatParts"
               :key="part.id"
-              class="border-t border-slate-100"
+              class="border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
             >
               <td class="px-4 py-2">
                 <img
