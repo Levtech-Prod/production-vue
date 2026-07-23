@@ -7,7 +7,7 @@
         @mousedown.self="$emit('update:modelValue', false)"
       >
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-[1px]" />
 
         <!-- Panel -->
         <div
