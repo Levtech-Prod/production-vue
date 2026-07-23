@@ -59,8 +59,6 @@
           <li v-for="(msg, i) in saveErrors" :key="i">{{ msg }}</li>
         </ul>
       </div>
-
-      <PartCategoryParameterList ref="parameterListRef" v-model="form.parameters" />
     </form>
 
     <!-- Footer slot -->
@@ -87,15 +85,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue';
+import { reactive, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
-import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
-import type {
-  PartCategory,
-  PartCategoryParameter,
-} from '../../types/partCategories.ts';
+import type { PartCategory } from '../../types/partCategories.ts';
 
 import { useI18n } from 'vue-i18n';
 
@@ -116,7 +110,6 @@ const emit = defineEmits<{
       name: string;
       description: string;
       image: string | null;
-      parameters: PartCategoryParameter[];
     },
   ];
   clearError: [];
@@ -129,14 +122,11 @@ const form = reactive({
   name: '',
   description: '',
   image: '',
-  parameters: [] as PartCategoryParameter[],
 });
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'name', label: t('name'), missing: !form.name.trim() },
   { key: 'description', label: t('description'), missing: !form.description.trim() },
 ]);
-
-const parameterListRef = ref<InstanceType<typeof PartCategoryParameterList> | null>(null);
 
 // Populate form when the modal opens or the category prop changes
 watch(
@@ -144,21 +134,10 @@ watch(
   ([open, category]) => {
     if (!open) return;
     resetValidation();
-    parameterListRef.value?.resetValidation();
     if (category) {
       form.name = category.name;
       form.description = category.description ?? '';
       form.image = category.image ?? '';
-      form.parameters = category.parameters?.length
-        ? category.parameters.map((p) => ({
-            id: p.id,
-            name: p.name,
-            type: p.type,
-            unit: p.unit ?? '',
-            required: p.required,
-            options: p.options || [],
-          }))
-        : [];
     } else {
       resetForm();
     }
@@ -170,28 +149,17 @@ function resetForm() {
   form.name = '';
   form.description = '';
   form.image = '';
-  form.parameters = [];
 }
 
 function save() {
   emit('clearError');
 
-  const parametersValid = parameterListRef.value?.validate() ?? true;
-  if (!validate() || !parametersValid) return;
+  if (!validate()) return;
 
   emit('saved', {
     name: form.name,
     description: form.description,
     image: form.image || null,
-    parameters: form.parameters
-      .filter((p) => p.name.trim() !== '')
-      .map((p) => ({
-        ...p,
-        options:
-          p.type === 'dropdown'
-            ? (p.options || []).filter((option) => option.trim() !== '')
-            : [],
-      })),
   });
 }
 </script>
