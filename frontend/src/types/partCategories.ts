@@ -32,6 +32,7 @@ export interface CreatePartCategoryPayload {
 
 export interface UpdatePartCategoryPayload {
   name: string;
+  description: string;
   image?: string | null;
   parameters: PartCategoryParameter[];
 }

@@ -9,18 +9,7 @@
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
         @click="addParam"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-3.5 w-3.5"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
-          <path
-            fill-rule="evenodd"
-            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-            clip-rule="evenodd"
-          />
-        </svg>
+        <Plus class="h-3.5 w-3.5" />
         {{ t('add_parameter') }}
       </button>
     </div>
@@ -40,12 +29,16 @@
         class="rounded-xl bg-slate-50 p-3 space-y-3"
       >
         <div class="grid gap-2 md:grid-cols-[1.4fr_1fr_1.2fr_0.8fr_40px]">
-          <input
-            id="part-category-param-name-{{ i }}"
-            v-model="p.name"
-            class="input text-sm"
-            :placeholder="t('name')"
-          />
+          <div class="flex flex-col gap-1">
+            <input
+              id="part-category-param-name-{{ i }}"
+              v-model="p.name"
+              :required="p.required"
+              class="input text-sm"
+              :placeholder="t('name')"
+            />
+            <p v-if="fieldErrors[i]" class="text-xs text-red-500">{{ fieldErrors[i] }}</p>
+          </div>
 
           <select
             id="part-category-param-type-{{ i }}"
@@ -77,18 +70,7 @@
             class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 transition-colors"
             @click="removeParam(i)"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                clip-rule="evenodd"
-              />
-            </svg>
+            <Trash2 class="h-4 w-4" />
           </button>
         </div>
 
@@ -118,18 +100,7 @@
               class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 transition-colors"
               @click="removeDropdownOption(p, optionIndex)"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                  clip-rule="evenodd"
-                />
-              </svg>
+              <Trash2 class="h-4 w-4" />
             </button>
           </div>
 
@@ -149,10 +120,21 @@
 <script setup lang="ts">
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 import { useI18n } from 'vue-i18n';
+import { Plus, Trash2 } from 'lucide-vue-next';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 
 const parameters = defineModel<PartCategoryParameter[]>({ required: true });
 
 const { t } = useI18n();
+
+// A parameter's name is only required once it's marked as required itself —
+// rows left blank (and not marked required) are silently dropped on save.
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() =>
+  parameters.value
+    .map((p, i) => ({ key: String(i), label: t('name'), missing: p.required && !p.name.trim() })),
+);
+
+defineExpose({ validate, resetValidation });
 
 function addParam() {
   parameters.value.push({

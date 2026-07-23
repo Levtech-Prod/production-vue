@@ -19,18 +19,9 @@
         class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3"
       >
         <div class="relative flex-1 max-w-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
+          <Search
             class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-              clip-rule="evenodd"
-            />
-          </svg>
+          />
           <input
             v-model="partNameSearch"
             class="input !pl-9"
@@ -53,18 +44,7 @@
           class="ml-auto inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
           @click="openAdd"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-              clip-rule="evenodd"
-            />
-          </svg>
+          <Plus class="h-4 w-4" />
           {{ t('add_part') }}
         </button>
       </div>
@@ -128,7 +108,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { Pencil, Trash2 } from 'lucide-vue-next';
+import { Pencil, Trash2, Search, Plus } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import PartModal from './PartModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';

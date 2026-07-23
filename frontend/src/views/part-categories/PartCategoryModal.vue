@@ -27,13 +27,15 @@
         <div class="flex flex-col gap-1">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >{{ t('description') }}</label
+            >{{ t('description') }} <span class="text-red-500">*</span></label
           >
           <input
             v-model="form.description"
             class="input"
             :placeholder="t('description')"
+            required
           />
+          <p v-if="fieldErrors.description" class="text-xs text-red-500">{{ fieldErrors.description }}</p>
         </div>
 
         <div class="md:col-span-2">
@@ -58,7 +60,7 @@
         </ul>
       </div>
 
-      <PartCategoryParameterList v-model="form.parameters" />
+      <PartCategoryParameterList ref="parameterListRef" v-model="form.parameters" />
     </form>
 
     <!-- Footer slot -->
@@ -85,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue';
+import { reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
@@ -131,7 +133,10 @@ const form = reactive({
 });
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'description', label: t('description'), missing: !form.description.trim() },
 ]);
+
+const parameterListRef = ref<InstanceType<typeof PartCategoryParameterList> | null>(null);
 
 // Populate form when the modal opens or the category prop changes
 watch(
@@ -139,6 +144,7 @@ watch(
   ([open, category]) => {
     if (!open) return;
     resetValidation();
+    parameterListRef.value?.resetValidation();
     if (category) {
       form.name = category.name;
       form.description = category.description ?? '';
@@ -170,7 +176,8 @@ function resetForm() {
 function save() {
   emit('clearError');
 
-  if (!validate()) return;
+  const parametersValid = parameterListRef.value?.validate() ?? true;
+  if (!validate() || !parametersValid) return;
 
   emit('saved', {
     name: form.name,

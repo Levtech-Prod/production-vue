@@ -46,7 +46,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       `INSERT INTO part_categories (name, description, image)
        VALUES ($1, $2, $3)
        RETURNING id, name, description, image, created_at AS "createdAt"`,
-      [data.name, data.description || null, data.image || null],
+      [data.name, data.description, data.image || null],
     );
     const category = categoryResult.rows[0];
     const parameters = [];
@@ -61,9 +61,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
           p.type,
           p.unit || null,
           p.required || false,
-          p.type === 'dropdown'
-            ? (p.options || []).filter((option: string) => option.trim() !== '')
-            : [],
+          p.type === 'dropdown' ? p.options : [],
         ],
       );
       parameters.push(pResult.rows[0]);
@@ -78,27 +76,17 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+  const categoryId = Number(req.params.id);
+
+  if (!categoryId || Number.isNaN(categoryId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
+  }
+
+  const data = partCategoryPayloadSchema.parse(req.body);
   const client = await pool.connect();
 
   try {
-    const categoryId = Number(req.params.id);
-    const { name, image, description, parameters = [] } = req.body;
-
-    if (!categoryId || Number.isNaN(categoryId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
-    }
-
-    if (!name?.trim()) {
-      return res.status(400).json({ code: ErrorCodes.CATEGORY_NAME_REQUIRED });
-    }
-
-    if (!description?.trim()) {
-      return res
-        .status(400)
-        .json({ code: ErrorCodes.CATEGORY_DESCRIPTION_REQUIRED });
-    }
-
     await client.query('BEGIN');
 
     const categoryResult = await client.query(
@@ -108,7 +96,7 @@ router.put('/:id', async (req, res) => {
       WHERE id = $4
       RETURNING id, name, image, description, created_at
       `,
-      [name.trim(), image || null, description.trim(), categoryId],
+      [data.name, data.image || null, data.description, categoryId],
     );
 
     if (categoryResult.rowCount === 0) {
@@ -127,9 +115,9 @@ router.put('/:id', async (req, res) => {
 
     const existingIds = existingResult.rows.map((row) => row.id);
 
-    const incomingExistingIds = parameters
-      .filter((parameter: any) => parameter.id)
-      .map((parameter: any) => Number(parameter.id));
+    const incomingExistingIds = data.parameters
+      .map((parameter) => parameter.id)
+      .filter((id): id is number => id !== undefined);
 
     const idsToDelete = existingIds.filter(
       (id) => !incomingExistingIds.includes(id),
@@ -163,8 +151,8 @@ router.put('/:id', async (req, res) => {
       );
     }
 
-    for (const parameter of parameters) {
-      if (!parameter.name?.trim()) continue;
+    for (const parameter of data.parameters) {
+      const options = parameter.type === 'dropdown' ? parameter.options : [];
 
       if (parameter.id) {
         await client.query(
@@ -174,15 +162,11 @@ router.put('/:id', async (req, res) => {
           WHERE id = $6 AND category_id = $7
           `,
           [
-            parameter.name.trim(),
+            parameter.name,
             parameter.type,
             parameter.unit || null,
-            parameter.required || false,
-            parameter.type === 'dropdown'
-              ? (parameter.options || []).filter(
-                  (option: string) => option.trim() !== '',
-                )
-              : [],
+            parameter.required,
+            options,
             parameter.id,
             categoryId,
           ],
@@ -197,15 +181,11 @@ router.put('/:id', async (req, res) => {
           `,
           [
             categoryId,
-            parameter.name.trim(),
+            parameter.name,
             parameter.type,
             parameter.unit || null,
-            parameter.required || false,
-            parameter.type === 'dropdown'
-              ? (parameter.options || []).filter(
-                  (option: string) => option.trim() !== '',
-                )
-              : [],
+            parameter.required,
+            options,
           ],
         );
       }
@@ -239,7 +219,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect();
 
   try {

@@ -285,8 +285,6 @@ const messages = {
       INVALID_TOKEN: 'Invalid or expired session',
       ADMIN_ACCESS_REQUIRED: 'Admin access required',
       INVALID_CATEGORY_ID: 'Invalid category id',
-      CATEGORY_NAME_REQUIRED: 'Category name is required',
-      CATEGORY_DESCRIPTION_REQUIRED: 'Category description is required',
       CATEGORY_NOT_FOUND: 'Part category not found',
       CATEGORY_PARAMETERS_IN_USE:
         'One or more removed parameters are already used by parts and cannot be deleted.',
@@ -701,8 +699,6 @@ const messages = {
       INVALID_TOKEN: 'Érvénytelen vagy lejárt munkamenet',
       ADMIN_ACCESS_REQUIRED: 'Admin jogosultság szükséges',
       INVALID_CATEGORY_ID: 'Érvénytelen kategória azonosító',
-      CATEGORY_NAME_REQUIRED: 'A kategória neve kötelező',
-      CATEGORY_DESCRIPTION_REQUIRED: 'A kategória leírása kötelező',
       CATEGORY_NOT_FOUND: 'A kategória nem található',
       CATEGORY_PARAMETERS_IN_USE:
         'Egy vagy több eltávolított paramétert már használnak alkatrészek, ezért nem törölhetők.',
