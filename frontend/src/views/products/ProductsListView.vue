@@ -82,7 +82,7 @@
       </div>
 
       <table class="w-full text-left text-sm">
-        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+        <thead class="bg-blue-50 text-xs uppercase text-black">
           <!-- Sort row -->
           <tr>
             <th class="p-4">{{ t('image') }}</th>
@@ -144,7 +144,7 @@
           <tr
             v-for="product in filtered"
             :key="product.id"
-            class="cursor-pointer border-t border-slate-100 transition-colors hover:bg-slate-50"
+            class="cursor-pointer border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
             :class="{ 'opacity-60': product.status === 'archived' }"
             @click="openDetail(product.id)"
           >
