@@ -50,7 +50,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     );
     const category = categoryResult.rows[0];
     const parameters = [];
-    for (const p of data.parameters) {
+    for (const p of data.parameters ?? []) {
       const pResult = await client.query(
         `INSERT INTO part_category_parameters (category_id, name, type, unit, required, options)
          VALUES ($1, $2, $3, $4, $5, $6::text[])
@@ -94,7 +94,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       UPDATE part_categories
       SET name = $1, image = $2, description = $3
       WHERE id = $4
-      RETURNING id, name, image, description, created_at
+      RETURNING id, name, image, description, created_at AS "createdAt"
       `,
       [data.name, data.image || null, data.description, categoryId],
     );
@@ -104,90 +104,97 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
     }
 
-    const existingResult = await client.query(
-      `
-      SELECT id
-      FROM part_category_parameters
-      WHERE category_id = $1
-      `,
-      [categoryId],
-    );
+    // Parameters are managed inline on the categories page, separately from
+    // the category-details modal. When `parameters` is omitted, the caller is
+    // only editing category-level fields, so we leave the existing rows alone.
+    if (data.parameters !== undefined) {
+      const incomingParameters = data.parameters;
 
-    const existingIds = existingResult.rows.map((row) => row.id);
-
-    const incomingExistingIds = data.parameters
-      .map((parameter) => parameter.id)
-      .filter((id): id is number => id !== undefined);
-
-    const idsToDelete = existingIds.filter(
-      (id) => !incomingExistingIds.includes(id),
-    );
-
-    if (idsToDelete.length > 0) {
-      const usedResult = await client.query(
+      const existingResult = await client.query(
         `
-        SELECT DISTINCT parameter_id
-        FROM stock_parameters
-        WHERE parameter_id = ANY($1::int[])
+        SELECT id
+        FROM part_category_parameters
+        WHERE category_id = $1
         `,
-        [idsToDelete],
+        [categoryId],
       );
 
-      if (usedResult.rowCount && usedResult.rowCount > 0) {
-        await client.query('ROLLBACK');
+      const existingIds = existingResult.rows.map((row) => row.id);
 
-        return res.status(409).json({
-          code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
-          usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
-        });
+      const incomingExistingIds = incomingParameters
+        .map((parameter) => parameter.id)
+        .filter((id): id is number => id !== undefined);
+
+      const idsToDelete = existingIds.filter(
+        (id) => !incomingExistingIds.includes(id),
+      );
+
+      if (idsToDelete.length > 0) {
+        const usedResult = await client.query(
+          `
+          SELECT DISTINCT parameter_id
+          FROM stock_parameters
+          WHERE parameter_id = ANY($1::int[])
+          `,
+          [idsToDelete],
+        );
+
+        if (usedResult.rowCount && usedResult.rowCount > 0) {
+          await client.query('ROLLBACK');
+
+          return res.status(409).json({
+            code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
+            usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
+          });
+        }
+
+        await client.query(
+          `
+          DELETE FROM part_category_parameters
+          WHERE id = ANY($1::int[])
+          `,
+          [idsToDelete],
+        );
       }
 
-      await client.query(
-        `
-        DELETE FROM part_category_parameters
-        WHERE id = ANY($1::int[])
-        `,
-        [idsToDelete],
-      );
-    }
+      for (const parameter of incomingParameters) {
+        const options = parameter.type === 'dropdown' ? parameter.options : [];
 
-    for (const parameter of data.parameters) {
-      const options = parameter.type === 'dropdown' ? parameter.options : [];
-
-      if (parameter.id) {
-        await client.query(
-          `
-          UPDATE part_category_parameters
-          SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
-          WHERE id = $6 AND category_id = $7
-          `,
-          [
-            parameter.name,
-            parameter.type,
-            parameter.unit || null,
-            parameter.required,
-            options,
-            parameter.id,
-            categoryId,
-          ],
-        );
-      } else {
-        await client.query(
-          `
-          INSERT INTO part_category_parameters
-            (category_id, name, type, unit, required, options)
-          VALUES
-            ($1, $2, $3, $4, $5, $6::text[])
-          `,
-          [
-            categoryId,
-            parameter.name,
-            parameter.type,
-            parameter.unit || null,
-            parameter.required,
-            options,
-          ],
-        );
+        if (parameter.id) {
+          await client.query(
+            `
+            UPDATE part_category_parameters
+            SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
+            WHERE id = $6 AND category_id = $7
+            `,
+            [
+              parameter.name,
+              parameter.type,
+              parameter.unit || null,
+              parameter.required,
+              options,
+              parameter.id,
+              categoryId,
+            ],
+          );
+        } else {
+          await client.query(
+            `
+            INSERT INTO part_category_parameters
+              (category_id, name, type, unit, required, options)
+            VALUES
+              ($1, $2, $3, $4, $5, $6::text[])
+            `,
+            [
+              categoryId,
+              parameter.name,
+              parameter.type,
+              parameter.unit || null,
+              parameter.required,
+              options,
+            ],
+          );
+        }
       }
     }
 

@@ -1,12 +1,12 @@
 <template>
   <div>
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+    <div class="mb-2 mt-2 flex items-center justify-between">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {{ t('parameters') }}
       </h3>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
+        class="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
         @click="addParam"
       >
         <Plus class="h-3.5 w-3.5" />
@@ -14,105 +14,138 @@
       </button>
     </div>
 
-    <!-- Empty state -->
-    <div
-      v-if="parameters.length === 0"
-      class="rounded-xl border-2 border-dashed border-slate-200 py-8 text-center"
-    >
-      <p class="text-sm text-slate-400">{{ t('no_parameters_msg') }}</p>
-    </div>
-
-    <div class="space-y-2">
-      <div
-        v-for="(p, i) in parameters"
-        :key="i"
-        class="rounded-xl bg-slate-50 p-3 space-y-3"
-      >
-        <div class="grid gap-2 md:grid-cols-[1.4fr_1fr_1.2fr_0.8fr_40px]">
-          <div class="flex flex-col gap-1">
-            <input
-              id="part-category-param-name-{{ i }}"
-              v-model="p.name"
-              :required="p.required"
-              class="input text-sm"
-              :placeholder="t('name')"
-            />
-            <p v-if="fieldErrors[i]" class="text-xs text-red-500">{{ fieldErrors[i] }}</p>
-          </div>
-
-          <select
-            id="part-category-param-type-{{ i }}"
-            v-model="p.type"
-            class="input text-sm"
-            @change="handleTypeChange(p)"
-          >
-            <option value="text">{{ t('text') }}</option>
-            <option value="number">{{ t('number') }}</option>
-            <option value="boolean">{{ t('boolean') }}</option>
-            <option value="dropdown">{{ t('dropdown') }}</option>
-          </select>
-
-          <input
-            id="part-category-param-unit-{{ i }}"
-            v-model="p.unit"
-            class="input text-sm"
-            :placeholder="t('unit')"
-            :disabled="p.type === 'boolean'"
-          />
-
-          <label class="flex items-center gap-2 text-sm text-slate-600">
-            <input v-model="p.required" type="checkbox" class="rounded" />
-            {{ t('required') }}
-          </label>
-
-          <button
-            type="button"
-            class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-            @click="removeParam(i)"
-          >
-            <Trash2 class="h-4 w-4" />
-          </button>
-        </div>
-
-        <div
-          v-if="p.type === 'dropdown'"
-          class="rounded-lg border border-slate-200 bg-white p-3 space-y-2"
+    <div class="overflow-hidden rounded-lg border border-slate-300 bg-white">
+      <table class="w-full text-left text-sm">
+        <thead
+          class="border-b border-slate-300 bg-blue-50 text-[11px] uppercase tracking-wide text-slate-600"
         >
-          <label
-            class="text-xs font-semibold text-slate-500 uppercase tracking-wide"
-          >
-            {{ t('dropdown_options_title') }}
-          </label>
-
-          <div
-            v-for="(_option, optionIndex) in p.options"
-            :key="optionIndex"
-            class="grid grid-cols-[1fr_40px] gap-2 mt-2"
-          >
-            <input
-              v-model="p.options![optionIndex]"
-              class="input text-sm w-full"
-              placeholder="Option value"
-            />
-
-            <button
-              type="button"
-              class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 hover:bg-red-50 transition-colors"
-              @click="removeDropdownOption(p, optionIndex)"
+          <tr>
+            <th class="border-r border-slate-300 px-2 py-1 font-medium">
+              {{ t('name') }}
+            </th>
+            <th class="border-r border-slate-300 px-2 py-1 font-medium">
+              {{ t('type') }}
+            </th>
+            <th class="border-r border-slate-300 px-2 py-1 font-medium">
+              {{ t('unit') }}
+            </th>
+            <th
+              class="border-r border-slate-300 px-2 py-1 text-center font-medium"
             >
-              <Trash2 class="h-4 w-4" />
-            </button>
-          </div>
+              {{ t('required') }}
+            </th>
+            <th class="w-9 px-2 py-1"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="parameters.length === 0">
+            <td
+              colspan="5"
+              class="px-2 py-4 text-center text-sm text-slate-400"
+            >
+              {{ t('no_parameters_msg') }}
+            </td>
+          </tr>
 
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-md transition-colors"
-            @click="addDropdownOption(p)"
-          >
-            + {{ t('add_dropdown_option') }}
-          </button>
-        </div>
-      </div>
+          <template v-for="(p, i) in parameters" :key="keyFor(p)">
+            <tr class="border-t border-slate-300 align-top">
+              <td class="border-r border-slate-300 px-2 py-1">
+                <input
+                  v-model="p.name"
+                  :required="p.required"
+                  class="input-cell"
+                  :placeholder="t('name')"
+                />
+                <p v-if="fieldErrors[i]" class="mt-0.5 text-xs text-red-500">
+                  {{ fieldErrors[i] }}
+                </p>
+              </td>
+
+              <td class="border-r border-slate-300 px-2 py-1">
+                <select
+                  v-model="p.type"
+                  class="input-cell"
+                  @change="handleTypeChange(p)"
+                >
+                  <option value="text">{{ t('text') }}</option>
+                  <option value="number">{{ t('number') }}</option>
+                  <option value="boolean">{{ t('boolean') }}</option>
+                  <option value="dropdown">{{ t('dropdown') }}</option>
+                </select>
+              </td>
+
+              <td class="border-r border-slate-300 px-2 py-1">
+                <input
+                  v-model="p.unit"
+                  class="input-cell"
+                  :placeholder="t('unit')"
+                  :disabled="p.type === 'boolean'"
+                />
+              </td>
+
+              <td class="border-r border-slate-300 px-2 py-1 text-center">
+                <input
+                  v-model="p.required"
+                  type="checkbox"
+                  class="mt-2 rounded"
+                />
+              </td>
+
+              <td class="px-2 py-1 text-right">
+                <button
+                  type="button"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50"
+                  @click="removeParam(i)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </td>
+            </tr>
+
+            <tr v-if="p.type === 'dropdown'">
+              <td colspan="5" class="px-2 pb-2">
+                <div
+                  class="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2"
+                >
+                  <label
+                    class="text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                  >
+                    {{ t('dropdown_options_title') }}
+                  </label>
+
+                  <div
+                    v-for="(_option, optionIndex) in p.options"
+                    :key="optionIndex"
+                    class="grid grid-cols-[1fr_32px] gap-1.5"
+                  >
+                    <input
+                      v-model="p.options![optionIndex]"
+                      class="input-sm"
+                      placeholder="Option value"
+                    />
+
+                    <button
+                      type="button"
+                      class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50"
+                      @click="removeDropdownOption(p, optionIndex)"
+                    >
+                      <Trash2 class="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-1 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                    @click="addDropdownOption(p)"
+                  >
+                    + {{ t('add_dropdown_option') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>
@@ -127,11 +160,30 @@ const parameters = defineModel<PartCategoryParameter[]>({ required: true });
 
 const { t } = useI18n();
 
+// Stable per-row key so adding/removing a row doesn't make Vue reuse the wrong
+// <tr> (which would misattach input focus/values). Saved rows key by their db
+// id; new, unsaved rows get a client-only uid tracked by object identity.
+const rowKeys = new WeakMap<PartCategoryParameter, number>();
+let rowKeySeq = 0;
+function keyFor(p: PartCategoryParameter): string {
+  if (p.id != null) return `id-${p.id}`;
+  let key = rowKeys.get(p);
+  if (key === undefined) {
+    key = ++rowKeySeq;
+    rowKeys.set(p, key);
+  }
+  return `new-${key}`;
+}
+
 // A parameter's name is only required once it's marked as required itself —
 // rows left blank (and not marked required) are silently dropped on save.
-const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() =>
-  parameters.value
-    .map((p, i) => ({ key: String(i), label: t('name'), missing: p.required && !p.name.trim() })),
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(
+  () =>
+    parameters.value.map((p, i) => ({
+      key: String(i),
+      label: t('name'),
+      missing: p.required && !p.name.trim(),
+    })),
 );
 
 defineExpose({ validate, resetValidation });

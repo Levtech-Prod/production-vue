@@ -27,12 +27,14 @@ export interface CreatePartCategoryPayload {
   name: string;
   description: string;
   image?: string | null;
-  parameters: PartCategoryParameter[];
+  // Optional: parameters are managed inline on the categories page, not in the
+  // category-details modal. Omit to leave a category's parameters untouched.
+  parameters?: PartCategoryParameter[];
 }
 
 export interface UpdatePartCategoryPayload {
   name: string;
   description: string;
   image?: string | null;
-  parameters: PartCategoryParameter[];
+  parameters?: PartCategoryParameter[];
 }

@@ -27,7 +27,9 @@ export const partCategoryPayloadSchema = z.object({
           .transform((opts) => opts.filter((option) => option.trim() !== '')),
       }),
     )
-    .optional()
-    .default([]),
+    // Left optional (no default) so callers can PATCH category-level fields
+    // without touching parameters: an omitted `parameters` on PUT leaves the
+    // existing rows untouched, whereas `[]` explicitly clears them.
+    .optional(),
 });
 export type PartCategoryPayload = z.infer<typeof partCategoryPayloadSchema>;

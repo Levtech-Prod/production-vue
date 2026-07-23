@@ -37,11 +37,11 @@
       <table class="w-full text-left text-sm">
         <thead class="bg-blue-50 text-xs uppercase text-black">
           <tr>
-            <th class="p-4">{{ t('name') }}</th>
-            <th class="p-4">{{ t('image') }}</th>
-            <th class="p-4">{{ t('description') }}</th>
-            <th class="p-4">{{ t('parameters') }}</th>
-            <th class="p-4">{{ t('actions') }}</th>
+            <th class="w-8 px-3 py-2"></th>
+            <th class="px-3 py-2">{{ t('name') }}</th>
+            <th class="px-3 py-2">{{ t('image') }}</th>
+            <th class="px-3 py-2">{{ t('description') }}</th>
+            <th class="px-3 py-2 text-right">{{ t('actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -55,75 +55,121 @@
               </template>
             </td>
           </tr>
-          <tr
-            v-for="category in filteredCategories"
-            :key="category.id"
-            class="border-t border-slate-100 even:bg-slate-50 hover:bg-slate-200 transition-colors"
-          >
-            <td class="p-4 font-semibold">{{ category.name }}</td>
-            <td class="p-4">
-              <button
-                v-if="category.image"
-                type="button"
-                class="block"
-                :title="t('view_image')"
-                @click="openImagePreview(category)"
-              >
-                <img
-                  :src="category.image"
-                  class="h-10 w-10 rounded-md border object-cover transition-transform hover:scale-105"
-                  :alt="category.name"
+          <template v-for="category in filteredCategories" :key="category.id">
+            <!-- Category row (click to expand the parameters section) -->
+            <tr
+              class="cursor-pointer border-t border-slate-200 transition-colors"
+              :class="
+                isExpanded(category.id)
+                  ? 'bg-blue-50 hover:bg-blue-100'
+                  : 'even:bg-slate-50 hover:bg-slate-200'
+              "
+              @click="toggleExpand(category)"
+            >
+              <td class="px-3 py-2">
+                <ClipboardList
+                  class="h-4 w-4 transition-colors"
+                  :class="isExpanded(category.id) ? 'text-blue-600' : 'text-slate-400'"
                 />
-              </button>
-              <span v-else class="text-slate-300">—</span>
-            </td>
-            <td class="p-4 text-slate-500">
-              {{ category.description || '—' }}
-            </td>
-            <td class="p-4">
-              <div class="flex flex-wrap gap-1">
-                <span
-                  v-for="parameter in category.parameters"
-                  :key="parameter.id"
-                  class="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
-                >
-                  {{ parameter.name }}
-                </span>
-                <span v-if="!category.parameters?.length" class="text-slate-300"
-                  >—</span
-                >
-              </div>
-            </td>
-            <td class="p-4">
-              <div class="flex items-center gap-2">
+              </td>
+              <td class="px-3 py-2 font-semibold">{{ category.name }}</td>
+              <td class="px-3 py-2">
                 <button
+                  v-if="category.image"
                   type="button"
-                  class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                  title="{{ t('edit') }}"
-                  @click="openEdit(category)"
+                  class="block"
+                  :title="t('view_image')"
+                  @click.stop="openImagePreview(category)"
                 >
-                  <Pencil class="h-4 w-4" />
+                  <img
+                    :src="category.image"
+                    class="h-8 w-8 rounded-md border object-cover transition-transform hover:scale-105"
+                    :alt="category.name"
+                  />
                 </button>
+                <span v-else class="text-slate-300">—</span>
+              </td>
+              <td class="px-3 py-2 text-slate-500">
+                {{ category.description || '—' }}
+              </td>
+              <td class="px-3 py-2">
+                <div class="flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    class="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"
+                    :title="t('edit')"
+                    @click.stop="openEdit(category)"
+                  >
+                    <Pencil class="h-4 w-4" />
+                  </button>
 
-                <button
-                  type="button"
-                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                  title="{{ t('delete') }}"
-                  @click="openDeleteConfirm(category)"
+                  <button
+                    type="button"
+                    class="rounded-lg p-1.5 text-red-600 hover:bg-red-50"
+                    :title="t('delete')"
+                    @click.stop="openDeleteConfirm(category)"
+                  >
+                    <Trash2 class="h-4 w-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Expanded parameters section -->
+            <tr v-if="isExpanded(category.id)" class="bg-white">
+              <td class="border-b border-slate-200 p-0"></td>
+              <td colspan="4" class="border-b border-slate-200 px-3 pb-3">
+                <PartCategoryParameterList
+                  :ref="paramListRefFor(category.id)"
+                  v-model="editStates[category.id].params"
+                />
+
+                <div
+                  v-if="editStates[category.id].error || editStates[category.id].errors.length"
+                  class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
                 >
-                  <Trash2 class="h-4 w-4" />
-                </button>
-              </div>
-            </td>
-          </tr>
+                  <p
+                    v-if="editStates[category.id].error"
+                    :class="{ 'mb-1 font-medium': editStates[category.id].errors.length }"
+                  >
+                    {{ editStates[category.id].error }}
+                  </p>
+                  <ul
+                    v-if="editStates[category.id].errors.length"
+                    class="list-disc space-y-0.5 pl-5"
+                  >
+                    <li
+                      v-for="(msg, i) in editStates[category.id].errors"
+                      :key="i"
+                    >
+                      {{ msg }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-60"
+                    :disabled="!rowDirty(category.id)"
+                    @click="resetParams(category.id)"
+                  >
+                    {{ t('cancel') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60"
+                    :disabled="editStates[category.id].saving || !rowDirty(category.id)"
+                    @click="saveParams(category)"
+                  >
+                    {{ editStates[category.id].saving ? t('saving') : t('save') }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
-      <div
-        v-if="deleteError"
-        class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-      >
-        {{ deleteError }}
-      </div>
     </div>
 
     <!-- Modal -->
@@ -158,14 +204,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, computed, nextTick } from 'vue';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import type {
   PartCategory,
+  PartCategoryParameter,
   CreatePartCategoryPayload,
 } from '../../types/partCategories.ts';
 import CategoryFormModal from './PartCategoryModal.vue';
-import { Pencil, Trash2, Plus, Search } from 'lucide-vue-next';
+import PartCategoryParameterList from './PartCategoryParamsList.vue';
+import { Pencil, Trash2, Plus, Search, ClipboardList } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
@@ -182,7 +230,6 @@ const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
 
 const categories = computed(() => partCategoryStore.categories);
-const deleteError = ref<string | null>(null);
 const isDeleteConfirmVisible = ref(false);
 const categoryToDelete = ref<PartCategory | null>(null);
 
@@ -242,7 +289,7 @@ async function onSaved(payload: CreatePartCategoryPayload) {
     }
 
     modalOpen.value = false;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error saving part category:', err);
 
     const issues = extractZodIssues(err);
@@ -281,18 +328,196 @@ async function confirmDeleteCategory() {
   if (!categoryToDelete.value) return;
 
   try {
-    await partCategoryStore.deleteCategory(categoryToDelete.value.id);
+    const deletedId = categoryToDelete.value.id;
+    await partCategoryStore.deleteCategory(deletedId);
+    collapse(deletedId);
 
     notificationStore.showToast(t('success.delete_part_category'), 'success');
 
     closeDeleteConfirm();
-  } catch (err: any) {
+  } catch (err: unknown) {
     closeDeleteConfirm();
 
     notificationStore.showModal(
       t('errors.deletion_not_possible_title'),
       translateApiError(err, { t, te }, 'errors.delete_part_category_failed'),
     );
+  }
+}
+
+// --- Inline parameter editing (expandable rows, multiple open at once) ---
+interface RowEditState {
+  params: PartCategoryParameter[];
+  // Snapshot of the parameters when the row was opened, to detect changes.
+  snapshot: string;
+  saving: boolean;
+  error: string | null;
+  errors: string[];
+}
+
+// Edit buffers, keyed by category id. A buffer outlives collapse so that
+// closing a row never silently discards unsaved edits — it's cleared only on
+// an explicit reset (Cancel) via snapshot, or on delete via collapse().
+const editStates = ref<Record<number, RowEditState>>({});
+// Which rows are currently open. Separate from editStates so a collapsed row
+// can keep its in-progress buffer for when it's reopened.
+const expandedIds = ref<Set<number>>(new Set());
+// Per-row editor instances (for validation). Not reactive — methods only.
+const paramListRefs = new Map<
+  number,
+  InstanceType<typeof PartCategoryParameterList>
+>();
+
+function isExpanded(id: number): boolean {
+  return expandedIds.value.has(id);
+}
+
+// The editors live inside a v-for; a keyed function ref keeps one instance per
+// open row rather than collecting them all into a single array ref.
+function setParamListRef(id: number, el: unknown) {
+  if (el) {
+    paramListRefs.set(
+      id,
+      el as InstanceType<typeof PartCategoryParameterList>,
+    );
+  } else {
+    paramListRefs.delete(id);
+  }
+}
+
+// One stable ref callback per row, so Vue doesn't detach/reattach the ref on
+// every re-render (which a fresh inline arrow in the template would cause).
+const paramListRefSetters = new Map<number, (el: unknown) => void>();
+function paramListRefFor(id: number): (el: unknown) => void {
+  let setter = paramListRefSetters.get(id);
+  if (!setter) {
+    setter = (el: unknown) => setParamListRef(id, el);
+    paramListRefSetters.set(id, setter);
+  }
+  return setter;
+}
+
+// Fresh, editable copy of a category's parameters (decoupled from the store).
+function cloneParameters(
+  parameters?: PartCategoryParameter[],
+): PartCategoryParameter[] {
+  return (parameters ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    unit: p.unit ?? '',
+    required: p.required,
+    options: p.options ? [...p.options] : [],
+  }));
+}
+
+// Cached dirty state per open row, recomputed only when a buffer or its
+// snapshot actually changes — not on every render or unrelated update.
+const dirtyRows = computed<Record<number, boolean>>(() => {
+  const result: Record<number, boolean> = {};
+  for (const id of expandedIds.value) {
+    const state = editStates.value[id];
+    if (state) {
+      result[id] = JSON.stringify(state.params) !== state.snapshot;
+    }
+  }
+  return result;
+});
+
+function rowDirty(id: number): boolean {
+  return dirtyRows.value[id] ?? false;
+}
+
+// Full teardown: close the row and drop its buffer entirely (used when the
+// category itself is removed).
+function collapse(id: number) {
+  expandedIds.value.delete(id);
+  delete editStates.value[id];
+  paramListRefs.delete(id);
+  paramListRefSetters.delete(id);
+}
+
+// Revert edits back to the last-saved snapshot without closing the section.
+function resetParams(id: number) {
+  const state = editStates.value[id];
+  if (!state) return;
+
+  state.params = JSON.parse(state.snapshot) as PartCategoryParameter[];
+  state.error = null;
+  state.errors = [];
+  nextTick(() => paramListRefs.get(id)?.resetValidation());
+}
+
+function toggleExpand(category: PartCategory) {
+  if (isExpanded(category.id)) {
+    // Collapse only — keep the buffer so unsaved edits survive a reopen.
+    expandedIds.value.delete(category.id);
+    return;
+  }
+
+  // Reuse an existing buffer (e.g. after a collapse) or seed a fresh one.
+  if (!editStates.value[category.id]) {
+    const params = cloneParameters(category.parameters);
+    editStates.value[category.id] = {
+      params,
+      snapshot: JSON.stringify(params),
+      saving: false,
+      error: null,
+      errors: [],
+    };
+  }
+  expandedIds.value.add(category.id);
+  nextTick(() => paramListRefs.get(category.id)?.resetValidation());
+}
+
+async function saveParams(category: PartCategory) {
+  const state = editStates.value[category.id];
+  if (!state) return;
+
+  state.error = null;
+  state.errors = [];
+
+  if (!(paramListRefs.get(category.id)?.validate() ?? true)) return;
+
+  state.saving = true;
+
+  try {
+    const updated = await partCategoryStore.updateCategory(category.id, {
+      name: category.name,
+      description: category.description,
+      image: category.image ?? null,
+      parameters: state.params
+        .filter((p) => p.name.trim() !== '')
+        .map((p) => ({
+          ...p,
+          options:
+            p.type === 'dropdown'
+              ? (p.options || []).filter((option) => option.trim() !== '')
+              : [],
+        })),
+    });
+
+    notificationStore.showToast(t('success.update_part_category'), 'success');
+
+    // Re-sync the buffer with the saved rows so new parameters pick up their ids.
+    state.params = cloneParameters(updated.parameters);
+    state.snapshot = JSON.stringify(state.params);
+  } catch (err: unknown) {
+    console.error('Error saving category parameters:', err);
+
+    const issues = extractZodIssues(err);
+    if (issues) {
+      state.error = t('validation.failed');
+      state.errors = localizeZodIssues(issues, t);
+    } else {
+      state.error = translateApiError(
+        err,
+        { t, te },
+        'errors.save_part_category_failed',
+      );
+    }
+  } finally {
+    state.saving = false;
   }
 }
 
