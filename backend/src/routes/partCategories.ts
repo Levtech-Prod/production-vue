@@ -94,7 +94,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       UPDATE part_categories
       SET name = $1, image = $2, description = $3
       WHERE id = $4
-      RETURNING id, name, image, description, created_at
+      RETURNING id, name, image, description, created_at AS "createdAt"
       `,
       [data.name, data.image || null, data.description, categoryId],
     );

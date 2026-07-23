@@ -120,7 +120,7 @@
               <td class="border-b border-slate-200 p-0"></td>
               <td colspan="4" class="border-b border-slate-200 px-3 pb-3">
                 <PartCategoryParameterList
-                  :ref="(el) => setParamListRef(category.id, el)"
+                  :ref="paramListRefFor(category.id)"
                   v-model="editStates[category.id].params"
                 />
 
@@ -170,12 +170,6 @@
           </template>
         </tbody>
       </table>
-      <div
-        v-if="deleteError"
-        class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-      >
-        {{ deleteError }}
-      </div>
     </div>
 
     <!-- Modal -->
@@ -236,7 +230,6 @@ const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
 
 const categories = computed(() => partCategoryStore.categories);
-const deleteError = ref<string | null>(null);
 const isDeleteConfirmVisible = ref(false);
 const categoryToDelete = ref<PartCategory | null>(null);
 
@@ -296,7 +289,7 @@ async function onSaved(payload: CreatePartCategoryPayload) {
     }
 
     modalOpen.value = false;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error saving part category:', err);
 
     const issues = extractZodIssues(err);
@@ -342,7 +335,7 @@ async function confirmDeleteCategory() {
     notificationStore.showToast(t('success.delete_part_category'), 'success');
 
     closeDeleteConfirm();
-  } catch (err: any) {
+  } catch (err: unknown) {
     closeDeleteConfirm();
 
     notificationStore.showModal(
@@ -362,8 +355,13 @@ interface RowEditState {
   errors: string[];
 }
 
-// Keyed by category id — presence of a key means that row is expanded.
+// Edit buffers, keyed by category id. A buffer outlives collapse so that
+// closing a row never silently discards unsaved edits — it's cleared only on
+// an explicit reset (Cancel) via snapshot, or on delete via collapse().
 const editStates = ref<Record<number, RowEditState>>({});
+// Which rows are currently open. Separate from editStates so a collapsed row
+// can keep its in-progress buffer for when it's reopened.
+const expandedIds = ref<Set<number>>(new Set());
 // Per-row editor instances (for validation). Not reactive — methods only.
 const paramListRefs = new Map<
   number,
@@ -371,7 +369,7 @@ const paramListRefs = new Map<
 >();
 
 function isExpanded(id: number): boolean {
-  return id in editStates.value;
+  return expandedIds.value.has(id);
 }
 
 // The editors live inside a v-for; a keyed function ref keeps one instance per
@@ -385,6 +383,18 @@ function setParamListRef(id: number, el: unknown) {
   } else {
     paramListRefs.delete(id);
   }
+}
+
+// One stable ref callback per row, so Vue doesn't detach/reattach the ref on
+// every re-render (which a fresh inline arrow in the template would cause).
+const paramListRefSetters = new Map<number, (el: unknown) => void>();
+function paramListRefFor(id: number): (el: unknown) => void {
+  let setter = paramListRefSetters.get(id);
+  if (!setter) {
+    setter = (el: unknown) => setParamListRef(id, el);
+    paramListRefSetters.set(id, setter);
+  }
+  return setter;
 }
 
 // Fresh, editable copy of a category's parameters (decoupled from the store).
@@ -401,14 +411,30 @@ function cloneParameters(
   }));
 }
 
+// Cached dirty state per open row, recomputed only when a buffer or its
+// snapshot actually changes — not on every render or unrelated update.
+const dirtyRows = computed<Record<number, boolean>>(() => {
+  const result: Record<number, boolean> = {};
+  for (const id of expandedIds.value) {
+    const state = editStates.value[id];
+    if (state) {
+      result[id] = JSON.stringify(state.params) !== state.snapshot;
+    }
+  }
+  return result;
+});
+
 function rowDirty(id: number): boolean {
-  const state = editStates.value[id];
-  return state ? JSON.stringify(state.params) !== state.snapshot : false;
+  return dirtyRows.value[id] ?? false;
 }
 
+// Full teardown: close the row and drop its buffer entirely (used when the
+// category itself is removed).
 function collapse(id: number) {
+  expandedIds.value.delete(id);
   delete editStates.value[id];
   paramListRefs.delete(id);
+  paramListRefSetters.delete(id);
 }
 
 // Revert edits back to the last-saved snapshot without closing the section.
@@ -424,18 +450,23 @@ function resetParams(id: number) {
 
 function toggleExpand(category: PartCategory) {
   if (isExpanded(category.id)) {
-    collapse(category.id);
+    // Collapse only — keep the buffer so unsaved edits survive a reopen.
+    expandedIds.value.delete(category.id);
     return;
   }
 
-  const params = cloneParameters(category.parameters);
-  editStates.value[category.id] = {
-    params,
-    snapshot: JSON.stringify(params),
-    saving: false,
-    error: null,
-    errors: [],
-  };
+  // Reuse an existing buffer (e.g. after a collapse) or seed a fresh one.
+  if (!editStates.value[category.id]) {
+    const params = cloneParameters(category.parameters);
+    editStates.value[category.id] = {
+      params,
+      snapshot: JSON.stringify(params),
+      saving: false,
+      error: null,
+      errors: [],
+    };
+  }
+  expandedIds.value.add(category.id);
   nextTick(() => paramListRefs.get(category.id)?.resetValidation());
 }
 
@@ -471,7 +502,7 @@ async function saveParams(category: PartCategory) {
     // Re-sync the buffer with the saved rows so new parameters pick up their ids.
     state.params = cloneParameters(updated.parameters);
     state.snapshot = JSON.stringify(state.params);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error saving category parameters:', err);
 
     const issues = extractZodIssues(err);

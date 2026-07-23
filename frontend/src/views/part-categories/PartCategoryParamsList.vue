@@ -47,7 +47,7 @@
             </td>
           </tr>
 
-          <template v-for="(p, i) in parameters" :key="i">
+          <template v-for="(p, i) in parameters" :key="keyFor(p)">
             <tr class="border-t border-slate-300 align-top">
               <td class="border-r border-slate-300 px-2 py-1">
                 <input
@@ -159,6 +159,21 @@ import { useRequiredFieldValidation } from '../../composables/useRequiredFieldVa
 const parameters = defineModel<PartCategoryParameter[]>({ required: true });
 
 const { t } = useI18n();
+
+// Stable per-row key so adding/removing a row doesn't make Vue reuse the wrong
+// <tr> (which would misattach input focus/values). Saved rows key by their db
+// id; new, unsaved rows get a client-only uid tracked by object identity.
+const rowKeys = new WeakMap<PartCategoryParameter, number>();
+let rowKeySeq = 0;
+function keyFor(p: PartCategoryParameter): string {
+  if (p.id != null) return `id-${p.id}`;
+  let key = rowKeys.get(p);
+  if (key === undefined) {
+    key = ++rowKeySeq;
+    rowKeys.set(p, key);
+  }
+  return `new-${key}`;
+}
 
 // A parameter's name is only required once it's marked as required itself —
 // rows left blank (and not marked required) are silently dropped on save.
