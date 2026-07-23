@@ -29,12 +29,16 @@
         class="rounded-xl bg-slate-50 p-3 space-y-3"
       >
         <div class="grid gap-2 md:grid-cols-[1.4fr_1fr_1.2fr_0.8fr_40px]">
-          <input
-            id="part-category-param-name-{{ i }}"
-            v-model="p.name"
-            class="input text-sm"
-            :placeholder="t('name')"
-          />
+          <div class="flex flex-col gap-1">
+            <input
+              id="part-category-param-name-{{ i }}"
+              v-model="p.name"
+              :required="p.required"
+              class="input text-sm"
+              :placeholder="t('name')"
+            />
+            <p v-if="fieldErrors[i]" class="text-xs text-red-500">{{ fieldErrors[i] }}</p>
+          </div>
 
           <select
             id="part-category-param-type-{{ i }}"
@@ -117,10 +121,20 @@
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 import { useI18n } from 'vue-i18n';
 import { Plus, Trash2 } from 'lucide-vue-next';
+import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 
 const parameters = defineModel<PartCategoryParameter[]>({ required: true });
 
 const { t } = useI18n();
+
+// A parameter's name is only required once it's marked as required itself —
+// rows left blank (and not marked required) are silently dropped on save.
+const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() =>
+  parameters.value
+    .map((p, i) => ({ key: String(i), label: t('name'), missing: p.required && !p.name.trim() })),
+);
+
+defineExpose({ validate, resetValidation });
 
 function addParam() {
   parameters.value.push({
