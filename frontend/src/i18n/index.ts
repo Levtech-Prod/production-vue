@@ -51,6 +51,8 @@ const messages = {
     categories: 'Categories',
     dynamic_parameters: 'Dynamic Parameters',
     required: 'Required',
+    show_as_column: 'Show as column',
+    other_parameters: 'Other Parameters',
     login_description: 'Sign in to Production',
     create_account: 'Create account',
     select_category: 'Select category',
@@ -348,7 +350,8 @@ const messages = {
       // Product/Sub-product types module — backend codes
       INVALID_PRODUCT_TYPE_ID: 'Invalid product type id',
       PRODUCT_TYPE_NOT_FOUND: 'Product type not found',
-      PRODUCT_TYPE_ALREADY_EXISTS: 'A product type with this name already exists.',
+      PRODUCT_TYPE_ALREADY_EXISTS:
+        'A product type with this name already exists.',
       PRODUCT_TYPE_IN_USE:
         'This product type cannot be deleted because it is used by one or more products.',
       INVALID_SUB_PRODUCT_TYPE_ID: 'Invalid sub-product type id',
@@ -388,10 +391,8 @@ const messages = {
       update_product_type: 'The product type was updated successfully',
       delete_product_type: 'The product type was deleted successfully.',
       save_sub_product_type: 'The sub-product type was saved successfully',
-      update_sub_product_type:
-        'The sub-product type was updated successfully',
-      delete_sub_product_type:
-        'The sub-product type was deleted successfully.',
+      update_sub_product_type: 'The sub-product type was updated successfully',
+      delete_sub_product_type: 'The sub-product type was deleted successfully.',
     },
 
     validation: {
@@ -421,7 +422,8 @@ const messages = {
         'Are you sure you want to delete this sub-product? All of its revisions, parts and documents will be removed, and it will be removed from every product revision that includes it',
       remove_part_msg:
         'Are you sure you want to remove this part from the revision',
-      delete_product_type_msg: 'Are you sure you want to delete this product type',
+      delete_product_type_msg:
+        'Are you sure you want to delete this product type',
       delete_sub_product_type_msg:
         'Are you sure you want to delete this sub-product type',
     },
@@ -466,6 +468,8 @@ const messages = {
     categories: 'Kategóriák',
     dynamic_parameters: 'Dinamikus paraméterek',
     required: 'Kötelező',
+    show_as_column: 'Megjelenítés oszlopként',
+    other_parameters: 'Egyéb paraméterek',
     login_description: 'Jelentkezz be a Production rendszerbe',
     create_account: 'Fiók létrehozása',
     select_category: 'Kategória kiválasztása',
@@ -774,8 +778,7 @@ const messages = {
       save_product_type_failed: 'A terméktípus mentése nem sikerült',
       delete_product_type_failed: 'A terméktípus törlése nem sikerült',
       save_sub_product_type_failed: 'Az altermék-típus mentése nem sikerült',
-      delete_sub_product_type_failed:
-        'Az altermék-típus törlése nem sikerült',
+      delete_sub_product_type_failed: 'Az altermék-típus törlése nem sikerült',
     },
 
     success: {

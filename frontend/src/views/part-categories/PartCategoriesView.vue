@@ -407,6 +407,7 @@ function cloneParameters(
     type: p.type,
     unit: p.unit ?? '',
     required: p.required,
+    showAsColumn: p.showAsColumn ?? false,
     options: p.options ? [...p.options] : [],
   }));
 }

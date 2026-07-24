@@ -56,7 +56,11 @@
         :parameters="selectedCategory.parameters"
       />
 
-      <PartsTable :parts="filteredParts" :empty-text="tableEmptyText">
+      <PartsTable
+        :parts="filteredParts"
+        :column-parameters="columnParameters"
+        :empty-text="tableEmptyText"
+      >
         <template #actions="{ part }">
           <div class="flex items-center gap-2">
             <button
@@ -125,6 +129,7 @@ import type {
   CreatePartPayload,
   ParameterFilters,
 } from '../../types/parts.ts';
+import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
 const { t, te } = useI18n();
 
@@ -203,6 +208,16 @@ const filteredParts = computed(() => {
       !selectedCategoryId.value || p.categoryId === selectedCategoryId.value;
     return matchesName && matchesCategory && matchesParamFilters(p);
   });
+});
+
+// Category parameters flagged "show as column" get their own column in the
+// parts table. Only shown when a single category is selected — with "All
+// categories" the parts span multiple parameter sets, so no columns are added.
+const columnParameters = computed<PartCategoryParameter[]>(() => {
+  if (!selectedCategory.value) return [];
+  return (selectedCategory.value.parameters ?? []).filter(
+    (param) => param.showAsColumn && param.id != null,
+  );
 });
 
 const tableEmptyText = computed(() =>
