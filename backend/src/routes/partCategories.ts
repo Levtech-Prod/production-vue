@@ -23,6 +23,7 @@ router.get('/', requireAuth, async (_req, res) => {
             'type', pcp.type,
             'unit', pcp.unit,
             'required', pcp.required,
+            'showAsColumn', pcp.show_as_column,
             'options', COALESCE(pcp.options, ARRAY[]::text[]),
             'createdAt', pcp.created_at
           ) ORDER BY pcp.id
@@ -52,15 +53,16 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const parameters = [];
     for (const p of data.parameters ?? []) {
       const pResult = await client.query(
-        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, options)
-         VALUES ($1, $2, $3, $4, $5, $6::text[])
-         RETURNING id, category_id AS "categoryId", name, type, unit, required, options, created_at AS "createdAt"`,
+        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, show_as_column, options)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::text[])
+         RETURNING id, category_id AS "categoryId", name, type, unit, required, show_as_column AS "showAsColumn", options, created_at AS "createdAt"`,
         [
           category.id,
           p.name,
           p.type,
           p.unit || null,
           p.required || false,
+          p.showAsColumn || false,
           p.type === 'dropdown' ? p.options : [],
         ],
       );
@@ -164,14 +166,15 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           await client.query(
             `
             UPDATE part_category_parameters
-            SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
-            WHERE id = $6 AND category_id = $7
+            SET name = $1, type = $2, unit = $3, required = $4, show_as_column = $5, options = $6::text[]
+            WHERE id = $7 AND category_id = $8
             `,
             [
               parameter.name,
               parameter.type,
               parameter.unit || null,
               parameter.required,
+              parameter.showAsColumn || false,
               options,
               parameter.id,
               categoryId,
@@ -181,9 +184,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           await client.query(
             `
             INSERT INTO part_category_parameters
-              (category_id, name, type, unit, required, options)
+              (category_id, name, type, unit, required, show_as_column, options)
             VALUES
-              ($1, $2, $3, $4, $5, $6::text[])
+              ($1, $2, $3, $4, $5, $6, $7::text[])
             `,
             [
               categoryId,
@@ -191,6 +194,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
               parameter.type,
               parameter.unit || null,
               parameter.required,
+              parameter.showAsColumn || false,
               options,
             ],
           );
@@ -200,7 +204,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const updatedParametersResult = await client.query(
       `
-      SELECT id, name, type, unit, required, COALESCE(options, ARRAY[]::text[]) AS options
+      SELECT id, name, type, unit, required, show_as_column AS "showAsColumn", COALESCE(options, ARRAY[]::text[]) AS options
       FROM part_category_parameters
       WHERE category_id = $1
       ORDER BY id ASC
