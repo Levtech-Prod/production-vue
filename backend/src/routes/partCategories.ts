@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { partCategoryPayloadSchema } from '../schemas/partCategories.schema.js';
+import {
+  partCategoryPayloadSchema,
+  partCategoryParameterColumnPatchSchema,
+} from '../schemas/partCategories.schema.js';
 
 const router = Router();
 
@@ -229,6 +232,53 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     client.release();
   }
 });
+
+// Toggle a single parameter's "show as column" flag. A focused endpoint so
+// the Parts table can flip column visibility without re-sending (and
+// re-validating) the whole category parameter set via PUT.
+router.patch(
+  '/:categoryId/parameters/:parameterId',
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const categoryId = Number(req.params.categoryId);
+    const parameterId = Number(req.params.parameterId);
+
+    if (!categoryId || Number.isNaN(categoryId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
+    }
+
+    if (!parameterId || Number.isNaN(parameterId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_PARAMETER_ID });
+    }
+
+    // Validated before touching the DB; a ZodError propagates to the global
+    // handler and is returned as structured, localizable validation issues.
+    const data = partCategoryParameterColumnPatchSchema.parse(req.body);
+
+    try {
+      const result = await query(
+        `UPDATE part_category_parameters
+         SET show_as_column = $1
+         WHERE id = $2 AND category_id = $3
+         RETURNING id, category_id AS "categoryId", name, type, unit, required,
+           show_as_column AS "showAsColumn",
+           COALESCE(options, ARRAY[]::text[]) AS options,
+           created_at AS "createdAt"`,
+        [data.showAsColumn, parameterId, categoryId],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ code: ErrorCodes.PARAMETER_NOT_FOUND });
+      }
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ code: ErrorCodes.PARAMETER_UPDATE_FAILED });
+    }
+  },
+);
 
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect();

@@ -36,3 +36,12 @@ export const partCategoryPayloadSchema = z.object({
     .optional(),
 });
 export type PartCategoryPayload = z.infer<typeof partCategoryPayloadSchema>;
+
+// Body for the focused "toggle a single parameter's column visibility"
+// endpoint (PATCH /part-categories/:categoryId/parameters/:parameterId).
+export const partCategoryParameterColumnPatchSchema = z.object({
+  showAsColumn: z.boolean(),
+});
+export type PartCategoryParameterColumnPatch = z.infer<
+  typeof partCategoryParameterColumnPatchSchema
+>;
