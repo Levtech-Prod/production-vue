@@ -66,6 +66,11 @@ ALTER TABLE part_category_parameters
   ADD CONSTRAINT part_category_parameters_type_check
   CHECK (type IN ('text', 'number', 'boolean', 'dropdown'));
 
+-- Render this parameter as its own dedicated column in the Parts table
+-- (after the Name column) instead of inside the shared "Other Parameters" cell.
+ALTER TABLE part_category_parameters
+  ADD COLUMN IF NOT EXISTS show_as_column BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Part code (required + unique). Added nullable, backfilled, then constrained
 -- so the migration also works on databases that already contain parts.
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS code VARCHAR(120);

@@ -72,6 +72,29 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
       loading.value = false;
     }
   }
+  // Toggle a single parameter's "show as column" flag and patch it into the
+  // cached category in place, so views deriving columns from the store update
+  // without a full reload. Errors propagate for the caller to surface/roll back.
+  async function setParameterColumn(
+    categoryId: number,
+    parameterId: number,
+    showAsColumn: boolean,
+  ) {
+    const response = await partCategoriesApi.setParameterColumn(
+      categoryId,
+      parameterId,
+      showAsColumn,
+    );
+
+    const category = categories.value.find((c) => c.id === categoryId);
+    const parameter = category?.parameters?.find((p) => p.id === parameterId);
+    if (parameter) {
+      parameter.showAsColumn = response.data.showAsColumn;
+    }
+
+    return response.data;
+  }
+
   async function deleteCategory(id: number) {
     loading.value = true;
     error.value = null;
@@ -104,6 +127,7 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
     loadCategories,
     saveCategory,
     updateCategory,
+    setParameterColumn,
     deleteCategory,
   };
 });

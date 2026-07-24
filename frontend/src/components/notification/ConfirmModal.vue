@@ -22,7 +22,7 @@ const { t } = useI18n();
   <Transition name="fade">
     <div
       v-if="visible"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px]"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="mb-3 text-lg font-semibold text-gray-900">

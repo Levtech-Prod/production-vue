@@ -51,6 +51,9 @@ const messages = {
     categories: 'Categories',
     dynamic_parameters: 'Dynamic Parameters',
     required: 'Required',
+    show_as_column: 'Show as column',
+    other_parameters: 'Other Parameters',
+    columns: 'Columns',
     login_description: 'Sign in to Production',
     create_account: 'Create account',
     select_category: 'Select category',
@@ -285,9 +288,10 @@ const messages = {
       INVALID_TOKEN: 'Invalid or expired session',
       ADMIN_ACCESS_REQUIRED: 'Admin access required',
       INVALID_CATEGORY_ID: 'Invalid category id',
-      CATEGORY_NAME_REQUIRED: 'Category name is required',
-      CATEGORY_DESCRIPTION_REQUIRED: 'Category description is required',
       CATEGORY_NOT_FOUND: 'Part category not found',
+      INVALID_PARAMETER_ID: 'Invalid parameter id',
+      PARAMETER_NOT_FOUND: 'Parameter not found',
+      PARAMETER_UPDATE_FAILED: 'Failed to update parameter',
       CATEGORY_PARAMETERS_IN_USE:
         'One or more removed parameters are already used by parts and cannot be deleted.',
       CATEGORY_UPDATE_FAILED: 'Failed to update part category',
@@ -309,6 +313,7 @@ const messages = {
       deletion_not_possible_title: 'Deletion not possible',
       delete_part_category_failed: 'The part category could not be deleted.',
       save_part_category_failed: 'The part category could not be saved',
+      update_parameter_failed: 'The column setting could not be updated.',
       save_part_failed: 'The part could not be saved',
       delete_part_failed: 'The part could not be deleted.',
       could_not_create_user: 'Could not create user',
@@ -350,7 +355,8 @@ const messages = {
       // Product/Sub-product types module — backend codes
       INVALID_PRODUCT_TYPE_ID: 'Invalid product type id',
       PRODUCT_TYPE_NOT_FOUND: 'Product type not found',
-      PRODUCT_TYPE_ALREADY_EXISTS: 'A product type with this name already exists.',
+      PRODUCT_TYPE_ALREADY_EXISTS:
+        'A product type with this name already exists.',
       PRODUCT_TYPE_IN_USE:
         'This product type cannot be deleted because it is used by one or more products.',
       INVALID_SUB_PRODUCT_TYPE_ID: 'Invalid sub-product type id',
@@ -390,10 +396,8 @@ const messages = {
       update_product_type: 'The product type was updated successfully',
       delete_product_type: 'The product type was deleted successfully.',
       save_sub_product_type: 'The sub-product type was saved successfully',
-      update_sub_product_type:
-        'The sub-product type was updated successfully',
-      delete_sub_product_type:
-        'The sub-product type was deleted successfully.',
+      update_sub_product_type: 'The sub-product type was updated successfully',
+      delete_sub_product_type: 'The sub-product type was deleted successfully.',
     },
 
     validation: {
@@ -423,7 +427,8 @@ const messages = {
         'Are you sure you want to delete this sub-product? All of its revisions, parts and documents will be removed, and it will be removed from every product revision that includes it',
       remove_part_msg:
         'Are you sure you want to remove this part from the revision',
-      delete_product_type_msg: 'Are you sure you want to delete this product type',
+      delete_product_type_msg:
+        'Are you sure you want to delete this product type',
       delete_sub_product_type_msg:
         'Are you sure you want to delete this sub-product type',
     },
@@ -468,6 +473,9 @@ const messages = {
     categories: 'Kategóriák',
     dynamic_parameters: 'Dinamikus paraméterek',
     required: 'Kötelező',
+    show_as_column: 'Megjelenítés oszlopként',
+    other_parameters: 'Egyéb paraméterek',
+    columns: 'Oszlopok',
     login_description: 'Jelentkezz be a Production rendszerbe',
     create_account: 'Fiók létrehozása',
     select_category: 'Kategória kiválasztása',
@@ -701,9 +709,10 @@ const messages = {
       INVALID_TOKEN: 'Érvénytelen vagy lejárt munkamenet',
       ADMIN_ACCESS_REQUIRED: 'Admin jogosultság szükséges',
       INVALID_CATEGORY_ID: 'Érvénytelen kategória azonosító',
-      CATEGORY_NAME_REQUIRED: 'A kategória neve kötelező',
-      CATEGORY_DESCRIPTION_REQUIRED: 'A kategória leírása kötelező',
       CATEGORY_NOT_FOUND: 'A kategória nem található',
+      INVALID_PARAMETER_ID: 'Érvénytelen paraméter azonosító',
+      PARAMETER_NOT_FOUND: 'A paraméter nem található',
+      PARAMETER_UPDATE_FAILED: 'Nem sikerült módosítani a paramétert',
       CATEGORY_PARAMETERS_IN_USE:
         'Egy vagy több eltávolított paramétert már használnak alkatrészek, ezért nem törölhetők.',
       CATEGORY_UPDATE_FAILED: 'Nem sikerült módosítani a kategóriát',
@@ -724,6 +733,7 @@ const messages = {
       deletion_not_possible_title: 'Törlés nem lehetséges',
       delete_part_category_failed: 'A kategória törlése nem sikerült.',
       save_part_category_failed: 'Az alkatrész kategória mentése nem sikerült',
+      update_parameter_failed: 'Az oszlop beállítását nem sikerült frissíteni.',
       save_part_failed: 'Az alkatrész mentése nem sikerült',
       delete_part_failed: 'Az alkatrész törlése nem sikerült.',
       could_not_create_user: 'Nem sikerült felhasználót létrehozni',
@@ -778,8 +788,7 @@ const messages = {
       save_product_type_failed: 'A terméktípus mentése nem sikerült',
       delete_product_type_failed: 'A terméktípus törlése nem sikerült',
       save_sub_product_type_failed: 'Az altermék-típus mentése nem sikerült',
-      delete_sub_product_type_failed:
-        'Az altermék-típus törlése nem sikerült',
+      delete_sub_product_type_failed: 'Az altermék-típus törlése nem sikerült',
     },
 
     success: {

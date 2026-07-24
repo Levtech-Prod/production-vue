@@ -6,18 +6,9 @@
         {{ t('categories') }}
       </h2>
       <div class="relative flex-1 max-w-sm">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
+        <Search
           class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-        >
-          <path
-            fill-rule="evenodd"
-            d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-            clip-rule="evenodd"
-          />
-        </svg>
+        />
         <input
           v-model="categorySearch"
           class="input !pl-9"
@@ -93,6 +84,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
 import { ref, computed } from 'vue';
+import { Search } from 'lucide-vue-next';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
 

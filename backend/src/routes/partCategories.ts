@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { partCategoryPayloadSchema } from '../schemas/partCategories.schema.js';
+import {
+  partCategoryPayloadSchema,
+  partCategoryParameterColumnPatchSchema,
+} from '../schemas/partCategories.schema.js';
 
 const router = Router();
 
@@ -23,6 +26,7 @@ router.get('/', requireAuth, async (_req, res) => {
             'type', pcp.type,
             'unit', pcp.unit,
             'required', pcp.required,
+            'showAsColumn', pcp.show_as_column,
             'options', COALESCE(pcp.options, ARRAY[]::text[]),
             'createdAt', pcp.created_at
           ) ORDER BY pcp.id
@@ -46,24 +50,23 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       `INSERT INTO part_categories (name, description, image)
        VALUES ($1, $2, $3)
        RETURNING id, name, description, image, created_at AS "createdAt"`,
-      [data.name, data.description || null, data.image || null],
+      [data.name, data.description, data.image || null],
     );
     const category = categoryResult.rows[0];
     const parameters = [];
-    for (const p of data.parameters) {
+    for (const p of data.parameters ?? []) {
       const pResult = await client.query(
-        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, options)
-         VALUES ($1, $2, $3, $4, $5, $6::text[])
-         RETURNING id, category_id AS "categoryId", name, type, unit, required, options, created_at AS "createdAt"`,
+        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, show_as_column, options)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::text[])
+         RETURNING id, category_id AS "categoryId", name, type, unit, required, show_as_column AS "showAsColumn", options, created_at AS "createdAt"`,
         [
           category.id,
           p.name,
           p.type,
           p.unit || null,
           p.required || false,
-          p.type === 'dropdown'
-            ? (p.options || []).filter((option: string) => option.trim() !== '')
-            : [],
+          p.showAsColumn || false,
+          p.type === 'dropdown' ? p.options : [],
         ],
       );
       parameters.push(pResult.rows[0]);
@@ -78,27 +81,17 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+  const categoryId = Number(req.params.id);
+
+  if (!categoryId || Number.isNaN(categoryId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
+  }
+
+  const data = partCategoryPayloadSchema.parse(req.body);
   const client = await pool.connect();
 
   try {
-    const categoryId = Number(req.params.id);
-    const { name, image, description, parameters = [] } = req.body;
-
-    if (!categoryId || Number.isNaN(categoryId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
-    }
-
-    if (!name?.trim()) {
-      return res.status(400).json({ code: ErrorCodes.CATEGORY_NAME_REQUIRED });
-    }
-
-    if (!description?.trim()) {
-      return res
-        .status(400)
-        .json({ code: ErrorCodes.CATEGORY_DESCRIPTION_REQUIRED });
-    }
-
     await client.query('BEGIN');
 
     const categoryResult = await client.query(
@@ -106,9 +99,9 @@ router.put('/:id', async (req, res) => {
       UPDATE part_categories
       SET name = $1, image = $2, description = $3
       WHERE id = $4
-      RETURNING id, name, image, description, created_at
+      RETURNING id, name, image, description, created_at AS "createdAt"
       `,
-      [name.trim(), image || null, description.trim(), categoryId],
+      [data.name, data.image || null, data.description, categoryId],
     );
 
     if (categoryResult.rowCount === 0) {
@@ -116,104 +109,105 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
     }
 
-    const existingResult = await client.query(
-      `
-      SELECT id
-      FROM part_category_parameters
-      WHERE category_id = $1
-      `,
-      [categoryId],
-    );
+    // Parameters are managed inline on the categories page, separately from
+    // the category-details modal. When `parameters` is omitted, the caller is
+    // only editing category-level fields, so we leave the existing rows alone.
+    if (data.parameters !== undefined) {
+      const incomingParameters = data.parameters;
 
-    const existingIds = existingResult.rows.map((row) => row.id);
-
-    const incomingExistingIds = parameters
-      .filter((parameter: any) => parameter.id)
-      .map((parameter: any) => Number(parameter.id));
-
-    const idsToDelete = existingIds.filter(
-      (id) => !incomingExistingIds.includes(id),
-    );
-
-    if (idsToDelete.length > 0) {
-      const usedResult = await client.query(
+      const existingResult = await client.query(
         `
-        SELECT DISTINCT parameter_id
-        FROM stock_parameters
-        WHERE parameter_id = ANY($1::int[])
+        SELECT id
+        FROM part_category_parameters
+        WHERE category_id = $1
         `,
-        [idsToDelete],
+        [categoryId],
       );
 
-      if (usedResult.rowCount && usedResult.rowCount > 0) {
-        await client.query('ROLLBACK');
+      const existingIds = existingResult.rows.map((row) => row.id);
 
-        return res.status(409).json({
-          code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
-          usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
-        });
+      const incomingExistingIds = incomingParameters
+        .map((parameter) => parameter.id)
+        .filter((id): id is number => id !== undefined);
+
+      const idsToDelete = existingIds.filter(
+        (id) => !incomingExistingIds.includes(id),
+      );
+
+      if (idsToDelete.length > 0) {
+        const usedResult = await client.query(
+          `
+          SELECT DISTINCT parameter_id
+          FROM stock_parameters
+          WHERE parameter_id = ANY($1::int[])
+          `,
+          [idsToDelete],
+        );
+
+        if (usedResult.rowCount && usedResult.rowCount > 0) {
+          await client.query('ROLLBACK');
+
+          return res.status(409).json({
+            code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
+            usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
+          });
+        }
+
+        await client.query(
+          `
+          DELETE FROM part_category_parameters
+          WHERE id = ANY($1::int[])
+          `,
+          [idsToDelete],
+        );
       }
 
-      await client.query(
-        `
-        DELETE FROM part_category_parameters
-        WHERE id = ANY($1::int[])
-        `,
-        [idsToDelete],
-      );
-    }
+      for (const parameter of incomingParameters) {
+        const options = parameter.type === 'dropdown' ? parameter.options : [];
 
-    for (const parameter of parameters) {
-      if (!parameter.name?.trim()) continue;
-
-      if (parameter.id) {
-        await client.query(
-          `
-          UPDATE part_category_parameters
-          SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
-          WHERE id = $6 AND category_id = $7
-          `,
-          [
-            parameter.name.trim(),
-            parameter.type,
-            parameter.unit || null,
-            parameter.required || false,
-            parameter.type === 'dropdown'
-              ? (parameter.options || []).filter(
-                  (option: string) => option.trim() !== '',
-                )
-              : [],
-            parameter.id,
-            categoryId,
-          ],
-        );
-      } else {
-        await client.query(
-          `
-          INSERT INTO part_category_parameters
-            (category_id, name, type, unit, required, options)
-          VALUES
-            ($1, $2, $3, $4, $5, $6::text[])
-          `,
-          [
-            categoryId,
-            parameter.name.trim(),
-            parameter.type,
-            parameter.unit || null,
-            parameter.required || false,
-            parameter.type === 'dropdown'
-              ? (parameter.options || []).filter(
-                  (option: string) => option.trim() !== '',
-                )
-              : [],
-          ],
-        );
+        if (parameter.id) {
+          await client.query(
+            `
+            UPDATE part_category_parameters
+            SET name = $1, type = $2, unit = $3, required = $4, show_as_column = $5, options = $6::text[]
+            WHERE id = $7 AND category_id = $8
+            `,
+            [
+              parameter.name,
+              parameter.type,
+              parameter.unit || null,
+              parameter.required,
+              parameter.showAsColumn || false,
+              options,
+              parameter.id,
+              categoryId,
+            ],
+          );
+        } else {
+          await client.query(
+            `
+            INSERT INTO part_category_parameters
+              (category_id, name, type, unit, required, show_as_column, options)
+            VALUES
+              ($1, $2, $3, $4, $5, $6, $7::text[])
+            `,
+            [
+              categoryId,
+              parameter.name,
+              parameter.type,
+              parameter.unit || null,
+              parameter.required,
+              parameter.showAsColumn || false,
+              options,
+            ],
+          );
+        }
       }
     }
 
     const updatedParametersResult = await client.query(
       `
-      SELECT id, name, type, unit, required, COALESCE(options, ARRAY[]::text[]) AS options
+      SELECT id, name, type, unit, required, show_as_column AS "showAsColumn", COALESCE(options, ARRAY[]::text[]) AS options
       FROM part_category_parameters
       WHERE category_id = $1
       ORDER BY id ASC
@@ -239,7 +233,54 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+// Toggle a single parameter's "show as column" flag. A focused endpoint so
+// the Parts table can flip column visibility without re-sending (and
+// re-validating) the whole category parameter set via PUT.
+router.patch(
+  '/:categoryId/parameters/:parameterId',
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const categoryId = Number(req.params.categoryId);
+    const parameterId = Number(req.params.parameterId);
+
+    if (!categoryId || Number.isNaN(categoryId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
+    }
+
+    if (!parameterId || Number.isNaN(parameterId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_PARAMETER_ID });
+    }
+
+    // Validated before touching the DB; a ZodError propagates to the global
+    // handler and is returned as structured, localizable validation issues.
+    const data = partCategoryParameterColumnPatchSchema.parse(req.body);
+
+    try {
+      const result = await query(
+        `UPDATE part_category_parameters
+         SET show_as_column = $1
+         WHERE id = $2 AND category_id = $3
+         RETURNING id, category_id AS "categoryId", name, type, unit, required,
+           show_as_column AS "showAsColumn",
+           COALESCE(options, ARRAY[]::text[]) AS options,
+           created_at AS "createdAt"`,
+        [data.showAsColumn, parameterId, categoryId],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ code: ErrorCodes.PARAMETER_NOT_FOUND });
+      }
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ code: ErrorCodes.PARAMETER_UPDATE_FAILED });
+    }
+  },
+);
+
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect();
 
   try {

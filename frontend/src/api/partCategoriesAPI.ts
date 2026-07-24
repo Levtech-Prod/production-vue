@@ -2,6 +2,7 @@ import { api } from './client.ts';
 
 import type {
   PartCategory,
+  PartCategoryParameter,
   CreatePartCategoryPayload,
   UpdatePartCategoryPayload,
 } from '../types/partCategories.ts';
@@ -25,5 +26,17 @@ export const partCategoriesApi = {
 
   delete(id: number) {
     return api.delete(`/part-categories/${id}`);
+  },
+
+  // Toggle a single parameter's "show as column" flag.
+  setParameterColumn(
+    categoryId: number,
+    parameterId: number,
+    showAsColumn: boolean,
+  ) {
+    return api.patch<PartCategoryParameter>(
+      `/part-categories/${categoryId}/parameters/${parameterId}`,
+      { showAsColumn },
+    );
   },
 };

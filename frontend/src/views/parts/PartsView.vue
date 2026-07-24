@@ -19,18 +19,9 @@
         class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3"
       >
         <div class="relative flex-1 max-w-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
+          <Search
             class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
-              clip-rule="evenodd"
-            />
-          </svg>
+          />
           <input
             v-model="partNameSearch"
             class="input !pl-9"
@@ -53,18 +44,7 @@
           class="ml-auto inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
           @click="openAdd"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-              clip-rule="evenodd"
-            />
-          </svg>
+          <Plus class="h-4 w-4" />
           {{ t('add_part') }}
         </button>
       </div>
@@ -74,9 +54,21 @@
         v-if="selectedCategory && selectedCategory.parameters?.length"
         v-model="paramFilters"
         :parameters="selectedCategory.parameters"
-      />
+      >
+        <template #actions>
+          <PartColumnPicker
+            v-if="canManageColumns"
+            :parameters="selectedCategory.parameters"
+            @toggle="onToggleColumn"
+          />
+        </template>
+      </PartParameterFilters>
 
-      <PartsTable :parts="filteredParts" :empty-text="tableEmptyText">
+      <PartsTable
+        :parts="filteredParts"
+        :column-parameters="columnParameters"
+        :empty-text="tableEmptyText"
+      >
         <template #actions="{ part }">
           <div class="flex items-center gap-2">
             <button
@@ -128,16 +120,18 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { Pencil, Trash2 } from 'lucide-vue-next';
+import { Pencil, Trash2, Search, Plus } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import PartModal from './PartModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import PartsTable from './PartsTable.vue';
 import CategoryCards from './CategoryCards.vue';
 import PartParameterFilters from './PartParameterFilters.vue';
+import PartColumnPicker from './PartColumnPicker.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useAuthStore } from '../../stores/auth.ts';
 import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
@@ -145,12 +139,14 @@ import type {
   CreatePartPayload,
   ParameterFilters,
 } from '../../types/parts.ts';
+import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
 const { t, te } = useI18n();
 
 const partsStore = usePartsStore();
 const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
+const authStore = useAuthStore();
 
 const parts = computed(() => partsStore.parts);
 const categories = computed(() => partCategoryStore.categories);
@@ -224,6 +220,48 @@ const filteredParts = computed(() => {
     return matchesName && matchesCategory && matchesParamFilters(p);
   });
 });
+
+// Category parameters flagged "show as column" get their own column in the
+// parts table. Only shown when a single category is selected — with "All
+// categories" the parts span multiple parameter sets, so no columns are added.
+const columnParameters = computed<PartCategoryParameter[]>(() => {
+  if (!selectedCategory.value) return [];
+  return (selectedCategory.value.parameters ?? []).filter(
+    (param) => param.showAsColumn && param.id != null,
+  );
+});
+
+// The "Columns" picker is an admin-only shortcut for the same show_as_column
+// setting managed on the Part Categories page, shown only when a single
+// category (with parameters) is selected.
+const canManageColumns = computed(
+  () => authStore.isAdmin && !!selectedCategory.value?.parameters?.length,
+);
+
+// Persist a column toggle. Optimistic: flip the flag immediately for instant
+// feedback, then roll back and surface an error if the request fails.
+async function onToggleColumn(parameterId: number, showAsColumn: boolean) {
+  const category = selectedCategory.value;
+  const parameter = category?.parameters?.find((p) => p.id === parameterId);
+  if (!category || !parameter) return;
+
+  const previous = parameter.showAsColumn ?? false;
+  parameter.showAsColumn = showAsColumn;
+
+  try {
+    await partCategoryStore.setParameterColumn(
+      category.id,
+      parameterId,
+      showAsColumn,
+    );
+  } catch (err) {
+    parameter.showAsColumn = previous;
+    notificationStore.showToast(
+      translateApiError(err, { t, te }, 'errors.update_parameter_failed'),
+      'error',
+    );
+  }
+}
 
 const tableEmptyText = computed(() =>
   partNameSearch.value || selectedCategoryId.value

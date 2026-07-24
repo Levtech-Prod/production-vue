@@ -27,13 +27,15 @@
         <div class="flex flex-col gap-1">
           <label
             class="text-xs font-medium text-slate-500 uppercase tracking-wide"
-            >{{ t('description') }}</label
+            >{{ t('description') }} <span class="text-red-500">*</span></label
           >
           <input
             v-model="form.description"
             class="input"
             :placeholder="t('description')"
+            required
           />
+          <p v-if="fieldErrors.description" class="text-xs text-red-500">{{ fieldErrors.description }}</p>
         </div>
 
         <div class="md:col-span-2">
@@ -57,8 +59,6 @@
           <li v-for="(msg, i) in saveErrors" :key="i">{{ msg }}</li>
         </ul>
       </div>
-
-      <PartCategoryParameterList v-model="form.parameters" />
     </form>
 
     <!-- Footer slot -->
@@ -87,13 +87,9 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
-import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
-import type {
-  PartCategory,
-  PartCategoryParameter,
-} from '../../types/partCategories.ts';
+import type { PartCategory } from '../../types/partCategories.ts';
 
 import { useI18n } from 'vue-i18n';
 
@@ -114,7 +110,6 @@ const emit = defineEmits<{
       name: string;
       description: string;
       image: string | null;
-      parameters: PartCategoryParameter[];
     },
   ];
   clearError: [];
@@ -127,10 +122,10 @@ const form = reactive({
   name: '',
   description: '',
   image: '',
-  parameters: [] as PartCategoryParameter[],
 });
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'name', label: t('name'), missing: !form.name.trim() },
+  { key: 'description', label: t('description'), missing: !form.description.trim() },
 ]);
 
 // Populate form when the modal opens or the category prop changes
@@ -143,16 +138,6 @@ watch(
       form.name = category.name;
       form.description = category.description ?? '';
       form.image = category.image ?? '';
-      form.parameters = category.parameters?.length
-        ? category.parameters.map((p) => ({
-            id: p.id,
-            name: p.name,
-            type: p.type,
-            unit: p.unit ?? '',
-            required: p.required,
-            options: p.options || [],
-          }))
-        : [];
     } else {
       resetForm();
     }
@@ -164,7 +149,6 @@ function resetForm() {
   form.name = '';
   form.description = '';
   form.image = '';
-  form.parameters = [];
 }
 
 function save() {
@@ -176,15 +160,6 @@ function save() {
     name: form.name,
     description: form.description,
     image: form.image || null,
-    parameters: form.parameters
-      .filter((p) => p.name.trim() !== '')
-      .map((p) => ({
-        ...p,
-        options:
-          p.type === 'dropdown'
-            ? (p.options || []).filter((option) => option.trim() !== '')
-            : [],
-      })),
   });
 }
 </script>

@@ -1,6 +1,6 @@
 <template>
   <router-view v-if="isAuthPage" />
-  <div v-else class="min-h-screen bg-slate-50">
+  <div v-else class="min-h-screen bg-slate-100">
     <Sidebar />
     <main class="pl-64">
       <Topbar />

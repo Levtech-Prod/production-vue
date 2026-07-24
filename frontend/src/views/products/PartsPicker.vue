@@ -40,7 +40,7 @@
       {{ t('no_parts_selected') }}
     </div>
     <table v-else class="w-full text-left text-sm">
-      <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+      <thead class="bg-blue-50 text-xs uppercase text-black">
         <tr>
           <th class="px-4 py-2">{{ t('name') }}</th>
           <th class="w-28 px-4 py-2">{{ t('quantity') }} <span class="text-red-500">*</span></th>
@@ -50,7 +50,11 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(row, i) in model" :key="row.partId" class="border-t border-slate-100">
+        <tr
+          v-for="(row, i) in model"
+          :key="row.partId"
+          class="border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
+        >
           <td class="px-4 py-2">
             <div class="font-medium text-slate-800">{{ row.name }}</div>
             <div class="font-mono text-xs text-slate-400">{{ row.code }}</div>
