@@ -54,7 +54,15 @@
         v-if="selectedCategory && selectedCategory.parameters?.length"
         v-model="paramFilters"
         :parameters="selectedCategory.parameters"
-      />
+      >
+        <template #actions>
+          <PartColumnPicker
+            v-if="canManageColumns"
+            :parameters="selectedCategory.parameters"
+            @toggle="onToggleColumn"
+          />
+        </template>
+      </PartParameterFilters>
 
       <PartsTable
         :parts="filteredParts"
@@ -119,9 +127,11 @@ import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import PartsTable from './PartsTable.vue';
 import CategoryCards from './CategoryCards.vue';
 import PartParameterFilters from './PartParameterFilters.vue';
+import PartColumnPicker from './PartColumnPicker.vue';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useAuthStore } from '../../stores/auth.ts';
 import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
@@ -136,6 +146,7 @@ const { t, te } = useI18n();
 const partsStore = usePartsStore();
 const partCategoryStore = usePartCategoryStore();
 const notificationStore = useNotificationStore();
+const authStore = useAuthStore();
 
 const parts = computed(() => partsStore.parts);
 const categories = computed(() => partCategoryStore.categories);
@@ -219,6 +230,38 @@ const columnParameters = computed<PartCategoryParameter[]>(() => {
     (param) => param.showAsColumn && param.id != null,
   );
 });
+
+// The "Columns" picker is an admin-only shortcut for the same show_as_column
+// setting managed on the Part Categories page, shown only when a single
+// category (with parameters) is selected.
+const canManageColumns = computed(
+  () => authStore.isAdmin && !!selectedCategory.value?.parameters?.length,
+);
+
+// Persist a column toggle. Optimistic: flip the flag immediately for instant
+// feedback, then roll back and surface an error if the request fails.
+async function onToggleColumn(parameterId: number, showAsColumn: boolean) {
+  const category = selectedCategory.value;
+  const parameter = category?.parameters?.find((p) => p.id === parameterId);
+  if (!category || !parameter) return;
+
+  const previous = parameter.showAsColumn ?? false;
+  parameter.showAsColumn = showAsColumn;
+
+  try {
+    await partCategoryStore.setParameterColumn(
+      category.id,
+      parameterId,
+      showAsColumn,
+    );
+  } catch (err) {
+    parameter.showAsColumn = previous;
+    notificationStore.showToast(
+      translateApiError(err, { t, te }, 'errors.update_parameter_failed'),
+      'error',
+    );
+  }
+}
 
 const tableEmptyText = computed(() =>
   partNameSearch.value || selectedCategoryId.value

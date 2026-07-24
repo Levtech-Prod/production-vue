@@ -4,14 +4,17 @@
       <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {{ t('parameter_filters') }}
       </h3>
-      <button
-        v-if="hasActiveFilters"
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-white transition-colors"
-        @click="clearAll"
-      >
-        {{ t('clear_filters') }}
-      </button>
+      <div class="flex items-center gap-2">
+        <slot name="actions" />
+        <button
+          v-if="hasActiveFilters"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-white transition-colors"
+          @click="clearAll"
+        >
+          {{ t('clear_filters') }}
+        </button>
+      </div>
     </div>
 
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
