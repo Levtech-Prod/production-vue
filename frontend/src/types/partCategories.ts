@@ -10,6 +10,10 @@ export interface PartCategoryParameter {
   type: PartCategoryParameterType;
   unit?: string;
   required: boolean;
+  // When true, this parameter is rendered as its own column in the Parts
+  // table (after the Name column) instead of inside the shared
+  // "Other Parameters" cell.
+  showAsColumn?: boolean;
   created_at?: string;
   options: string[]; // Only for dropdown type
 }

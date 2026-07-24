@@ -17,6 +17,9 @@ export const partCategoryPayloadSchema = z.object({
         type: partParameterTypeSchema.default('text'),
         unit: z.string().optional().nullable(),
         required: z.boolean().default(false),
+        // When true, this parameter is shown as its own column in the Parts
+        // table instead of inside the shared "Other Parameters" cell.
+        showAsColumn: z.boolean().default(false),
         // Only meaningful for dropdown type. Blank entries are dropped rather
         // than rejected — the UI lets a user add an option row and fill it
         // in a moment later, so an in-progress blank shouldn't 422 the save.
@@ -33,3 +36,12 @@ export const partCategoryPayloadSchema = z.object({
     .optional(),
 });
 export type PartCategoryPayload = z.infer<typeof partCategoryPayloadSchema>;
+
+// Body for the focused "toggle a single parameter's column visibility"
+// endpoint (PATCH /part-categories/:categoryId/parameters/:parameterId).
+export const partCategoryParameterColumnPatchSchema = z.object({
+  showAsColumn: z.boolean(),
+});
+export type PartCategoryParameterColumnPatch = z.infer<
+  typeof partCategoryParameterColumnPatchSchema
+>;

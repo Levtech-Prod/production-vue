@@ -34,13 +34,18 @@
             >
               {{ t('required') }}
             </th>
+            <th
+              class="border-r border-slate-300 px-2 py-1 text-center font-medium"
+            >
+              {{ t('show_as_column') }}
+            </th>
             <th class="w-9 px-2 py-1"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="parameters.length === 0">
             <td
-              colspan="5"
+              colspan="6"
               class="px-2 py-4 text-center text-sm text-slate-400"
             >
               {{ t('no_parameters_msg') }}
@@ -91,6 +96,14 @@
                 />
               </td>
 
+              <td class="border-r border-slate-300 px-2 py-1 text-center">
+                <input
+                  v-model="p.showAsColumn"
+                  type="checkbox"
+                  class="mt-2 rounded"
+                />
+              </td>
+
               <td class="px-2 py-1 text-right">
                 <button
                   type="button"
@@ -103,7 +116,7 @@
             </tr>
 
             <tr v-if="p.type === 'dropdown'">
-              <td colspan="5" class="px-2 pb-2">
+              <td colspan="6" class="px-2 pb-2">
                 <div
                   class="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2"
                 >
@@ -194,6 +207,7 @@ function addParam() {
     type: 'text',
     unit: '',
     required: false,
+    showAsColumn: false,
     options: [],
   });
 }

@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { partCategoryPayloadSchema } from '../schemas/partCategories.schema.js';
+import {
+  partCategoryPayloadSchema,
+  partCategoryParameterColumnPatchSchema,
+} from '../schemas/partCategories.schema.js';
 
 const router = Router();
 
@@ -23,6 +26,7 @@ router.get('/', requireAuth, async (_req, res) => {
             'type', pcp.type,
             'unit', pcp.unit,
             'required', pcp.required,
+            'showAsColumn', pcp.show_as_column,
             'options', COALESCE(pcp.options, ARRAY[]::text[]),
             'createdAt', pcp.created_at
           ) ORDER BY pcp.id
@@ -52,15 +56,16 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const parameters = [];
     for (const p of data.parameters ?? []) {
       const pResult = await client.query(
-        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, options)
-         VALUES ($1, $2, $3, $4, $5, $6::text[])
-         RETURNING id, category_id AS "categoryId", name, type, unit, required, options, created_at AS "createdAt"`,
+        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, show_as_column, options)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::text[])
+         RETURNING id, category_id AS "categoryId", name, type, unit, required, show_as_column AS "showAsColumn", options, created_at AS "createdAt"`,
         [
           category.id,
           p.name,
           p.type,
           p.unit || null,
           p.required || false,
+          p.showAsColumn || false,
           p.type === 'dropdown' ? p.options : [],
         ],
       );
@@ -164,14 +169,15 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           await client.query(
             `
             UPDATE part_category_parameters
-            SET name = $1, type = $2, unit = $3, required = $4, options = $5::text[]
-            WHERE id = $6 AND category_id = $7
+            SET name = $1, type = $2, unit = $3, required = $4, show_as_column = $5, options = $6::text[]
+            WHERE id = $7 AND category_id = $8
             `,
             [
               parameter.name,
               parameter.type,
               parameter.unit || null,
               parameter.required,
+              parameter.showAsColumn || false,
               options,
               parameter.id,
               categoryId,
@@ -181,9 +187,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           await client.query(
             `
             INSERT INTO part_category_parameters
-              (category_id, name, type, unit, required, options)
+              (category_id, name, type, unit, required, show_as_column, options)
             VALUES
-              ($1, $2, $3, $4, $5, $6::text[])
+              ($1, $2, $3, $4, $5, $6, $7::text[])
             `,
             [
               categoryId,
@@ -191,6 +197,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
               parameter.type,
               parameter.unit || null,
               parameter.required,
+              parameter.showAsColumn || false,
               options,
             ],
           );
@@ -200,7 +207,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const updatedParametersResult = await client.query(
       `
-      SELECT id, name, type, unit, required, COALESCE(options, ARRAY[]::text[]) AS options
+      SELECT id, name, type, unit, required, show_as_column AS "showAsColumn", COALESCE(options, ARRAY[]::text[]) AS options
       FROM part_category_parameters
       WHERE category_id = $1
       ORDER BY id ASC
@@ -225,6 +232,53 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     client.release();
   }
 });
+
+// Toggle a single parameter's "show as column" flag. A focused endpoint so
+// the Parts table can flip column visibility without re-sending (and
+// re-validating) the whole category parameter set via PUT.
+router.patch(
+  '/:categoryId/parameters/:parameterId',
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    const categoryId = Number(req.params.categoryId);
+    const parameterId = Number(req.params.parameterId);
+
+    if (!categoryId || Number.isNaN(categoryId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
+    }
+
+    if (!parameterId || Number.isNaN(parameterId)) {
+      return res.status(400).json({ code: ErrorCodes.INVALID_PARAMETER_ID });
+    }
+
+    // Validated before touching the DB; a ZodError propagates to the global
+    // handler and is returned as structured, localizable validation issues.
+    const data = partCategoryParameterColumnPatchSchema.parse(req.body);
+
+    try {
+      const result = await query(
+        `UPDATE part_category_parameters
+         SET show_as_column = $1
+         WHERE id = $2 AND category_id = $3
+         RETURNING id, category_id AS "categoryId", name, type, unit, required,
+           show_as_column AS "showAsColumn",
+           COALESCE(options, ARRAY[]::text[]) AS options,
+           created_at AS "createdAt"`,
+        [data.showAsColumn, parameterId, categoryId],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ code: ErrorCodes.PARAMETER_NOT_FOUND });
+      }
+
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ code: ErrorCodes.PARAMETER_UPDATE_FAILED });
+    }
+  },
+);
 
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect();
