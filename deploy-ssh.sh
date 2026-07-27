@@ -28,22 +28,24 @@ cd "$(dirname "$0")"
 NAS_HOST="${NAS_HOST:-192.168.10.250}"        # NAS LAN IP or hostname
 NAS_USER="${NAS_USER:-Kincso}"                # DSM user in administrators group
 NAS_PORT="${NAS_PORT:-5022}"                    # SSH port
-NAS_PATH="${NAS_PATH:-/volume1/docker/prodtrack}"
+NAS_PATH="${NAS_PATH:-/volume1/docker/prodtrack}"   # dir containing the LIVE project's docker-compose.yml + .env
+PROJECT_NAME="${PROJECT_NAME:-levtech-production}"   # existing Container Manager project name (NOT the folder name)
 
 # --- Build settings --------------------------------------------------------
 BACKEND_IMAGE="prodtrack-backend:latest"
 FRONTEND_IMAGE="prodtrack-frontend:latest"
 TAR="prodtrack-images.tar"
 PLATFORM="linux/amd64"
-DB_CONTAINER="prodtrack-db-1"
+DB_CONTAINER="${PROJECT_NAME}-db-1"
 DB_USER="levtech"
 DB_NAME="levtechproduction"
+DOCKER="${DOCKER:-/usr/local/bin/docker}"   # Synology Container Manager path; sudo's PATH doesn't include it
 
 MIGRATIONS=("$@")   # migration filenames (in backend/database/migrations/) to apply
 
 SSH="ssh -p ${NAS_PORT} ${NAS_USER}@${NAS_HOST}"
 SSH_TTY="ssh -t -p ${NAS_PORT} ${NAS_USER}@${NAS_HOST}"   # -t so sudo can prompt
-SCP="scp -P ${NAS_PORT}"
+SCP="scp -O -P ${NAS_PORT}"   # -O = legacy protocol; Synology often lacks the SFTP subsystem
 
 # --- Preflight -------------------------------------------------------------
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker not found. Start Docker Desktop first."; exit 1; }
@@ -99,17 +101,17 @@ done
 
 # --- Load + restart on the NAS --------------------------------------------
 echo "==> Loading images and recreating containers on the NAS (sudo may prompt)..."
-$SSH_TTY "cd ${NAS_PATH} && sudo docker load -i ${TAR} && sudo docker compose up -d"
+$SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} load -i ${TAR} && sudo ${DOCKER} compose -p ${PROJECT_NAME} up -d"
 
 # --- Apply migrations ------------------------------------------------------
 for m in "${MIGRATIONS[@]}"; do
   echo "==> Applying migration $m..."
-  $SSH_TTY "sudo docker exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}"
+  $SSH_TTY "sudo ${DOCKER} exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}"
 done
 
 # --- Verify ----------------------------------------------------------------
 echo "==> Container status:"
-$SSH_TTY "cd ${NAS_PATH} && sudo docker compose ps"
+$SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} compose -p ${PROJECT_NAME} ps"
 
 echo
 echo "==> Done. Open http://${NAS_HOST}:8080 to verify the app."
