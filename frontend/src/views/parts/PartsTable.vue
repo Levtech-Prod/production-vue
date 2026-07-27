@@ -131,6 +131,7 @@ import { computed, ref, watch, useSlots } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
+import { formatPrice } from '../../utils/formatters.ts';
 import type { Part } from '../../types/parts.ts';
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
@@ -243,10 +244,4 @@ function openImagePreview(part: Part) {
   imagePreviewOpen.value = true;
 }
 
-function formatPrice(value: number | string): string {
-  return Number(value).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 </script>

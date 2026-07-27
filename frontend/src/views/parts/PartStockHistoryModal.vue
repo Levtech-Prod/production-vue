@@ -149,6 +149,7 @@
 import { computed, ref } from 'vue';
 import { X, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import { formatQty, formatPrice, formatDate } from '../../utils/formatters.ts';
 import type { StockEntry } from '../../types/stockEntries.ts';
 
 const props = defineProps<{
@@ -211,26 +212,7 @@ const filteredSortedEntries = computed<StockEntry[]>(() => {
   });
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatQty(value: number | string): string {
-  return Math.round(Number(value)).toString();
-}
-
-function formatPrice(value: number | string): string {
-  return Number(value).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 </script>
 
 <style scoped>

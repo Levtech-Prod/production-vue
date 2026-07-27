@@ -71,7 +71,10 @@
         </div>
       </div>
 
-      <p v-if="part.description" class="text-sm text-slate-600 leading-relaxed mb-3">
+      <p
+        v-if="part.description"
+        class="text-sm text-slate-600 leading-relaxed mb-3"
+      >
         {{ part.description }}
       </p>
 
@@ -82,22 +85,45 @@
           class="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
         >
           {{ v.parameter?.name }}: {{ v.value
-          }}<template v-if="v.parameter?.unit"> {{ v.parameter.unit }}</template>
+          }}<template v-if="v.parameter?.unit">
+            {{ v.parameter.unit }}</template
+          >
         </span>
       </div>
     </section>
 
     <!-- ── Stock & Pricing ── -->
     <section class="border-b border-slate-100 px-4 pt-4 pb-3">
-      <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+      <h3
+        class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3"
+      >
         {{ t('stock_and_pricing') }}
       </h3>
 
       <!-- Loading state -->
-      <div v-if="loadingEntries" class="flex items-center gap-2 text-sm text-slate-400 py-2">
-        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      <div
+        v-if="loadingEntries"
+        class="flex items-center gap-2 text-sm text-slate-400 py-2"
+      >
+        <svg
+          class="animate-spin h-4 w-4"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          />
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8v8H4z"
+          />
         </svg>
         {{ t('loading') }}
       </div>
@@ -106,12 +132,20 @@
         <!-- Summary cards (always visible) -->
         <div class="grid grid-cols-2 gap-2 mb-3">
           <div class="rounded-lg bg-slate-50 border border-slate-100 p-3">
-            <div class="text-xs text-slate-400 mb-0.5">{{ t('total_quantity') }}</div>
-            <div class="text-2xl font-bold text-slate-900">{{ formatQty(totalQuantity) }}</div>
+            <div class="text-xs text-slate-400 mb-0.5">
+              {{ t('total_quantity') }}
+            </div>
+            <div class="text-2xl font-bold text-slate-900">
+              {{ formatQty(totalQuantity) }}
+            </div>
           </div>
           <div class="rounded-lg bg-slate-50 border border-slate-100 p-3">
-            <div class="text-xs text-slate-400 mb-0.5">{{ t('avg_price_per_piece') }}</div>
-            <div class="text-2xl font-bold text-slate-900">{{ formatPrice(avgPricePerPiece) }}</div>
+            <div class="text-xs text-slate-400 mb-0.5">
+              {{ t('avg_price_per_piece') }}
+            </div>
+            <div class="text-2xl font-bold text-slate-900">
+              {{ formatPrice(avgPricePerPiece) }}
+            </div>
           </div>
         </div>
 
@@ -125,7 +159,9 @@
             <span class="flex items-center gap-1.5">
               <BarChart2 class="h-3.5 w-3.5" />
               {{ t('pricing_by_company') }}
-              <span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600">
+              <span
+                class="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600"
+              >
                 {{ companyBreakdown.length }}
               </span>
             </span>
@@ -139,9 +175,15 @@
             <table class="w-full text-sm">
               <thead>
                 <tr class="text-xs text-slate-400 border-b border-slate-100">
-                  <th class="text-left font-medium pb-1.5">{{ t('company') }}</th>
-                  <th class="text-right font-medium pb-1.5">{{ t('total_quantity') }}</th>
-                  <th class="text-right font-medium pb-1.5">{{ t('avg_price_per_piece') }}</th>
+                  <th class="text-left font-medium pb-1.5">
+                    {{ t('company') }}
+                  </th>
+                  <th class="text-right font-medium pb-1.5">
+                    {{ t('total_quantity') }}
+                  </th>
+                  <th class="text-right font-medium pb-1.5">
+                    {{ t('avg_price_per_piece') }}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -151,23 +193,36 @@
                   class="border-b border-slate-50 last:border-0"
                 >
                   <td class="py-1.5 text-slate-700">{{ row.companyName }}</td>
-                  <td class="py-1.5 text-right text-slate-700">{{ formatQty(row.totalQty) }}</td>
-                  <td class="py-1.5 text-right text-slate-700">{{ formatPrice(row.avgPrice) }}</td>
+                  <td class="py-1.5 text-right text-slate-700">
+                    {{ formatQty(row.totalQty) }}
+                  </td>
+                  <td class="py-1.5 text-right text-slate-700">
+                    {{ formatPrice(row.avgPrice) }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
         </template>
 
+        <hr class="border-slate-200" />
+
         <!-- Add Stock Entry form -->
-        <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <h4 class="text-sm font-medium text-slate-700 mb-3">{{ t('add_stock_entry') }}</h4>
+        <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 mt-3">
+          <h4 class="text-sm font-medium text-slate-700 mb-3">
+            {{ t('add_stock_entry') }}
+          </h4>
           <div class="space-y-2">
             <!-- Company selector + inline create -->
             <div class="flex gap-2">
-              <select v-model.number="form.companyId" class="input flex-1 text-sm">
+              <select
+                v-model.number="form.companyId"
+                class="input flex-1 text-sm"
+              >
                 <option :value="0" disabled>{{ t('select_company') }}</option>
-                <option v-for="c in companies" :key="c.id" :value="c.id">{{ c.name }}</option>
+                <option v-for="c in companies" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option>
               </select>
               <button
                 type="button"
@@ -199,7 +254,9 @@
 
             <div class="grid grid-cols-2 gap-2">
               <div class="flex flex-col gap-1">
-                <label class="text-xs text-slate-500">{{ t('quantity') }}</label>
+                <label class="text-xs text-slate-500">{{
+                  t('quantity')
+                }}</label>
                 <input
                   v-model.number="form.quantity"
                   type="number"
@@ -210,7 +267,9 @@
                 />
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-xs text-slate-500">{{ t('price_per_piece') }}</label>
+                <label class="text-xs text-slate-500">{{
+                  t('price_per_piece')
+                }}</label>
                 <input
                   v-model.number="form.pricePerPiece"
                   type="number"
@@ -241,7 +300,6 @@
         </div>
       </template>
     </section>
-
   </div>
 
   <!-- History modal -->
@@ -254,7 +312,14 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { X, Pencil, Plus, ChevronDown, BarChart2, Clock } from 'lucide-vue-next';
+import {
+  X,
+  Pencil,
+  Plus,
+  ChevronDown,
+  BarChart2,
+  Clock,
+} from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth.ts';
 import { useStockEntriesStore } from '../../stores/stockEntriesStore.ts';
@@ -262,6 +327,7 @@ import { usePartsStore } from '../../stores/partsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { useCompaniesStore } from '../../stores/companiesStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
+import { formatQty, formatPrice } from '../../utils/formatters.ts';
 import PartStockHistoryModal from './PartStockHistoryModal.vue';
 import type { Part } from '../../types/parts.ts';
 import type { Company } from '../../types/companies.ts';
@@ -293,7 +359,9 @@ const showHistoryModal = ref(false);
 // ── Entries ──────────────────────────────────────────────────────────────────
 
 const entries = computed(() => stockEntriesStore.getEntries(props.part.id));
-const loadingEntries = computed(() => stockEntriesStore.isLoading(props.part.id));
+const loadingEntries = computed(() =>
+  stockEntriesStore.isLoading(props.part.id),
+);
 const savingEntry = computed(() => stockEntriesStore.savingEntry);
 
 // Load entries when part changes; reset UI state so each part starts fresh.
@@ -328,7 +396,12 @@ const avgPricePerPiece = computed(() => {
 const companyBreakdown = computed(() => {
   const map = new Map<
     number,
-    { companyId: number; companyName: string; totalQty: number; totalValue: number }
+    {
+      companyId: number;
+      companyName: string;
+      totalQty: number;
+      totalValue: number;
+    }
   >();
   for (const e of entries.value) {
     const existing = map.get(e.company.id);
@@ -419,22 +492,11 @@ async function submitEntry() {
     form.quantity = null;
     form.pricePerPiece = null;
   } catch (err) {
-    formError.value = translateApiError(err, { t, te }, 'errors.save_stock_entry_failed');
+    formError.value = translateApiError(
+      err,
+      { t, te },
+      'errors.save_stock_entry_failed',
+    );
   }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Display a quantity as a whole number. */
-function formatQty(value: number | string): string {
-  return Math.round(Number(value)).toString();
-}
-
-/** Display a price with exactly 2 decimal places. */
-function formatPrice(value: number | string): string {
-  return Number(value).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 }
 </script>
