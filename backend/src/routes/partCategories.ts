@@ -29,7 +29,7 @@ router.get('/', requireAuth, async (_req, res) => {
             'showAsColumn', pcp.show_as_column,
             'options', COALESCE(pcp.options, ARRAY[]::text[]),
             'createdAt', pcp.created_at
-          ) ORDER BY pcp.id
+          ) ORDER BY pcp.sort_order, pcp.id
         ) FILTER (WHERE pcp.id IS NOT NULL),
         '[]'
       ) AS parameters
@@ -54,10 +54,14 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     );
     const category = categoryResult.rows[0];
     const parameters = [];
-    for (const p of data.parameters ?? []) {
+    // The incoming array order is the source of truth for display order, so
+    // persist each parameter's index as its sort_order.
+    const incomingParameters = data.parameters ?? [];
+    for (let sortOrder = 0; sortOrder < incomingParameters.length; sortOrder++) {
+      const p = incomingParameters[sortOrder];
       const pResult = await client.query(
-        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, show_as_column, options)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::text[])
+        `INSERT INTO part_category_parameters (category_id, name, type, unit, required, show_as_column, sort_order, options)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])
          RETURNING id, category_id AS "categoryId", name, type, unit, required, show_as_column AS "showAsColumn", options, created_at AS "createdAt"`,
         [
           category.id,
@@ -66,6 +70,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
           p.unit || null,
           p.required || false,
           p.showAsColumn || false,
+          sortOrder,
           p.type === 'dropdown' ? p.options : [],
         ],
       );
@@ -162,15 +167,18 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         );
       }
 
-      for (const parameter of incomingParameters) {
+      // The incoming array order is the source of truth for display order, so
+      // persist each parameter's index as its sort_order.
+      for (let sortOrder = 0; sortOrder < incomingParameters.length; sortOrder++) {
+        const parameter = incomingParameters[sortOrder];
         const options = parameter.type === 'dropdown' ? parameter.options : [];
 
         if (parameter.id) {
           await client.query(
             `
             UPDATE part_category_parameters
-            SET name = $1, type = $2, unit = $3, required = $4, show_as_column = $5, options = $6::text[]
-            WHERE id = $7 AND category_id = $8
+            SET name = $1, type = $2, unit = $3, required = $4, show_as_column = $5, sort_order = $6, options = $7::text[]
+            WHERE id = $8 AND category_id = $9
             `,
             [
               parameter.name,
@@ -178,6 +186,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
               parameter.unit || null,
               parameter.required,
               parameter.showAsColumn || false,
+              sortOrder,
               options,
               parameter.id,
               categoryId,
@@ -187,9 +196,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           await client.query(
             `
             INSERT INTO part_category_parameters
-              (category_id, name, type, unit, required, show_as_column, options)
+              (category_id, name, type, unit, required, show_as_column, sort_order, options)
             VALUES
-              ($1, $2, $3, $4, $5, $6, $7::text[])
+              ($1, $2, $3, $4, $5, $6, $7, $8::text[])
             `,
             [
               categoryId,
@@ -198,6 +207,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
               parameter.unit || null,
               parameter.required,
               parameter.showAsColumn || false,
+              sortOrder,
               options,
             ],
           );
@@ -210,7 +220,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       SELECT id, name, type, unit, required, show_as_column AS "showAsColumn", COALESCE(options, ARRAY[]::text[]) AS options
       FROM part_category_parameters
       WHERE category_id = $1
-      ORDER BY id ASC
+      ORDER BY sort_order ASC, id ASC
       `,
       [categoryId],
     );
