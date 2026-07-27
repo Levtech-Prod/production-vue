@@ -37,7 +37,23 @@ router.get('/', requireAuth, async (_req, res) => {
           ) ORDER BY sp.id
         ) FILTER (WHERE sp.id IS NOT NULL),
         '[]'
-      ) AS parameters
+      ) AS parameters,
+      -- Correlated subqueries keep this independent of the parameters aggregation
+      COALESCE(
+        (SELECT SUM(quantity) FROM stock_entries WHERE part_id = p.id),
+        0
+      ) AS "totalQuantity",
+      COALESCE(
+        (
+          SELECT CASE
+            WHEN SUM(quantity) > 0
+            THEN SUM(price_per_piece * quantity) / SUM(quantity)
+            ELSE NULL
+          END
+          FROM stock_entries WHERE part_id = p.id
+        ),
+        p.price_per_piece
+      ) AS "avgPricePerPiece"
      FROM parts p
      JOIN part_categories pc ON pc.id = p.category_id
      LEFT JOIN stock_parameters sp ON sp.part_id = p.id
