@@ -20,6 +20,7 @@
           class="border-b border-slate-300 bg-blue-50 text-[11px] uppercase tracking-wide text-slate-600"
         >
           <tr>
+            <th class="w-9 border-r border-slate-300 px-2 py-1"></th>
             <th class="border-r border-slate-300 px-2 py-1 font-medium">
               {{ t('name') }}
             </th>
@@ -45,7 +46,7 @@
         <tbody>
           <tr v-if="parameters.length === 0">
             <td
-              colspan="6"
+              colspan="7"
               class="px-2 py-4 text-center text-sm text-slate-400"
             >
               {{ t('no_parameters_msg') }}
@@ -53,7 +54,30 @@
           </tr>
 
           <template v-for="(p, i) in parameters" :key="keyFor(p)">
-            <tr class="border-t border-slate-300 align-top">
+            <tr
+              class="border-t border-slate-300 align-top transition-colors"
+              :class="{
+                'opacity-40': dragIndex === i,
+                'border-t-2 border-blue-400': dragOverIndex === i && dragIndex !== i,
+              }"
+              :draggable="dragEnabled"
+              @dragstart="onDragStart(i, $event)"
+              @dragover.prevent="onDragOver(i)"
+              @drop="onDrop(i)"
+              @dragend="onDragEnd"
+            >
+              <td class="border-r border-slate-300 px-1 py-1 text-center align-middle">
+                <button
+                  type="button"
+                  class="inline-flex h-8 w-7 cursor-grab items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+                  :title="t('drag_to_reorder')"
+                  :aria-label="t('drag_to_reorder')"
+                  @mousedown="dragEnabled = true"
+                  @mouseup="dragEnabled = false"
+                >
+                  <GripVertical class="h-4 w-4" />
+                </button>
+              </td>
               <td class="border-r border-slate-300 px-2 py-1">
                 <input
                   v-model="p.name"
@@ -116,7 +140,7 @@
             </tr>
 
             <tr v-if="p.type === 'dropdown'">
-              <td colspan="6" class="px-2 pb-2">
+              <td colspan="7" class="px-2 pb-2">
                 <div
                   class="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2"
                 >
@@ -165,8 +189,9 @@
 
 <script setup lang="ts">
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
+import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Plus, Trash2 } from 'lucide-vue-next';
+import { Plus, Trash2, GripVertical } from 'lucide-vue-next';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 
 const parameters = defineModel<PartCategoryParameter[]>({ required: true });
@@ -200,6 +225,42 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(
 );
 
 defineExpose({ validate, resetValidation });
+
+// --- Drag-and-drop row reordering ---
+// Rows are only draggable while a drag is initiated from the grip handle
+// (mousedown flips `dragEnabled`), so text selection in the input cells keeps
+// working normally the rest of the time.
+const dragEnabled = ref(false);
+const dragIndex = ref<number | null>(null);
+const dragOverIndex = ref<number | null>(null);
+
+function onDragStart(index: number, event: DragEvent) {
+  dragIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    // Firefox only starts a drag when some data is set.
+    event.dataTransfer.setData('text/plain', String(index));
+  }
+}
+
+function onDragOver(index: number) {
+  dragOverIndex.value = index;
+}
+
+function onDrop(targetIndex: number) {
+  const from = dragIndex.value;
+  if (from === null || from === targetIndex) return;
+
+  const list = parameters.value;
+  const [moved] = list.splice(from, 1);
+  list.splice(targetIndex, 0, moved);
+}
+
+function onDragEnd() {
+  dragEnabled.value = false;
+  dragIndex.value = null;
+  dragOverIndex.value = null;
+}
 
 function addParam() {
   parameters.value.push({

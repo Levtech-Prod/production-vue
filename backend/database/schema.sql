@@ -71,6 +71,12 @@ ALTER TABLE part_category_parameters
 ALTER TABLE part_category_parameters
   ADD COLUMN IF NOT EXISTS show_as_column BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Explicit display order for a category's parameters. Drives both the order
+-- shown on the Part Categories page (drag-and-drop reorder) and the order of
+-- parameter columns in the Parts table. Lower values sort first.
+ALTER TABLE part_category_parameters
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+
 -- Part code (required + unique). Added nullable, backfilled, then constrained
 -- so the migration also works on databases that already contain parts.
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS code VARCHAR(120);
