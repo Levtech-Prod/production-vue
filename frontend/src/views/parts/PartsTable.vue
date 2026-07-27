@@ -29,10 +29,10 @@
             </span>
           </th>
           <th class="p-4">{{ t('category') }}</th>
-          <th class="p-4">{{ t('price_per_piece') }}</th>
+          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
+          <th class="p-4">{{ t('total_quantity') }}</th>
           <th class="p-4">{{ t('location') }}</th>
           <th class="p-4">{{ t('other_parameters') }}</th>
-          <th class="p-4">{{ t('quantity') }}</th>
           <th v-if="hasActions" class="p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
@@ -48,7 +48,13 @@
         <tr
           v-for="part in sortedParts"
           :key="part.id"
-          class="border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
+          class="border-t border-slate-100 transition-colors cursor-pointer"
+          :class="
+            selectedPartId === part.id
+              ? 'bg-blue-50 hover:bg-blue-100'
+              : 'even:bg-slate-50 hover:bg-slate-100'
+          "
+          @click="emit('clickRow', part)"
         >
           <td class="p-4">
             <button
@@ -83,7 +89,12 @@
             {{ columnValue(part, cp) }}
           </td>
           <td class="p-4 text-slate-500">{{ part.category.name }}</td>
-          <td class="p-4">{{ part.pricePerPiece }}</td>
+          <td class="p-4">
+            {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
+          </td>
+          <td class="p-4 text-slate-700">
+            {{ Math.round(Number(part.totalQuantity ?? 0)) }}
+          </td>
           <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
           <td class="p-4">
             <div class="flex flex-col gap-1">
@@ -99,10 +110,7 @@
               >
             </div>
           </td>
-          <td v-if="hasActions" class="p-4">
-            <slot name="qty" :part="part" />
-          </td>
-          <td v-if="hasActions" class="p-4">
+          <td v-if="hasActions" class="p-4" @click.stop>
             <slot name="actions" :part="part" />
           </td>
         </tr>
@@ -133,9 +141,15 @@ const props = withDefaults(
     // values are pulled out of the shared "Other Parameters" cell.
     columnParameters?: PartCategoryParameter[];
     emptyText?: string;
+    // ID of the currently selected part (highlighted row)
+    selectedPartId?: number | null;
   }>(),
-  { columnParameters: () => [] },
+  { columnParameters: () => [], selectedPartId: null },
 );
+
+const emit = defineEmits<{
+  clickRow: [part: Part];
+}>();
 
 const { t } = useI18n();
 const slots = useSlots();
@@ -227,5 +241,12 @@ const previewPart = ref<Part | null>(null);
 function openImagePreview(part: Part) {
   previewPart.value = part;
   imagePreviewOpen.value = true;
+}
+
+function formatPrice(value: number | string): string {
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 </script>
