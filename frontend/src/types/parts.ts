@@ -33,6 +33,9 @@ export interface Part {
   parameters?: PartParameterValue[];
   createdAt?: string;
   updatedAt?: string;
+  // Computed from stock_entries; populated by the GET /parts response
+  totalQuantity?: number;
+  avgPricePerPiece?: number;
 }
 
 export type PartPayloadParameter = NonNullable<PartPayload['parameters']>[number];
