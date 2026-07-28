@@ -1,5 +1,9 @@
 import { api } from './client.ts';
-import type { StockEntry, CreateStockEntryPayload } from '../types/stockEntries.ts';
+import type {
+  StockEntry,
+  StockEntryResult,
+  CreateStockEntryPayload,
+} from '../types/stockEntries.ts';
 
 export const stockEntriesApi = {
   getByPartId(partId: number) {
@@ -7,6 +11,6 @@ export const stockEntriesApi = {
   },
 
   create(payload: CreateStockEntryPayload) {
-    return api.post<StockEntry>('/stock-entries', payload);
+    return api.post<StockEntryResult>('/stock-entries', payload);
   },
 };

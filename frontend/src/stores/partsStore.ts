@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { partsApi } from '../api/partsAPI.ts';
 import { i18n } from '../i18n';
 import { translateApiError } from '../utils/apiError.ts';
+import { summarizeStock } from '../utils/stock.ts';
 import type {
   CreatePartPayload,
   Part,
@@ -104,24 +105,11 @@ export const usePartsStore = defineStore('parts', () => {
     const index = parts.value.findIndex((p) => p.id === partId);
     if (index === -1) return;
 
-    // Only received entries contribute to available stock; removals are tracked separately
-    const received = entries.filter((e) => e.type === 'received');
-    const totalQty = received.reduce(
-      (sum, e) => sum + Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0)),
-      0,
-    );
-    const totalValue = received.reduce((sum, e) => {
-      const available = Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0));
-      return sum + Number(e.pricePerPiece ?? 0) * available;
-    }, 0);
-
+    const { totalQuantity, avgPricePerPiece } = summarizeStock(entries);
     parts.value[index] = {
       ...parts.value[index],
-      totalQuantity: totalQty,
-      avgPricePerPiece:
-        totalQty > 0
-          ? totalValue / totalQty
-          : Number(parts.value[index].pricePerPiece),
+      totalQuantity,
+      avgPricePerPiece: avgPricePerPiece ?? Number(parts.value[index].pricePerPiece),
     };
   }
 

@@ -15,6 +15,17 @@ export interface StockEntry {
   enteredAt: string;
 }
 
+/**
+ * Response from creating a stock entry. `affectedReceived` holds received rows
+ * whose `quantityConsumed` changed (a FIFO removal draws them down); it is
+ * empty for a received entry. The client patches these into its cache so no
+ * refetch is needed after a removal.
+ */
+export interface StockEntryResult {
+  entry: StockEntry;
+  affectedReceived: StockEntry[];
+}
+
 export type CreateStockEntryPayload =
   | {
       type: 'received';

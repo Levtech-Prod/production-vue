@@ -37,6 +37,12 @@ async function fetchEntryById(id: number) {
   return result.rows[0] ?? null;
 }
 
+async function fetchEntriesByIds(ids: number[]) {
+  if (ids.length === 0) return [];
+  const result = await query(`${SELECT_ENTRY} WHERE se.id = ANY($1)`, [ids]);
+  return result.rows;
+}
+
 // GET /api/stock-entries?partId=:id — all movements for a part, newest first
 router.get('/', requireAuth, async (req, res) => {
   const partId = Number(req.query.partId);
@@ -72,7 +78,8 @@ router.post('/', requireAuth, async (req, res) => {
       );
 
       const entry = await fetchEntryById(result.rows[0].id);
-      return res.status(201).json(entry);
+      // A received entry doesn't alter existing rows, so nothing else changed.
+      return res.status(201).json({ entry, affectedReceived: [] });
     } catch (err: any) {
       if (err?.code === '23503') {
         // FK violation: part or company doesn't exist
@@ -109,7 +116,8 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(409).json({ code: ErrorCodes.INSUFFICIENT_STOCK });
     }
 
-    // Deduct from oldest batches first
+    // Deduct from oldest batches first, tracking which received rows changed
+    const affectedIds: number[] = [];
     let remaining = data.quantity;
     for (const entry of entriesResult.rows) {
       if (remaining <= 0) break;
@@ -120,6 +128,7 @@ router.post('/', requireAuth, async (req, res) => {
          WHERE id = $2`,
         [deduct, entry.id],
       );
+      affectedIds.push(entry.id);
       remaining -= deduct;
     }
 
@@ -133,8 +142,13 @@ router.post('/', requireAuth, async (req, res) => {
 
     await client.query('COMMIT');
 
-    const entry = await fetchEntryById(removalResult.rows[0].id);
-    return res.status(201).json(entry);
+    // Return the removal plus the drawn-down received rows so the client can
+    // patch its cache (fresh quantityConsumed) without a follow-up refetch.
+    const [entry, affectedReceived] = await Promise.all([
+      fetchEntryById(removalResult.rows[0].id),
+      fetchEntriesByIds(affectedIds),
+    ]);
+    return res.status(201).json({ entry, affectedReceived });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

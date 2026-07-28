@@ -35,29 +35,20 @@ export const useStockEntriesStore = defineStore('stockEntries', () => {
   async function addEntry(payload: CreateStockEntryPayload): Promise<StockEntry> {
     savingEntry.value = true;
     try {
-      const res = await stockEntriesApi.create(payload);
-      const newEntry = res.data;
-      // Prepend to cache (newest first); initialise if not yet cached
+      const { entry, affectedReceived } = (await stockEntriesApi.create(payload)).data;
+
+      // Patch any received rows drawn down by a FIFO removal (fresh
+      // quantityConsumed), then prepend the new entry (newest first).
+      const patched = new Map(affectedReceived.map((e) => [e.id, e]));
       const existing = entriesByPartId.value[payload.partId] ?? [];
       entriesByPartId.value = {
         ...entriesByPartId.value,
-        [payload.partId]: [newEntry, ...existing],
+        [payload.partId]: [entry, ...existing.map((e) => patched.get(e.id) ?? e)],
       };
-      return newEntry;
+      return entry;
     } finally {
       savingEntry.value = false;
     }
-  }
-
-  /**
-   * Drop the cache for a part and immediately re-fetch.
-   * Used after a stock removal so quantityConsumed values are refreshed.
-   */
-  async function invalidateAndReload(partId: number): Promise<void> {
-    const updated = { ...entriesByPartId.value };
-    delete updated[partId];
-    entriesByPartId.value = updated;
-    await loadEntries(partId);
   }
 
   return {
@@ -69,6 +60,5 @@ export const useStockEntriesStore = defineStore('stockEntries', () => {
     isLoading,
     loadEntries,
     addEntry,
-    invalidateAndReload,
   };
 });
