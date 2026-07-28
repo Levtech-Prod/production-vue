@@ -38,19 +38,22 @@ router.get('/', requireAuth, async (_req, res) => {
         ) FILTER (WHERE sp.id IS NOT NULL),
         '[]'
       ) AS parameters,
-      -- Correlated subqueries keep this independent of the parameters aggregation
+      -- Correlated subqueries keep this independent of the parameters aggregation.
+      -- All quantities use (quantity - quantity_consumed) to reflect available stock
+      -- after FIFO removals have been applied.
       COALESCE(
-        (SELECT SUM(quantity) FROM stock_entries WHERE part_id = p.id),
+        (SELECT SUM(quantity - quantity_consumed) FROM stock_entries WHERE part_id = p.id AND type = 'received'),
         0
       ) AS "totalQuantity",
       COALESCE(
         (
           SELECT CASE
-            WHEN SUM(quantity) > 0
-            THEN SUM(price_per_piece * quantity) / SUM(quantity)
+            WHEN SUM(quantity - quantity_consumed) > 0
+            THEN SUM(price_per_piece * (quantity - quantity_consumed))
+                 / SUM(quantity - quantity_consumed)
             ELSE NULL
           END
-          FROM stock_entries WHERE part_id = p.id
+          FROM stock_entries WHERE part_id = p.id AND type = 'received'
         ),
         p.price_per_piece
       ) AS "avgPricePerPiece"

@@ -1,12 +1,43 @@
 import { Router } from 'express';
-import { query } from '../db.js';
+import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { stockEntryPayloadSchema } from '../schemas/stockEntries.schema.js';
 
 const router = Router();
 
-// GET /api/stock-entries?partId=:id — all entries for a given part, newest first
+// Shared SELECT shape used by both GET and the POST response
+const SELECT_ENTRY = `
+  SELECT
+    se.id,
+    se.part_id            AS "partId",
+    se.type,
+    se.quantity,
+    se.quantity_consumed  AS "quantityConsumed",
+    se.price_per_piece    AS "pricePerPiece",
+    se.note,
+    se.entered_at         AS "enteredAt",
+    CASE
+      WHEN c.id IS NOT NULL
+      THEN json_build_object('id', c.id, 'name', c.name)
+      ELSE NULL
+    END                   AS company,
+    CASE
+      WHEN u.id IS NOT NULL
+      THEN json_build_object('id', u.id, 'username', u.username)
+      ELSE NULL
+    END                   AS "enteredBy"
+  FROM stock_entries se
+  LEFT JOIN companies c ON c.id = se.company_id
+  LEFT JOIN users   u ON u.id = se.entered_by
+`;
+
+async function fetchEntryById(id: number) {
+  const result = await query(`${SELECT_ENTRY} WHERE se.id = $1`, [id]);
+  return result.rows[0] ?? null;
+}
+
+// GET /api/stock-entries?partId=:id — all movements for a part, newest first
 router.get('/', requireAuth, async (req, res) => {
   const partId = Number(req.query.partId);
   if (!partId || Number.isNaN(partId)) {
@@ -14,24 +45,7 @@ router.get('/', requireAuth, async (req, res) => {
   }
 
   const result = await query(
-    `SELECT
-       se.id,
-       se.part_id              AS "partId",
-       se.quantity,
-       se.price_per_piece      AS "pricePerPiece",
-       se.entered_at           AS "enteredAt",
-       json_build_object(
-         'id',   c.id,
-         'name', c.name
-       )                       AS company,
-       CASE
-         WHEN u.id IS NOT NULL
-         THEN json_build_object('id', u.id, 'username', u.username)
-         ELSE NULL
-       END                     AS "enteredBy"
-     FROM stock_entries se
-     JOIN companies c ON c.id = se.company_id
-     LEFT JOIN users u ON u.id = se.entered_by
+    `${SELECT_ENTRY}
      WHERE se.part_id = $1
      ORDER BY se.entered_at DESC`,
     [partId],
@@ -40,56 +54,92 @@ router.get('/', requireAuth, async (req, res) => {
   res.json(result.rows);
 });
 
-// POST /api/stock-entries — log a new stock receipt
+// POST /api/stock-entries — log a received or removed stock movement
 router.post('/', requireAuth, async (req, res) => {
   const data = stockEntryPayloadSchema.parse(req.body);
 
   // @ts-ignore — user is attached by requireAuth middleware
   const userId: number | undefined = req.user?.id;
 
-  try {
-    const result = await query(
-      `INSERT INTO stock_entries (part_id, company_id, quantity, price_per_piece, entered_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING
-         id,
-         part_id         AS "partId",
-         quantity,
-         price_per_piece AS "pricePerPiece",
-         entered_at      AS "enteredAt"`,
-      [data.partId, data.companyId, data.quantity, data.pricePerPiece, userId ?? null],
-    );
+  if (data.type === 'received') {
+    try {
+      const result = await query(
+        `INSERT INTO stock_entries
+           (type, part_id, company_id, quantity, price_per_piece, entered_by)
+         VALUES ('received', $1, $2, $3, $4, $5)
+         RETURNING id`,
+        [data.partId, data.companyId, data.quantity, data.pricePerPiece, userId ?? null],
+      );
 
-    const entry = result.rows[0];
-
-    // Fetch joined company + user so the response matches the GET shape
-    const joined = await query(
-      `SELECT
-         se.id,
-         se.part_id              AS "partId",
-         se.quantity,
-         se.price_per_piece      AS "pricePerPiece",
-         se.entered_at           AS "enteredAt",
-         json_build_object('id', c.id, 'name', c.name) AS company,
-         CASE
-           WHEN u.id IS NOT NULL
-           THEN json_build_object('id', u.id, 'username', u.username)
-           ELSE NULL
-         END AS "enteredBy"
-       FROM stock_entries se
-       JOIN companies c ON c.id = se.company_id
-       LEFT JOIN users u ON u.id = se.entered_by
-       WHERE se.id = $1`,
-      [entry.id],
-    );
-
-    res.status(201).json(joined.rows[0]);
-  } catch (err: any) {
-    if (err?.code === '23503') {
-      // FK violation: part or company doesn't exist
-      return res.status(404).json({ code: ErrorCodes.STOCK_ENTRY_SAVE_FAILED });
+      const entry = await fetchEntryById(result.rows[0].id);
+      return res.status(201).json(entry);
+    } catch (err: any) {
+      if (err?.code === '23503') {
+        // FK violation: part or company doesn't exist
+        return res.status(404).json({ code: ErrorCodes.STOCK_ENTRY_SAVE_FAILED });
+      }
+      throw err;
     }
+  }
+
+  // type === 'removed' — FIFO deduction inside a transaction
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Lock available received entries oldest-first to prevent races
+    const entriesResult = await client.query<{ id: number; available: string }>(
+      `SELECT id, (quantity - quantity_consumed) AS available
+       FROM stock_entries
+       WHERE part_id = $1
+         AND type = 'received'
+         AND quantity > quantity_consumed
+       ORDER BY entered_at ASC
+       FOR UPDATE`,
+      [data.partId],
+    );
+
+    const totalAvailable = entriesResult.rows.reduce(
+      (sum, e) => sum + Number(e.available),
+      0,
+    );
+
+    if (totalAvailable < data.quantity) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: ErrorCodes.INSUFFICIENT_STOCK });
+    }
+
+    // Deduct from oldest batches first
+    let remaining = data.quantity;
+    for (const entry of entriesResult.rows) {
+      if (remaining <= 0) break;
+      const deduct = Math.min(remaining, Number(entry.available));
+      await client.query(
+        `UPDATE stock_entries
+         SET quantity_consumed = quantity_consumed + $1
+         WHERE id = $2`,
+        [deduct, entry.id],
+      );
+      remaining -= deduct;
+    }
+
+    // Record the removal as a new stock_entries row
+    const removalResult = await client.query(
+      `INSERT INTO stock_entries (type, part_id, quantity, note, entered_by)
+       VALUES ('removed', $1, $2, $3, $4)
+       RETURNING id`,
+      [data.partId, data.quantity, data.note, userId ?? null],
+    );
+
+    await client.query('COMMIT');
+
+    const entry = await fetchEntryById(removalResult.rows[0].id);
+    return res.status(201).json(entry);
+  } catch (err) {
+    await client.query('ROLLBACK');
     throw err;
+  } finally {
+    client.release();
   }
 });
 
