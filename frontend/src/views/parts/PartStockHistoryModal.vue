@@ -29,9 +29,11 @@
             </button>
           </div>
 
-          <!-- Search -->
-          <div class="px-5 py-3 border-b border-slate-100 shrink-0">
-            <div class="relative max-w-xs">
+          <!-- Search + type filter -->
+          <div
+            class="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-slate-100 shrink-0"
+          >
+            <div class="relative flex-1 min-w-[12rem] max-w-xs">
               <Search
                 class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
               />
@@ -41,6 +43,12 @@
                 :placeholder="t('search_by_company_or_note')"
               />
             </div>
+
+            <select v-model="typeFilter" class="input max-w-[10rem] text-sm">
+              <option value="all">{{ t('all_types') }}</option>
+              <option value="received">{{ t('received') }}</option>
+              <option value="removed">{{ t('removed') }}</option>
+            </select>
           </div>
 
           <!-- Table -->
@@ -238,9 +246,12 @@ const allItems = computed<HistoryItem[]>(() =>
   })),
 );
 
-// ── Search ────────────────────────────────────────────────────────────────────
+// ── Search + type filter ──────────────────────────────────────────────────────
 
 const search = ref('');
+
+type TypeFilter = 'all' | 'received' | 'removed';
+const typeFilter = ref<TypeFilter>('all');
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 
@@ -263,13 +274,14 @@ function toggleSort(field: SortField) {
 
 const filteredSorted = computed<HistoryItem[]>(() => {
   const q = search.value.trim().toLowerCase();
-  const filtered = q
-    ? allItems.value.filter(
-        (item) =>
-          (item.company ?? '').toLowerCase().includes(q) ||
-          (item.note ?? '').toLowerCase().includes(q),
-      )
-    : [...allItems.value];
+  const filtered = allItems.value.filter((item) => {
+    if (typeFilter.value !== 'all' && item.type !== typeFilter.value) return false;
+    if (!q) return true;
+    return (
+      (item.company ?? '').toLowerCase().includes(q) ||
+      (item.note ?? '').toLowerCase().includes(q)
+    );
+  });
 
   const dir = sortDir.value === 'asc' ? 1 : -1;
 
