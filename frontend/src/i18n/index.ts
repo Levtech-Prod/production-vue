@@ -108,9 +108,7 @@ const messages = {
     select_company: 'Select company…',
     total_quantity: 'Total Qty',
     avg_price_per_piece: 'Avg Price/pc',
-    stock_and_pricing: 'Stock & Pricing',
     pricing_by_company: 'By company',
-    add_stock_entry: 'Add Stock Entry',
     save_stock_entry: 'Save Entry',
     stock_history: 'Stock History',
     entered_by: 'Entered by',
@@ -123,6 +121,10 @@ const messages = {
     received: 'Received',
     removed: 'Removed',
     remove_from_stock: 'Remove from Stock',
+    remove: 'Remove',
+    add_to_stock: 'Add',
+    in_stock: 'In stock',
+    part_details: 'Part details & pricing',
     details: 'Details',
 
     // Products module
@@ -568,9 +570,7 @@ const messages = {
     select_company: 'Válassz vállalatot…',
     total_quantity: 'Összes menny.',
     avg_price_per_piece: 'Átl. egységár',
-    stock_and_pricing: 'Készlet és árak',
     pricing_by_company: 'Szállítónként',
-    add_stock_entry: 'Bevételezés',
     save_stock_entry: 'Mentés',
     stock_history: 'Bevételezési előzmények',
     entered_by: 'Rögzítette',
@@ -583,6 +583,10 @@ const messages = {
     received: 'Bevételezve',
     removed: 'Kivéve',
     remove_from_stock: 'Kivétel a készletből',
+    remove: 'Kivétel',
+    add_to_stock: 'Bevételezés',
+    in_stock: 'Készleten',
+    part_details: 'Alkatrész adatok és árak',
     details: 'Részletek',
 
     // Products module
