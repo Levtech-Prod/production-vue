@@ -117,7 +117,13 @@ const messages = {
     close_panel: 'Close panel',
     no_stock_entries: 'No stock entries yet for this part.',
     date: 'Date',
+    note: 'Note',
     search_by_company: 'Search by company…',
+    search_by_company_or_note: 'Search by company or note…',
+    received: 'Received',
+    removed: 'Removed',
+    remove_from_stock: 'Remove from Stock',
+    details: 'Details',
 
     // Products module
     products: 'Products',
@@ -348,6 +354,8 @@ const messages = {
       save_company_failed: 'The company could not be saved.',
       save_stock_entry_failed: 'The stock entry could not be saved.',
       fill_required_fields: 'Please fill in all required fields.',
+      INSUFFICIENT_STOCK: 'Not enough stock available to complete this removal.',
+      save_stock_removal_failed: 'The stock removal could not be saved.',
 
       // Products module — backend codes
       PRODUCT_SKU_ALREADY_EXISTS: 'A product with this SKU already exists.',
@@ -408,6 +416,7 @@ const messages = {
       update_part: 'The part was updated successfully',
       delete_part: 'The part was deleted successfully.',
       save_stock_entry: 'Stock entry saved successfully.',
+      remove_from_stock: 'Stock removed successfully.',
 
       save_product: 'The product was saved successfully',
       update_product: 'The product was updated successfully',
@@ -568,7 +577,13 @@ const messages = {
     close_panel: 'Panel bezárása',
     no_stock_entries: 'Ehhez az alkatrészhez még nincs bevételezés.',
     date: 'Dátum',
+    note: 'Megjegyzés',
     search_by_company: 'Keresés vállalat alapján…',
+    search_by_company_or_note: 'Keresés vállalat vagy megjegyzés alapján…',
+    received: 'Bevételezve',
+    removed: 'Kivéve',
+    remove_from_stock: 'Kivétel a készletből',
+    details: 'Részletek',
 
     // Products module
     products: 'Termékek',
@@ -797,6 +812,8 @@ const messages = {
       save_company_failed: 'A vállalat mentése nem sikerült.',
       save_stock_entry_failed: 'A bevételezés mentése nem sikerült.',
       fill_required_fields: 'Kérlek töltsd ki az összes kötelező mezőt.',
+      INSUFFICIENT_STOCK: 'Nincs elegendő készlet a kivételhez.',
+      save_stock_removal_failed: 'A kivétel mentése nem sikerült.',
 
       // Products module — backend kódok
       PRODUCT_SKU_ALREADY_EXISTS: 'Már létezik termék ezzel a SKU-val.',
@@ -856,6 +873,7 @@ const messages = {
       update_part: 'Az alkatrész módosítása sikeresen megtörtént',
       delete_part: 'Az alkatrész sikeresen törölve.',
       save_stock_entry: 'Bevételezés sikeresen rögzítve.',
+      remove_from_stock: 'Készlet sikeresen csökkentve.',
 
       save_product: 'A termék mentése sikeresen megtörtént',
       update_product: 'A termék módosítása sikeresen megtörtént',

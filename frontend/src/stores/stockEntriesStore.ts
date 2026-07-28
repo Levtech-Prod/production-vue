@@ -49,6 +49,17 @@ export const useStockEntriesStore = defineStore('stockEntries', () => {
     }
   }
 
+  /**
+   * Drop the cache for a part and immediately re-fetch.
+   * Used after a stock removal so quantityConsumed values are refreshed.
+   */
+  async function invalidateAndReload(partId: number): Promise<void> {
+    const updated = { ...entriesByPartId.value };
+    delete updated[partId];
+    entriesByPartId.value = updated;
+    await loadEntries(partId);
+  }
+
   return {
     entriesByPartId,
     loadingPartId,
@@ -58,5 +69,6 @@ export const useStockEntriesStore = defineStore('stockEntries', () => {
     isLoading,
     loadEntries,
     addEntry,
+    invalidateAndReload,
   };
 });

@@ -104,11 +104,16 @@ export const usePartsStore = defineStore('parts', () => {
     const index = parts.value.findIndex((p) => p.id === partId);
     if (index === -1) return;
 
-    const totalQty = entries.reduce((sum, e) => sum + Number(e.quantity), 0);
-    const totalValue = entries.reduce(
-      (sum, e) => sum + Number(e.pricePerPiece) * Number(e.quantity),
+    // Only received entries contribute to available stock; removals are tracked separately
+    const received = entries.filter((e) => e.type === 'received');
+    const totalQty = received.reduce(
+      (sum, e) => sum + Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0)),
       0,
     );
+    const totalValue = received.reduce((sum, e) => {
+      const available = Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0));
+      return sum + Number(e.pricePerPiece ?? 0) * available;
+    }, 0);
 
     parts.value[index] = {
       ...parts.value[index],
