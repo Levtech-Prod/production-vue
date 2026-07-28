@@ -102,6 +102,17 @@
                   </th>
                   <th
                     class="cursor-pointer select-none p-4 hover:bg-blue-100"
+                    @click="toggleSort('available')"
+                  >
+                    <span class="inline-flex items-center gap-1">
+                      {{ t('available') }}
+                      <ChevronUp v-if="sortField === 'available' && sortDir === 'asc'" class="h-3.5 w-3.5" />
+                      <ChevronDown v-else-if="sortField === 'available' && sortDir === 'desc'" class="h-3.5 w-3.5" />
+                      <ChevronsUpDown v-else class="h-3.5 w-3.5 text-slate-300" />
+                    </span>
+                  </th>
+                  <th
+                    class="cursor-pointer select-none p-4 hover:bg-blue-100"
                     @click="toggleSort('price')"
                   >
                     <span class="inline-flex items-center gap-1">
@@ -137,7 +148,7 @@
               </thead>
               <tbody>
                 <tr v-if="filteredSorted.length === 0">
-                  <td colspan="7" class="py-12 text-center text-sm text-slate-400">
+                  <td colspan="8" class="py-12 text-center text-sm text-slate-400">
                     {{
                       search
                         ? t('no_search_results') + ' "' + search + '"'
@@ -178,6 +189,12 @@
                     </span>
                   </td>
                   <td class="p-4 text-slate-700">{{ formatQty(item.quantity) }}</td>
+                  <td
+                    class="p-4"
+                    :class="item.available === 0 ? 'text-slate-400' : 'text-slate-700'"
+                  >
+                    {{ item.available != null ? formatQty(item.available) : '—' }}
+                  </td>
                   <td class="p-4 text-slate-500">
                     {{ item.price != null ? formatPrice(item.price) : '—' }}
                   </td>
@@ -208,6 +225,7 @@ import { computed, ref } from 'vue';
 import { X, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowDown, ArrowUp } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatQty, formatPrice, formatDate } from '../../utils/formatters.ts';
+import { availableOf } from '../../utils/stock.ts';
 import type { StockEntry } from '../../types/stockEntries.ts';
 
 const props = defineProps<{
@@ -228,6 +246,8 @@ interface HistoryItem {
   company: string | null;
   note: string | null;
   quantity: number;
+  /** Remaining quantity after FIFO removals; null for removal rows. */
+  available: number | null;
   price: number | null;
   date: string;
   by: string;
@@ -240,6 +260,7 @@ const allItems = computed<HistoryItem[]>(() =>
     company: e.company?.name ?? null,
     note: e.note ?? null,
     quantity: Number(e.quantity),
+    available: e.type === 'received' ? availableOf(e) : null,
     price: e.pricePerPiece != null ? Number(e.pricePerPiece) : null,
     date: e.enteredAt,
     by: e.enteredBy?.username ?? '',
@@ -255,7 +276,7 @@ const typeFilter = ref<TypeFilter>('all');
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 
-type SortField = 'type' | 'company' | 'note' | 'quantity' | 'price' | 'date' | 'by';
+type SortField = 'type' | 'company' | 'note' | 'quantity' | 'available' | 'price' | 'date' | 'by';
 type SortDir = 'asc' | 'desc';
 
 const sortField = ref<SortField>('date');
@@ -295,6 +316,11 @@ const filteredSorted = computed<HistoryItem[]>(() => {
         return (a.note ?? '').localeCompare(b.note ?? '') * dir;
       case 'quantity':
         return (a.quantity - b.quantity) * dir;
+      case 'available': {
+        const av = a.available ?? -1;
+        const bv = b.available ?? -1;
+        return (av - bv) * dir;
+      }
       case 'price': {
         const ap = a.price ?? -1;
         const bp = b.price ?? -1;
