@@ -112,7 +112,7 @@
 <script setup lang="ts">
 import { Archive, Star } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import { formatDate } from '../../../utils/formatDate.ts';
+import { formatDate } from '../../../utils/formatters.ts';
 import type { ProductDetail } from '../../../types/products.ts';
 
 const props = defineProps<{

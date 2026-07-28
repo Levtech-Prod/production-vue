@@ -3,11 +3,13 @@ import { ref } from 'vue';
 import { partsApi } from '../api/partsAPI.ts';
 import { i18n } from '../i18n';
 import { translateApiError } from '../utils/apiError.ts';
+import { summarizeStock } from '../utils/stock.ts';
 import type {
   CreatePartPayload,
   Part,
   UpdatePartPayload,
 } from '../types/parts.ts';
+import type { StockEntry } from '../types/stockEntries.ts';
 
 export const usePartsStore = defineStore('parts', () => {
   const parts = ref<Part[]>([]);
@@ -53,7 +55,12 @@ export const usePartsStore = defineStore('parts', () => {
       const index = parts.value.findIndex((part) => part.id === id);
 
       if (index !== -1) {
-        parts.value[index] = response.data;
+        // Preserve stock summary fields — the PUT response doesn't compute them
+        parts.value[index] = {
+          ...response.data,
+          totalQuantity: parts.value[index].totalQuantity,
+          avgPricePerPiece: parts.value[index].avgPricePerPiece,
+        };
       }
 
       return response.data;
@@ -89,6 +96,23 @@ export const usePartsStore = defineStore('parts', () => {
     }
   }
 
+  /**
+   * Recompute totalQuantity and avgPricePerPiece for one part from the
+   * already-cached stock entries. Called after adding an entry so we don't
+   * need to re-fetch the full parts list.
+   */
+  function updatePartStockSummary(partId: number, entries: StockEntry[]) {
+    const index = parts.value.findIndex((p) => p.id === partId);
+    if (index === -1) return;
+
+    const { totalQuantity, avgPricePerPiece } = summarizeStock(entries);
+    parts.value[index] = {
+      ...parts.value[index],
+      totalQuantity,
+      avgPricePerPiece: avgPricePerPiece ?? Number(parts.value[index].pricePerPiece),
+    };
+  }
+
   return {
     parts,
     loading,
@@ -97,5 +121,6 @@ export const usePartsStore = defineStore('parts', () => {
     savePart,
     updatePart,
     deletePart,
+    updatePartStockSummary,
   };
 });
