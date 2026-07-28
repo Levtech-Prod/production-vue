@@ -43,7 +43,7 @@
 
     <!-- ── Stock actions (primary) ── -->
     <section class="px-4 pt-4 pb-4 border-b border-slate-100">
-      <div v-if="loadingEntries" class="flex items-center gap-2 text-sm text-slate-400 py-2">
+      <div v-if="loading" class="flex items-center gap-2 text-sm text-slate-400 py-2">
         <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -94,129 +94,12 @@
           </button>
         </div>
 
-        <!-- Remove from stock form -->
-        <div v-if="activeTab === 'remove'" class="space-y-2">
-          <div
-            v-if="totalQuantity === 0"
-            class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-4 text-center text-xs text-slate-400"
-          >
-            {{ t('no_stock_entries') }}
-          </div>
-
-          <template v-else>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-slate-500">
-                {{ t('quantity') }}
-                <span class="text-slate-400">(max {{ formatQty(totalQuantity) }})</span>
-              </label>
-              <input
-                v-model.number="removeForm.quantity"
-                type="number"
-                min="1"
-                step="1"
-                :max="Math.floor(totalQuantity)"
-                class="input text-sm"
-                :placeholder="t('quantity')"
-              />
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-slate-500">{{ t('note') }}</label>
-              <textarea
-                v-model="removeForm.note"
-                rows="2"
-                class="input text-sm resize-none"
-                :placeholder="t('note')"
-              />
-            </div>
-
-            <div v-if="removeFormError" class="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">
-              {{ removeFormError }}
-            </div>
-
-            <button
-              type="button"
-              class="w-full rounded-lg bg-red-600 py-2 text-sm font-medium text-white hover:bg-red-700 active:bg-red-800 transition-colors disabled:opacity-60"
-              :disabled="savingEntry || !canRemove"
-              @click="submitRemoval"
-            >
-              {{ savingEntry ? t('saving') : t('remove_from_stock') }}
-            </button>
-          </template>
-        </div>
-
-        <!-- Add stock entry form -->
-        <div v-else class="space-y-2">
-          <div class="flex gap-2">
-            <select v-model.number="form.companyId" class="input flex-1 text-sm">
-              <option :value="0" disabled>{{ t('select_company') }}</option>
-              <option v-for="c in companies" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select>
-            <button
-              type="button"
-              class="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 text-slate-500 hover:bg-slate-100 transition-colors"
-              :title="t('add_company')"
-              @click="showNewCompany = !showNewCompany"
-            >
-              <Plus class="h-4 w-4" />
-            </button>
-          </div>
-
-          <div v-if="showNewCompany" class="flex gap-2">
-            <input
-              v-model="newCompanyName"
-              class="input flex-1 text-sm"
-              :placeholder="t('new_company_name')"
-              @keydown.enter.prevent="createAndSelectCompany"
-            />
-            <button
-              type="button"
-              class="shrink-0 rounded-lg bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-60"
-              :disabled="creatingCompany || !newCompanyName.trim()"
-              @click="createAndSelectCompany"
-            >
-              {{ t('add') }}
-            </button>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-slate-500">{{ t('quantity') }}</label>
-              <input
-                v-model.number="form.quantity"
-                type="number"
-                min="1"
-                step="1"
-                class="input text-sm"
-                :placeholder="t('quantity')"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs text-slate-500">{{ t('price_per_piece') }}</label>
-              <input
-                v-model.number="form.pricePerPiece"
-                type="number"
-                min="0"
-                step="0.01"
-                class="input text-sm"
-                :placeholder="t('price_per_piece')"
-              />
-            </div>
-          </div>
-
-          <div v-if="formError" class="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">
-            {{ formError }}
-          </div>
-
-          <button
-            type="button"
-            class="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white hover:bg-green-700 active:bg-green-800 transition-colors disabled:opacity-60"
-            :disabled="savingEntry || !canSubmit"
-            @click="submitEntry"
-          >
-            {{ savingEntry ? t('saving') : t('save_stock_entry') }}
-          </button>
-        </div>
+        <RemoveStockForm
+          v-if="activeTab === 'remove'"
+          :part="part"
+          :max-quantity="totalQuantity"
+        />
+        <AddStockForm v-else :part="part" :companies="companies" />
       </template>
     </section>
 
@@ -332,17 +215,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
-import { X, Pencil, Plus, PlusCircle, MinusCircle, ChevronDown, BarChart2, Clock } from 'lucide-vue-next';
+import { computed, ref, watch } from 'vue';
+import { X, Pencil, PlusCircle, MinusCircle, ChevronDown, BarChart2, Clock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../../stores/auth.ts';
 import { useStockEntriesStore } from '../../stores/stockEntriesStore.ts';
-import { usePartsStore } from '../../stores/partsStore.ts';
-import { useNotificationStore } from '../../stores/notificationStore.ts';
-import { useCompaniesStore } from '../../stores/companiesStore.ts';
-import { translateApiError } from '../../utils/apiError.ts';
+import { useStockSummary } from '../../composables/useStockSummary.ts';
 import { formatQty, formatPrice } from '../../utils/formatters.ts';
 import PartStockHistoryModal from './PartStockHistoryModal.vue';
+import AddStockForm from './AddStockForm.vue';
+import RemoveStockForm from './RemoveStockForm.vue';
 import type { Part } from '../../types/parts.ts';
 import type { Company } from '../../types/companies.ts';
 
@@ -351,17 +233,14 @@ const props = defineProps<{
   companies: Company[];
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   close: [];
   edit: [part: Part];
 }>();
 
-const { t, te } = useI18n();
+const { t } = useI18n();
 const authStore = useAuthStore();
 const stockEntriesStore = useStockEntriesStore();
-const partsStore = usePartsStore();
-const notificationStore = useNotificationStore();
-const companiesStore = useCompaniesStore();
 
 const isAdmin = computed(() => authStore.isAdmin);
 
@@ -373,11 +252,12 @@ const showDetails = ref(true);
 const showPricing = ref(false);
 const showHistoryModal = ref(false);
 
-// ── Entries ───────────────────────────────────────────────────────────────────
+// ── Stock entries + derived summary ───────────────────────────────────────────
 
-const entries = computed(() => stockEntriesStore.getEntries(props.part.id));
-const loadingEntries = computed(() => stockEntriesStore.isLoading(props.part.id));
-const savingEntry = computed(() => stockEntriesStore.savingEntry);
+const { entries, loading, totalQuantity, avgPricePerPiece, companyBreakdown } = useStockSummary(
+  () => props.part.id,
+  () => Number(props.part.pricePerPiece),
+);
 
 // Load entries when part changes; reset UI state.
 watch(
@@ -391,170 +271,4 @@ watch(
   },
   { immediate: true },
 );
-
-// ── Computed stock summary — received entries only ────────────────────────────
-
-const receivedEntries = computed(() => entries.value.filter((e) => e.type === 'received'));
-
-const totalQuantity = computed(() =>
-  receivedEntries.value.reduce(
-    (sum, e) => sum + Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0)),
-    0,
-  ),
-);
-
-const avgPricePerPiece = computed(() => {
-  const total = totalQuantity.value;
-  if (total === 0) return Number(props.part.pricePerPiece);
-  return (
-    receivedEntries.value.reduce((sum, e) => {
-      const available = Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0));
-      return sum + Number(e.pricePerPiece ?? 0) * available;
-    }, 0) / total
-  );
-});
-
-/** Available stock per company, weighted avg price, sorted alphabetically. */
-const companyBreakdown = computed(() => {
-  const map = new Map<
-    number,
-    { companyId: number; companyName: string; totalQty: number; totalValue: number }
-  >();
-  for (const e of receivedEntries.value) {
-    if (!e.company) continue;
-    const available = Math.max(0, Number(e.quantity) - Number(e.quantityConsumed ?? 0));
-    if (available === 0) continue; // fully consumed — exclude from breakdown
-    const existing = map.get(e.company.id);
-    if (existing) {
-      existing.totalQty += available;
-      existing.totalValue += Number(e.pricePerPiece ?? 0) * available;
-    } else {
-      map.set(e.company.id, {
-        companyId: e.company.id,
-        companyName: e.company.name,
-        totalQty: available,
-        totalValue: Number(e.pricePerPiece ?? 0) * available,
-      });
-    }
-  }
-  return [...map.values()]
-    .sort((a, b) => a.companyName.localeCompare(b.companyName))
-    .map((row) => ({
-      ...row,
-      avgPrice: row.totalQty > 0 ? row.totalValue / row.totalQty : 0,
-    }));
-});
-
-// ── Add stock entry form ──────────────────────────────────────────────────────
-
-const form = reactive({
-  companyId: 0,
-  quantity: null as number | null,
-  pricePerPiece: null as number | null,
-});
-const formError = ref<string | null>(null);
-const showNewCompany = ref(false);
-const newCompanyName = ref('');
-const creatingCompany = ref(false);
-
-const canSubmit = computed(
-  () =>
-    form.companyId > 0 &&
-    form.quantity != null &&
-    Number.isInteger(form.quantity) &&
-    form.quantity >= 1 &&
-    form.pricePerPiece != null &&
-    form.pricePerPiece >= 0,
-);
-
-async function createAndSelectCompany() {
-  const name = newCompanyName.value.trim();
-  if (!name) return;
-  creatingCompany.value = true;
-  try {
-    const company = await companiesStore.createCompany({ name });
-    form.companyId = company.id;
-    newCompanyName.value = '';
-    showNewCompany.value = false;
-  } catch (err) {
-    notificationStore.showToast(
-      translateApiError(err, { t, te }, 'errors.save_company_failed'),
-      'error',
-    );
-  } finally {
-    creatingCompany.value = false;
-  }
-}
-
-async function submitEntry() {
-  formError.value = null;
-  if (!canSubmit.value) {
-    formError.value = t('errors.fill_required_fields');
-    return;
-  }
-
-  try {
-    await stockEntriesStore.addEntry({
-      type: 'received',
-      partId: props.part.id,
-      companyId: form.companyId,
-      quantity: Math.round(form.quantity!),
-      pricePerPiece: form.pricePerPiece!,
-    });
-
-    partsStore.updatePartStockSummary(props.part.id, stockEntriesStore.getEntries(props.part.id));
-    notificationStore.showToast(t('success.save_stock_entry'), 'success');
-
-    form.quantity = null;
-    form.pricePerPiece = null;
-  } catch (err) {
-    formError.value = translateApiError(err, { t, te }, 'errors.save_stock_entry_failed');
-  }
-}
-
-// ── Remove from stock form ────────────────────────────────────────────────────
-
-const removeForm = reactive({
-  quantity: null as number | null,
-  note: '',
-});
-const removeFormError = ref<string | null>(null);
-
-const canRemove = computed(
-  () =>
-    removeForm.quantity != null &&
-    Number.isInteger(removeForm.quantity) &&
-    removeForm.quantity >= 1 &&
-    removeForm.quantity <= totalQuantity.value &&
-    removeForm.note.trim().length > 0 &&
-    totalQuantity.value > 0,
-);
-
-async function submitRemoval() {
-  removeFormError.value = null;
-  if (!canRemove.value) {
-    removeFormError.value = t('errors.fill_required_fields');
-    return;
-  }
-
-  try {
-    await stockEntriesStore.addEntry({
-      type: 'removed',
-      partId: props.part.id,
-      quantity: Math.round(removeForm.quantity!),
-      note: removeForm.note.trim(),
-    });
-
-    // Reload entries so quantityConsumed values are fresh on the received entries,
-    // then sync the parts summary.
-    await stockEntriesStore.invalidateAndReload(props.part.id);
-    partsStore.updatePartStockSummary(props.part.id, stockEntriesStore.getEntries(props.part.id));
-
-    notificationStore.showToast(t('success.remove_from_stock'), 'success');
-    removeForm.quantity = null;
-    removeForm.note = '';
-  } catch (err) {
-    removeFormError.value = translateApiError(err, { t, te }, 'errors.save_stock_removal_failed');
-  }
-}
 </script>
