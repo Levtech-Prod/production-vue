@@ -50,13 +50,9 @@
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
             {{ t('price_per_piece') }}
           </label>
-          <input
-            v-model.number="form.pricePerPiece"
-            type="number"
-            step="0.01"
-            min="0"
-            class="input"
-            :placeholder="t('price_per_piece')"
+          <PriceInput
+            v-model:amount="form.priceAmount"
+            v-model:currency="form.priceCurrency"
           />
         </div>
 
@@ -140,9 +136,10 @@ import { computed, reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
+import PriceInput from '../../components/PriceInput.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
-import type { Part, CreatePartPayload } from '../../types/parts.ts';
+import type { Part, CreatePartPayload, EntryCurrency } from '../../types/parts.ts';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
@@ -169,7 +166,9 @@ const form = reactive({
   categoryId: 0,
   name: '',
   code: '',
-  pricePerPiece: 0,
+  // Price is entered in EUR or RON; the backend converts to canonical EUR.
+  priceAmount: 0 as number | null,
+  priceCurrency: 'EUR' as EntryCurrency,
   location: '',
   description: '',
   image: '',
@@ -198,7 +197,10 @@ watch(
       form.categoryId = part.categoryId;
       form.name = part.name;
       form.code = part.code;
-      form.pricePerPiece = Number(part.pricePerPiece) || 0;
+      // Show what was originally entered so editing preserves the currency.
+      form.priceAmount =
+        Number(part.priceEnteredAmount ?? part.pricePerPiece) || 0;
+      form.priceCurrency = part.priceEnteredCurrency ?? 'EUR';
       form.location = part.location ?? '';
       form.description = part.description ?? '';
       form.image = part.image ?? '';
@@ -235,7 +237,8 @@ function resetForm() {
   form.categoryId = 0;
   form.name = '';
   form.code = '';
-  form.pricePerPiece = 0;
+  form.priceAmount = 0;
+  form.priceCurrency = 'EUR';
   form.location = '';
   form.description = '';
   form.image = '';
@@ -259,7 +262,10 @@ function save() {
     categoryId: form.categoryId,
     name: form.name,
     code: form.code,
-    pricePerPiece: Number(form.pricePerPiece) || 0,
+    pricePerPiece: {
+      amount: Number(form.priceAmount) || 0,
+      currency: form.priceCurrency,
+    },
     location: form.location || null,
     description: form.description || null,
     image: form.image || null,
