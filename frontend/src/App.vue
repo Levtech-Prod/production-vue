@@ -2,7 +2,7 @@
   <router-view v-if="isAuthPage" />
   <div v-else class="min-h-screen bg-slate-100">
     <Sidebar />
-    <main class="pl-64">
+    <main class="transition-all duration-200" :class="ui.sidebarCollapsed ? 'pl-20' : 'pl-64'">
       <Topbar />
       <div class="p-6"><router-view /></div>
 
@@ -18,7 +18,9 @@ import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
 import Toast from './components/notification/Toast.vue';
 import AlertModal from './components/notification/AlertModal.vue';
+import { useUiStore } from './stores/uiStore';
 
+const ui = useUiStore();
 const route = useRoute();
 const isAuthPage = computed(() => ['/login', '/signup'].includes(route.path));
 </script>
