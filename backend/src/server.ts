@@ -63,6 +63,17 @@ app.use(
       });
     }
 
+    // BNR unreachable and no cached rate to fall back on — surface as 503 so
+    // the client can prompt a retry rather than treating it as a bad request.
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === ErrorCodes.BNR_RATE_UNAVAILABLE
+    ) {
+      return res.status(503).json({ code: ErrorCodes.BNR_RATE_UNAVAILABLE });
+    }
+
     console.error(err);
     res.status(400).json({ code: ErrorCodes.REQUEST_FAILED });
   },

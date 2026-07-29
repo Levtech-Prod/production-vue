@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { priceInputSchema } from './money.schema.js';
 
 /** A part's quantity/unit/notes as recorded against one sub-product
  *  revision. Reused everywhere a revision's part list is created,
@@ -16,7 +17,9 @@ export const partPayloadSchema = z.object({
   categoryId: z.number(),
   name: z.string().min(2),
   code: z.string().min(1),
-  pricePerPiece: z.number().nonnegative(),
+  // Manual fallback price, entered in EUR or RON. Converted to canonical EUR
+  // at the boundary (see the parts route) before it hits the database.
+  pricePerPiece: priceInputSchema,
   location: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   image: z.string().optional().nullable(),
