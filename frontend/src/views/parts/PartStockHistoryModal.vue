@@ -16,7 +16,7 @@
           >
             <div class="min-w-0">
               <h2 class="font-semibold text-slate-900 leading-tight">
-                {{ t('stock_history') }}
+                {{ t('history') }}
               </h2>
               <p class="text-xs text-slate-400 truncate">{{ partName }}</p>
             </div>
@@ -29,8 +29,37 @@
             </button>
           </div>
 
-          <!-- Search + type filter -->
+          <!-- Tabs -->
+          <div class="flex items-center gap-1 px-5 pt-3 border-b border-slate-100 shrink-0">
+            <button
+              type="button"
+              class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors"
+              :class="
+                activeTab === 'stock'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              "
+              @click="activeTab = 'stock'"
+            >
+              {{ t('stock_movements') }}
+            </button>
+            <button
+              type="button"
+              class="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors"
+              :class="
+                activeTab === 'changelog'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-400 hover:text-slate-600'
+              "
+              @click="activeTab = 'changelog'"
+            >
+              {{ t('change_log') }}
+            </button>
+          </div>
+
+          <!-- Search + type filter (stock tab only) -->
           <div
+            v-if="activeTab === 'stock'"
             class="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-slate-100 shrink-0"
           >
             <div class="relative flex-1 min-w-[12rem] max-w-xs">
@@ -51,8 +80,8 @@
             </select>
           </div>
 
-          <!-- Table -->
-          <div class="flex-1 overflow-y-auto min-h-0">
+          <!-- Table (stock tab) -->
+          <div v-if="activeTab === 'stock'" class="flex-1 overflow-y-auto min-h-0">
             <table class="w-full text-left text-sm">
               <thead class="bg-blue-50 text-xs uppercase text-black sticky top-0 z-10">
                 <tr>
@@ -210,9 +239,16 @@
             </table>
           </div>
 
-          <!-- Footer -->
+          <!-- Change log tab -->
+          <ChangeLogTable
+            v-else
+            entity-type="part"
+            :entity-id="partId"
+          />
+
+          <!-- Footer (stock tab) -->
           <div
-            v-if="allItems.length"
+            v-if="activeTab === 'stock' && allItems.length"
             class="px-5 py-3 border-t border-slate-100 shrink-0 text-xs text-slate-400"
           >
             {{ filteredSorted.length }} / {{ allItems.length }}
@@ -224,22 +260,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { X, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowDown, ArrowUp } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatQty, formatPrice, formatDate } from '../../utils/formatters.ts';
 import { availableOf } from '../../utils/stock.ts';
+import ChangeLogTable from '../../components/ChangeLogTable.vue';
 import type { StockEntry } from '../../types/stockEntries.ts';
 
 const props = defineProps<{
   modelValue: boolean;
   entries: StockEntry[];
   partName: string;
+  partId: number;
 }>();
 
 defineEmits<{ 'update:modelValue': [value: boolean] }>();
 
 const { t } = useI18n();
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+type Tab = 'stock' | 'changelog';
+const activeTab = ref<Tab>('stock');
+
+// On open, default to the tab that has content: a part with no stock movements
+// yet still has a change log (it was at least created).
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open) activeTab.value = props.entries.length ? 'stock' : 'changelog';
+  },
+);
 
 // ── Flat history item for the unified table ───────────────────────────────────
 
