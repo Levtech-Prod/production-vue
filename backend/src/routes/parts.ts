@@ -4,6 +4,15 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { partPayloadSchema } from '../schemas/parts.schema.js';
 import { convertToEur } from '../services/exchangeRates.js';
+import {
+  logAudit,
+  resolveActor,
+  diffFields,
+  diffParameters,
+  isEmptyParameterDelta,
+  valuesEqual,
+  type NamedParam,
+} from '../services/audit.js';
 
 const router = Router();
 
@@ -79,6 +88,7 @@ router.get('/', requireAuth, async (_req, res) => {
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const data = partPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
   // Convert the entered price to canonical EUR before opening the transaction.
   const price = await convertToEur(
     data.pricePerPiece.amount,
@@ -121,6 +131,26 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       );
       parameters.push(paramResult.rows[0]);
     }
+
+    // Audit: record creation with an identifying snapshot.
+    const categoryResult = await client.query<{ name: string }>(
+      `SELECT name FROM part_categories WHERE id = $1`,
+      [data.categoryId],
+    );
+    const actor = await resolveActor(client, userId);
+    await logAudit(client, 'part', part.id, 'created', {
+      snapshot: {
+        name: data.name,
+        code: data.code,
+        category: categoryResult.rows[0]?.name ?? null,
+        price: {
+          amount: data.pricePerPiece.amount,
+          currency: data.pricePerPiece.currency,
+        },
+        location: data.location || null,
+      },
+    }, actor);
+
     await client.query('COMMIT');
     res.json({ ...part, parameters });
   } catch (err: any) {
@@ -146,6 +176,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   // Validate before opening a connection so ZodErrors reach the global
   // error handler and are returned as structured validation issues.
   const data = partPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
   const price = await convertToEur(
     data.pricePerPiece.amount,
     data.pricePerPiece.currency,
@@ -156,6 +187,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Snapshot the pre-update row inside the same UPDATE (FROM subquery is
+    // evaluated first), so we get old + new values in one statement — no extra
+    // round trip and no read-then-write race. `old.*` fields feed the audit diff.
     const partResult = await client.query(
       `
       UPDATE parts
@@ -163,11 +197,20 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           price_entered_amount = $5, price_entered_currency = $6,
           price_rate_used = $7, price_rate_date = $8,
           location = $9, description = $10, image = $11, updated_at = NOW()
-      WHERE id = $12
-      RETURNING id, category_id AS "categoryId", name, code,
-        ${PART_PRICE_COLUMNS.replace(/\bp\./g, '')},
-        location, description, image,
-        created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM (SELECT * FROM parts WHERE id = $12) old
+      WHERE parts.id = old.id
+      RETURNING parts.id, parts.category_id AS "categoryId", parts.name, parts.code,
+        ${PART_PRICE_COLUMNS.replace(/\bp\./g, 'parts.')},
+        parts.location, parts.description, parts.image,
+        parts.created_at AS "createdAt", parts.updated_at AS "updatedAt",
+        old.category_id            AS "oldCategoryId",
+        old.name                   AS "oldName",
+        old.code                   AS "oldCode",
+        old.price_entered_amount   AS "oldPriceEnteredAmount",
+        old.price_entered_currency AS "oldPriceEnteredCurrency",
+        old.location               AS "oldLocation",
+        old.description            AS "oldDescription",
+        old.image                  AS "oldImage"
       `,
       [
         data.categoryId,
@@ -190,8 +233,17 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
     }
 
-    const existingResult = await client.query(
-      `SELECT parameter_id FROM stock_parameters WHERE part_id = $1`,
+    // Also pull value + parameter name so the audit delta reuses this read
+    // instead of issuing a second query.
+    const existingResult = await client.query<{
+      parameter_id: number;
+      value: string;
+      name: string;
+    }>(
+      `SELECT sp.parameter_id, sp.value, pcp.name
+       FROM stock_parameters sp
+       JOIN part_category_parameters pcp ON pcp.id = sp.parameter_id
+       WHERE sp.part_id = $1`,
       [partId],
     );
 
@@ -253,10 +305,92 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [data.categoryId],
     );
 
+    // ── Audit: diff old vs new and log only if something actually changed ──
+    const row = partResult.rows[0];
+
+    // Scalar fields (price and image handled separately below). Category is
+    // diffed on id but stored as a human label.
+    const fields = diffFields(
+      { name: row.oldName, code: row.oldCode, location: row.oldLocation, description: row.oldDescription },
+      { name: row.name, code: row.code, location: row.location, description: row.description },
+      ['name', 'code', 'location', 'description'],
+    ) as Record<string, { from: unknown; to: unknown }>;
+
+    if (!valuesEqual(row.oldCategoryId, row.categoryId)) {
+      const cats = await client.query<{ id: number; name: string }>(
+        `SELECT id, name FROM part_categories WHERE id = ANY($1::int[])`,
+        [[row.oldCategoryId, row.categoryId]],
+      );
+      const nameById = new Map(cats.rows.map((c) => [c.id, c.name]));
+      fields.category = {
+        from: nameById.get(row.oldCategoryId) ?? row.oldCategoryId,
+        to: nameById.get(row.categoryId) ?? row.categoryId,
+      };
+    }
+
+    // Price: compare only the entered amount + currency. The stored EUR price
+    // and BNR rate columns are recomputed every save and would report phantom
+    // changes whenever the exchange rate moves.
+    if (
+      !valuesEqual(row.oldPriceEnteredAmount, row.priceEnteredAmount) ||
+      !valuesEqual(row.oldPriceEnteredCurrency, row.priceEnteredCurrency)
+    ) {
+      fields.price = {
+        from: { amount: Number(row.oldPriceEnteredAmount), currency: row.oldPriceEnteredCurrency },
+        to: { amount: Number(row.priceEnteredAmount), currency: row.priceEnteredCurrency },
+      };
+    }
+
+    // Image: track that it changed without dumping the (large) value into the log.
+    if (!valuesEqual(row.oldImage, row.image)) {
+      fields.image = {
+        from: row.oldImage ? '(image)' : null,
+        to: row.image ? '(image)' : null,
+      };
+    }
+
+    // Parameters: build the delta from data already read above (no extra query).
+    const paramNameRes = await client.query<{ id: number; name: string }>(
+      `SELECT id, name FROM part_category_parameters WHERE id = ANY($1::int[])`,
+      [incomingParameterIds.length ? incomingParameterIds : [0]],
+    );
+    const paramNameById = new Map(paramNameRes.rows.map((r) => [r.id, r.name]));
+    const beforeParams: NamedParam[] = existingResult.rows.map((r) => ({
+      name: r.name,
+      value: r.value,
+    }));
+    const afterParams: NamedParam[] = data.parameters.map((p) => ({
+      name: paramNameById.get(p.parameterId) ?? String(p.parameterId),
+      value: p.value,
+    }));
+    const paramDelta = diffParameters(beforeParams, afterParams);
+
+    const changes: Record<string, unknown> = {};
+    if (Object.keys(fields).length > 0) changes.fields = fields;
+    if (!isEmptyParameterDelta(paramDelta)) changes.parameters = paramDelta;
+
+    if (Object.keys(changes).length > 0) {
+      const actor = await resolveActor(client, userId);
+      await logAudit(client, 'part', partId, 'updated', changes, actor);
+    }
+
     await client.query('COMMIT');
 
+    // Drop the old* snapshot columns from the response — they're audit-only.
+    const {
+      oldCategoryId: _oc,
+      oldName: _on,
+      oldCode: _ocode,
+      oldPriceEnteredAmount: _opa,
+      oldPriceEnteredCurrency: _opc,
+      oldLocation: _ol,
+      oldDescription: _od,
+      oldImage: _oi,
+      ...partOut
+    } = row;
+
     res.json({
-      ...partResult.rows[0],
+      ...partOut,
       category: categoryResult.rows[0]?.category,
       parameters: updatedParametersResult.rows,
     });
@@ -286,8 +420,9 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     await client.query('BEGIN');
 
-    const deleteResult = await client.query(
-      `DELETE FROM parts WHERE id = $1 RETURNING id`,
+    // Capture identifying fields for the audit snapshot before the row is gone.
+    const deleteResult = await client.query<{ id: number; name: string; code: string }>(
+      `DELETE FROM parts WHERE id = $1 RETURNING id, name, code`,
       [partId],
     );
 
@@ -295,6 +430,13 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
     }
+
+    // Audit rows have no FK to parts, so they survive this hard delete.
+    const deleted = deleteResult.rows[0];
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(client, 'part', partId, 'deleted', {
+      snapshot: { name: deleted.name, code: deleted.code },
+    }, actor);
 
     await client.query('COMMIT');
 
