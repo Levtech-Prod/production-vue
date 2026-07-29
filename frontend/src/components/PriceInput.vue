@@ -9,8 +9,13 @@
 -->
 <template>
   <div class="flex gap-1.5">
-    <!-- `.input` is unlayered CSS (w-full), so it overrides Tailwind width
-         utilities. Inline styles outrank it: amount flexes, currency is fixed. -->
+    <!--
+      `.input` in style.css is unlayered CSS (`width: 100%`), so Tailwind width
+      utilities can't override it. We use inline styles (which outrank it) instead
+      of a `w-*` class. The select is sized to its content (`width: auto`) rather
+      than a fixed narrow width — a very narrow fixed-width native <select> can
+      mis-anchor and dismiss its own popup in some browsers.
+    -->
     <input
       :value="amount"
       type="number"
@@ -23,8 +28,8 @@
     />
     <select
       :value="currency"
-      class="input shrink-0 text-sm"
-      style="width: 5rem; flex: 0 0 auto; padding-left: 0.5rem; padding-right: 0.5rem"
+      class="input text-sm"
+      style="width: auto; flex: 0 0 auto"
       :aria-label="t('currency')"
       @change="onCurrency"
     >
