@@ -58,6 +58,7 @@ const messages = {
     create_account: 'Create account',
     select_category: 'Select category',
     price_per_piece: 'Price per piece',
+    currency: 'Currency',
     location: 'Location',
     password: 'Password',
     already_registered: 'Already registered?',
@@ -359,6 +360,8 @@ const messages = {
       save_stock_entry_failed: 'The stock entry could not be saved.',
       fill_required_fields: 'Please fill in all required fields.',
       INSUFFICIENT_STOCK: 'Not enough stock available to complete this removal.',
+      BNR_RATE_UNAVAILABLE:
+        'Could not reach the BNR exchange rate service. Please try again shortly.',
       save_stock_removal_failed: 'The stock removal could not be saved.',
 
       // Products module — backend codes
@@ -522,6 +525,7 @@ const messages = {
     create_account: 'Fiók létrehozása',
     select_category: 'Kategória kiválasztása',
     price_per_piece: 'Egységár',
+    currency: 'Pénznem',
     location: 'Helyszín',
     password: 'Jelszó',
     already_registered: 'Már regisztrált?',
@@ -821,6 +825,8 @@ const messages = {
       save_stock_entry_failed: 'A bevételezés mentése nem sikerült.',
       fill_required_fields: 'Kérlek töltsd ki az összes kötelező mezőt.',
       INSUFFICIENT_STOCK: 'Nincs elegendő készlet a kivételhez.',
+      BNR_RATE_UNAVAILABLE:
+        'A BNR árfolyam-szolgáltatás nem érhető el. Kérjük, próbálja újra hamarosan.',
       save_stock_removal_failed: 'A kivétel mentése nem sikerült.',
 
       // Products module — backend kódok

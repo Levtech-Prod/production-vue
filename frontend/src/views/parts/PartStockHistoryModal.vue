@@ -197,6 +197,9 @@
                   </td>
                   <td class="p-4 text-slate-500">
                     {{ item.price != null ? formatPrice(item.price) : '—' }}
+                    <span v-if="item.entered" class="block text-xs text-slate-400">
+                      {{ item.entered }}
+                    </span>
                   </td>
                   <td class="p-4 text-slate-500 whitespace-nowrap">
                     {{ formatDate(item.date) }}
@@ -249,6 +252,8 @@ interface HistoryItem {
   /** Remaining quantity after FIFO removals; null for removal rows. */
   available: number | null;
   price: number | null;
+  /** Original entry, shown as provenance when the price was entered in RON. */
+  entered: string | null;
   date: string;
   by: string;
 }
@@ -262,6 +267,11 @@ const allItems = computed<HistoryItem[]>(() =>
     quantity: Number(e.quantity),
     available: e.type === 'received' ? availableOf(e) : null,
     price: e.pricePerPiece != null ? Number(e.pricePerPiece) : null,
+    // Only meaningful when entered in RON (EUR entries are already canonical).
+    entered:
+      e.enteredCurrency === 'RON' && e.enteredAmount != null && e.rateUsed != null
+        ? `${Number(e.enteredAmount)} RON @ ${Number(e.rateUsed)}${e.rateDate ? ` · ${e.rateDate}` : ''}`
+        : null,
     date: e.enteredAt,
     by: e.enteredBy?.username ?? '',
   })),

@@ -1,3 +1,5 @@
+import type { EntryCurrency } from './parts.ts';
+
 export interface StockEntry {
   id: number;
   partId: number;
@@ -7,8 +9,15 @@ export interface StockEntry {
   quantity: number;
   /** Amount consumed by FIFO removals. Always 0 for removed entries. */
   quantityConsumed: number;
-  /** Non-null for received entries; null for removals. */
+  /** Canonical price in EUR. Non-null for received entries; null for removals. */
   pricePerPiece: number | null;
+  /** How the price was entered (provenance). Null for removals. */
+  enteredAmount: number | null;
+  enteredCurrency: EntryCurrency | null;
+  /** RON-per-EUR rate applied; null when entered in EUR or for removals. */
+  rateUsed: number | null;
+  /** BNR rate date applied (YYYY-MM-DD); null when entered in EUR or removals. */
+  rateDate: string | null;
   /** Non-null for removed entries; null for received entries. */
   note: string | null;
   enteredBy: { id: number; username: string } | null;
@@ -32,7 +41,7 @@ export type CreateStockEntryPayload =
       partId: number;
       companyId: number;
       quantity: number;
-      pricePerPiece: number;
+      pricePerPiece: { amount: number; currency: EntryCurrency };
     }
   | {
       type: 'removed';

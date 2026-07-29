@@ -32,27 +32,23 @@
       </button>
     </div>
 
-    <div class="grid grid-cols-2 gap-2">
-      <div class="flex flex-col gap-1">
+    <div class="grid grid-cols-3 gap-2">
+      <div class="flex min-w-0 flex-col gap-1">
         <label class="text-xs text-slate-500">{{ t('quantity') }}</label>
         <input
           v-model.number="form.quantity"
           type="number"
           min="1"
           step="1"
-          class="input text-sm"
+          class="input min-w-0 text-sm"
           :placeholder="t('quantity')"
         />
       </div>
-      <div class="flex flex-col gap-1">
+      <div class="col-span-2 flex min-w-0 flex-col gap-1">
         <label class="text-xs text-slate-500">{{ t('price_per_piece') }}</label>
-        <input
-          v-model.number="form.pricePerPiece"
-          type="number"
-          min="0"
-          step="0.01"
-          class="input text-sm"
-          :placeholder="t('price_per_piece')"
+        <PriceInput
+          v-model:amount="form.priceAmount"
+          v-model:currency="form.priceCurrency"
         />
       </div>
     </div>
@@ -76,12 +72,13 @@
 import { computed, reactive, ref } from 'vue';
 import { Plus } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import PriceInput from '../../components/PriceInput.vue';
 import { useStockEntriesStore } from '../../stores/stockEntriesStore.ts';
 import { usePartsStore } from '../../stores/partsStore.ts';
 import { useCompaniesStore } from '../../stores/companiesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
-import type { Part } from '../../types/parts.ts';
+import type { Part, EntryCurrency } from '../../types/parts.ts';
 import type { Company } from '../../types/companies.ts';
 
 const props = defineProps<{
@@ -100,7 +97,8 @@ const savingEntry = computed(() => stockEntriesStore.savingEntry);
 const form = reactive({
   companyId: 0,
   quantity: null as number | null,
-  pricePerPiece: null as number | null,
+  priceAmount: null as number | null,
+  priceCurrency: 'EUR' as EntryCurrency,
 });
 const formError = ref<string | null>(null);
 
@@ -114,8 +112,8 @@ const canSubmit = computed(
     form.quantity != null &&
     Number.isInteger(form.quantity) &&
     form.quantity >= 1 &&
-    form.pricePerPiece != null &&
-    form.pricePerPiece >= 0,
+    form.priceAmount != null &&
+    form.priceAmount >= 0,
 );
 
 async function createAndSelectCompany() {
@@ -150,14 +148,14 @@ async function submit() {
       partId: props.part.id,
       companyId: form.companyId,
       quantity: Math.round(form.quantity!),
-      pricePerPiece: form.pricePerPiece!,
+      pricePerPiece: { amount: form.priceAmount!, currency: form.priceCurrency },
     });
 
     partsStore.updatePartStockSummary(props.part.id, stockEntriesStore.getEntries(props.part.id));
     notificationStore.showToast(t('success.save_stock_entry'), 'success');
 
     form.quantity = null;
-    form.pricePerPiece = null;
+    form.priceAmount = null;
   } catch (err) {
     formError.value = translateApiError(err, { t, te }, 'errors.save_stock_entry_failed');
   }
