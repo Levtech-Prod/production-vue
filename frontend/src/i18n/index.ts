@@ -35,6 +35,8 @@ const messages = {
     'in-progress': 'In Progress...',
     upload_file: 'Upload file',
     production_tracking_system: 'Production Tracking System',
+    collapse_menu: 'Collapse menu',
+    expand_menu: 'Expand menu',
     dashboard: 'Dashboard',
     users: 'Users',
     parts: 'Parts',
@@ -502,6 +504,8 @@ const messages = {
     'in-progress': 'Folyamatban...',
     upload_file: 'Fájl feltöltése',
     production_tracking_system: 'Gyártáskövető rendszer',
+    collapse_menu: 'Menü összecsukása',
+    expand_menu: 'Menü kinyitása',
     users: 'Felhasználók',
     parts: 'Alkatrészek',
     search_part_categories_placeholder:
