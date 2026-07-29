@@ -6,8 +6,76 @@ import {
   partCategoryPayloadSchema,
   partCategoryParameterColumnPatchSchema,
 } from '../schemas/partCategories.schema.js';
+import {
+  logAudit,
+  resolveActor,
+  diffFields,
+  valuesEqual,
+  isEmptyParameterDelta,
+  type NamedParam,
+  type ParameterDelta,
+} from '../services/audit.js';
 
 const router = Router();
+
+// A category parameter definition, as needed for auditing.
+interface CategoryParam {
+  id?: number;
+  name: string;
+  type: string;
+  unit: string | null;
+  required: boolean;
+  showAsColumn: boolean;
+  options: string[];
+}
+
+// Compact human-readable descriptor of a parameter definition. Excludes
+// sort_order so reordering parameters never registers as a change. Includes the
+// name so a rename is visible in the from -> to diff.
+function paramDescriptor(p: CategoryParam): string {
+  const bits: string[] = [`${p.name}: ${p.type}`];
+  if (p.unit) bits.push(p.unit);
+  if (p.required) bits.push('required');
+  if (p.showAsColumn) bits.push('column');
+  if (p.options.length) bits.push(`[${p.options.join(', ')}]`);
+  return bits.join(' · ');
+}
+
+// Diff category parameters by id (stable across renames), into added / removed
+// / changed. New rows (no id) are additions; missing ids are removals.
+function diffCategoryParameters(
+  before: CategoryParam[],
+  after: CategoryParam[],
+): ParameterDelta {
+  const beforeById = new Map(
+    before.filter((p) => p.id != null).map((p) => [p.id as number, p]),
+  );
+  const afterIds = new Set(
+    after.filter((p) => p.id != null).map((p) => p.id as number),
+  );
+
+  const added: NamedParam[] = [];
+  const removed: NamedParam[] = [];
+  const changed: { name: string; from: string; to: string }[] = [];
+
+  for (const p of after) {
+    const prev = p.id != null ? beforeById.get(p.id) : undefined;
+    if (!prev) {
+      added.push({ name: p.name, value: paramDescriptor(p) });
+    } else {
+      const from = paramDescriptor(prev);
+      const to = paramDescriptor(p);
+      if (from !== to) changed.push({ name: p.name, from, to });
+    }
+  }
+  for (const p of before) {
+    if (p.id != null && !afterIds.has(p.id)) {
+      removed.push({ name: p.name, value: paramDescriptor(p) });
+    }
+  }
+
+  return { added, removed, changed };
+}
 
 router.get('/', requireAuth, async (_req, res) => {
   const result = await query(
@@ -43,6 +111,7 @@ router.get('/', requireAuth, async (_req, res) => {
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const data = partCategoryPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -76,6 +145,12 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       );
       parameters.push(pResult.rows[0]);
     }
+
+    const actor = await resolveActor(client, userId);
+    await logAudit(client, 'part_category', category.id, 'created', {
+      snapshot: { name: data.name, description: data.description },
+    }, actor);
+
     await client.query('COMMIT');
     res.json({ ...category, parameters });
   } catch (err) {
@@ -94,17 +169,28 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 
   const data = partCategoryPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
   const client = await pool.connect();
+
+  // Parameter delta for the audit log; stays null when `parameters` was omitted.
+  let paramDelta: ParameterDelta | null = null;
 
   try {
     await client.query('BEGIN');
 
+    // Snapshot the pre-update row in the same statement (see parts.ts) so we get
+    // old + new values without an extra query.
     const categoryResult = await client.query(
       `
       UPDATE part_categories
       SET name = $1, image = $2, description = $3
-      WHERE id = $4
-      RETURNING id, name, image, description, created_at AS "createdAt"
+      FROM (SELECT * FROM part_categories WHERE id = $4) old
+      WHERE part_categories.id = old.id
+      RETURNING part_categories.id, part_categories.name, part_categories.image,
+        part_categories.description, part_categories.created_at AS "createdAt",
+        old.name        AS "oldName",
+        old.description AS "oldDescription",
+        old.image       AS "oldImage"
       `,
       [data.name, data.image || null, data.description, categoryId],
     );
@@ -120,13 +206,46 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (data.parameters !== undefined) {
       const incomingParameters = data.parameters;
 
-      const existingResult = await client.query(
+      // Pull full fields (not just id) so the audit delta compares definitions.
+      const existingResult = await client.query<{
+        id: number;
+        name: string;
+        type: string;
+        unit: string | null;
+        required: boolean;
+        showAsColumn: boolean;
+        options: string[];
+      }>(
         `
-        SELECT id
+        SELECT id, name, type, unit, required,
+          show_as_column AS "showAsColumn",
+          COALESCE(options, ARRAY[]::text[]) AS options
         FROM part_category_parameters
         WHERE category_id = $1
         `,
         [categoryId],
+      );
+
+      // Diff before mutating: existing rows vs the incoming set, matched by id.
+      paramDelta = diffCategoryParameters(
+        existingResult.rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          unit: r.unit,
+          required: r.required,
+          showAsColumn: r.showAsColumn,
+          options: r.options,
+        })),
+        incomingParameters.map((p) => ({
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          unit: p.unit ?? null,
+          required: p.required,
+          showAsColumn: p.showAsColumn ?? false,
+          options: p.type === 'dropdown' ? p.options : [],
+        })),
       );
 
       const existingIds = existingResult.rows.map((row) => row.id);
@@ -225,10 +344,39 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [categoryId],
     );
 
+    // ── Audit: diff scalar fields + parameters, log only if something changed ──
+    const row = categoryResult.rows[0];
+    const fields = diffFields(
+      { name: row.oldName, description: row.oldDescription },
+      { name: row.name, description: row.description },
+      ['name', 'description'],
+    ) as Record<string, { from: unknown; to: unknown }>;
+
+    if (!valuesEqual(row.oldImage, row.image)) {
+      fields.image = {
+        from: row.oldImage ? '(image)' : null,
+        to: row.image ? '(image)' : null,
+      };
+    }
+
+    const changes: Record<string, unknown> = {};
+    if (Object.keys(fields).length > 0) changes.fields = fields;
+    if (paramDelta && !isEmptyParameterDelta(paramDelta)) {
+      changes.parameters = paramDelta;
+    }
+
+    if (Object.keys(changes).length > 0) {
+      const actor = await resolveActor(client, userId);
+      await logAudit(client, 'part_category', categoryId, 'updated', changes, actor);
+    }
+
     await client.query('COMMIT');
 
+    // Drop the old* snapshot columns — audit-only.
+    const { oldName: _on, oldDescription: _od, oldImage: _oi, ...categoryOut } = row;
+
     res.json({
-      ...categoryResult.rows[0],
+      ...categoryOut,
       parameters: updatedParametersResult.rows,
     });
   } catch (error) {
@@ -329,11 +477,11 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       [categoryId],
     );
 
-    const deleteResult = await client.query(
+    const deleteResult = await client.query<{ id: number; name: string }>(
       `
       DELETE FROM part_categories
       WHERE id = $1
-      RETURNING id
+      RETURNING id, name
       `,
       [categoryId],
     );
@@ -345,6 +493,11 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
         code: ErrorCodes.CATEGORY_NOT_FOUND,
       });
     }
+
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(client, 'part_category', categoryId, 'deleted', {
+      snapshot: { name: deleteResult.rows[0].name },
+    }, actor);
 
     await client.query('COMMIT');
 
