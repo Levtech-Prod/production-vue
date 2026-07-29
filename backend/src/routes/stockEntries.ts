@@ -3,6 +3,7 @@ import { query, pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { stockEntryPayloadSchema } from '../schemas/stockEntries.schema.js';
+import { convertToEur } from '../services/exchangeRates.js';
 
 const router = Router();
 
@@ -15,6 +16,10 @@ const SELECT_ENTRY = `
     se.quantity,
     se.quantity_consumed  AS "quantityConsumed",
     se.price_per_piece    AS "pricePerPiece",
+    se.entered_amount     AS "enteredAmount",
+    se.entered_currency   AS "enteredCurrency",
+    se.rate_used          AS "rateUsed",
+    to_char(se.rate_date, 'YYYY-MM-DD') AS "rateDate",
     se.note,
     se.entered_at         AS "enteredAt",
     CASE
@@ -68,13 +73,29 @@ router.post('/', requireAuth, async (req, res) => {
   const userId: number | undefined = req.user?.id;
 
   if (data.type === 'received') {
+    // Convert the entered price to canonical EUR (BNR rate for today, frozen).
+    const price = await convertToEur(
+      data.pricePerPiece.amount,
+      data.pricePerPiece.currency,
+    );
     try {
       const result = await query(
         `INSERT INTO stock_entries
-           (type, part_id, company_id, quantity, price_per_piece, entered_by)
-         VALUES ('received', $1, $2, $3, $4, $5)
+           (type, part_id, company_id, quantity, price_per_piece,
+            entered_amount, entered_currency, rate_used, rate_date, entered_by)
+         VALUES ('received', $1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id`,
-        [data.partId, data.companyId, data.quantity, data.pricePerPiece, userId ?? null],
+        [
+          data.partId,
+          data.companyId,
+          data.quantity,
+          price.priceEur,
+          data.pricePerPiece.amount,
+          data.pricePerPiece.currency,
+          price.rateUsed,
+          price.rateDate,
+          userId ?? null,
+        ],
       );
 
       const entry = await fetchEntryById(result.rows[0].id);

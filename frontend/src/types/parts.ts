@@ -5,6 +5,10 @@ import type {
 // Mirrors the backend's zod validation for this same payload (see
 // backend/src/schemas/parts.schema.ts) — type-only, so no runtime cost.
 import type { PartPayload } from '../../../backend/src/schemas/parts.schema.ts';
+// Single source of truth for the currencies a price may be entered in.
+import type { EntryCurrency } from '../../../backend/src/schemas/money.schema.ts';
+
+export type { EntryCurrency };
 
 export interface PartParameterValue {
   id?: number;
@@ -25,7 +29,12 @@ export interface Part {
   categoryId: number;
   name: string;
   code: string;
+  // Canonical price in EUR. `priceEntered*` record how it was entered.
   pricePerPiece: number | string;
+  priceEnteredAmount?: number | string | null;
+  priceEnteredCurrency?: EntryCurrency;
+  priceRateUsed?: number | string | null;
+  priceRateDate?: string | null;
   location?: string | null;
   description?: string | null;
   image?: string | null;

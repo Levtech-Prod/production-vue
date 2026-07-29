@@ -3,8 +3,18 @@ import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { partPayloadSchema } from '../schemas/parts.schema.js';
+import { convertToEur } from '../services/exchangeRates.js';
 
 const router = Router();
+
+// Columns exposing the stored EUR price plus how it was entered (amount +
+// currency the user typed, and the BNR rate/date applied for RON entries).
+const PART_PRICE_COLUMNS = `
+  p.price_per_piece        AS "pricePerPiece",
+  p.price_entered_amount   AS "priceEnteredAmount",
+  p.price_entered_currency AS "priceEnteredCurrency",
+  p.price_rate_used        AS "priceRateUsed",
+  to_char(p.price_rate_date, 'YYYY-MM-DD') AS "priceRateDate"`;
 
 router.get('/', requireAuth, async (_req, res) => {
   const result = await query(
@@ -13,7 +23,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.category_id AS "categoryId",
       p.name,
       p.code,
-      p.price_per_piece AS "pricePerPiece",
+      ${PART_PRICE_COLUMNS},
       p.location,
       p.description,
       p.image,
@@ -69,18 +79,32 @@ router.get('/', requireAuth, async (_req, res) => {
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const data = partPayloadSchema.parse(req.body);
+  // Convert the entered price to canonical EUR before opening the transaction.
+  const price = await convertToEur(
+    data.pricePerPiece.amount,
+    data.pricePerPiece.currency,
+  );
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const partResult = await client.query(
-      `INSERT INTO parts (category_id, name, code, price_per_piece, location, description, image)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, category_id AS "categoryId", name, code, price_per_piece AS "pricePerPiece", location, description, image, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      `INSERT INTO parts
+         (category_id, name, code, price_per_piece, price_entered_amount,
+          price_entered_currency, price_rate_used, price_rate_date,
+          location, description, image)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, category_id AS "categoryId", name, code,
+         ${PART_PRICE_COLUMNS.replace(/\bp\./g, '')},
+         location, description, image, created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         data.categoryId,
         data.name,
         data.code,
-        data.pricePerPiece,
+        price.priceEur,
+        data.pricePerPiece.amount,
+        data.pricePerPiece.currency,
+        price.rateUsed,
+        price.rateDate,
         data.location || null,
         data.description || null,
         data.image || null,
@@ -122,6 +146,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   // Validate before opening a connection so ZodErrors reach the global
   // error handler and are returned as structured validation issues.
   const data = partPayloadSchema.parse(req.body);
+  const price = await convertToEur(
+    data.pricePerPiece.amount,
+    data.pricePerPiece.currency,
+  );
 
   const client = await pool.connect();
 
@@ -132,17 +160,24 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       `
       UPDATE parts
       SET category_id = $1, name = $2, code = $3, price_per_piece = $4,
-          location = $5, description = $6, image = $7, updated_at = NOW()
-      WHERE id = $8
+          price_entered_amount = $5, price_entered_currency = $6,
+          price_rate_used = $7, price_rate_date = $8,
+          location = $9, description = $10, image = $11, updated_at = NOW()
+      WHERE id = $12
       RETURNING id, category_id AS "categoryId", name, code,
-        price_per_piece AS "pricePerPiece", location, description, image,
+        ${PART_PRICE_COLUMNS.replace(/\bp\./g, '')},
+        location, description, image,
         created_at AS "createdAt", updated_at AS "updatedAt"
       `,
       [
         data.categoryId,
         data.name,
         data.code,
-        data.pricePerPiece,
+        price.priceEur,
+        data.pricePerPiece.amount,
+        data.pricePerPiece.currency,
+        price.rateUsed,
+        price.rateDate,
         data.location || null,
         data.description || null,
         data.image || null,
