@@ -14,6 +14,7 @@ import {
   resolveActor,
   valuesEqual,
   type AuditEvent,
+  type AuditScope,
 } from '../services/audit.js';
 
 const router = Router();
@@ -500,11 +501,27 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
     }
 
     // ── Product log: which BOM parts were added / changed / removed ──
-    const prod = await client.query<{ productId: number }>(
-      `SELECT product_id AS "productId" FROM sub_products WHERE id = $1`,
-      [spId],
+    // Resolve the product plus the sub-product name and revision label so each
+    // part event records *where* the change happened (which sub-product + rev).
+    const prod = await client.query<{
+      productId: number;
+      subProductName: string;
+      revLabel: string;
+    }>(
+      `SELECT sp.product_id AS "productId", sp.name AS "subProductName",
+         spr.label AS "revLabel"
+       FROM sub_products sp
+       JOIN sub_product_revisions spr ON spr.id = $2
+       WHERE sp.id = $1`,
+      [spId, revId],
     );
     const productId = prod.rows[0]?.productId;
+    const scope: AuditScope[] = prod.rows[0]
+      ? [
+          { type: 'sub_product', label: prod.rows[0].subProductName },
+          { type: 'sub_product_revision', label: prod.rows[0].revLabel },
+        ]
+      : [];
 
     const incomingIds = data.parts.map((p) => p.partId);
     const nameRes = await client.query<{ id: number; name: string }>(
@@ -521,7 +538,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       const to = bomLineDetails(p.quantity, p.unit || null, p.notes || null);
       const prev = oldByPart.get(p.partId);
       if (!prev) {
-        events.push({ type: 'part', tag: 'added', label: name, to });
+        events.push({ type: 'part', tag: 'added', label: name, scope, to });
       } else if (
         !valuesEqual(prev.quantity, p.quantity) ||
         !valuesEqual(prev.unit, p.unit || null) ||
@@ -531,6 +548,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
           type: 'part',
           tag: 'changed',
           label: name,
+          scope,
           from: bomLineDetails(prev.quantity, prev.unit, prev.notes),
           to,
         });
@@ -542,6 +560,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
           type: 'part',
           tag: 'removed',
           label: o.name,
+          scope,
           from: bomLineDetails(o.quantity, o.unit, o.notes),
         });
       }

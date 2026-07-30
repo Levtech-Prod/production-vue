@@ -17,6 +17,7 @@
         <tr>
           <th class="p-4">{{ t('action') }}</th>
           <th class="p-4">{{ t('field') }}</th>
+          <th class="p-4">{{ t('where') }}</th>
           <th class="p-4">{{ t('old_value') }}</th>
           <th class="p-4">{{ t('new_value') }}</th>
           <th class="p-4">{{ t('changed_by') }}</th>
@@ -25,7 +26,7 @@
       </thead>
       <tbody>
         <tr v-if="displayLogs.length === 0">
-          <td colspan="6" class="py-12 text-center text-sm text-slate-400">
+          <td colspan="7" class="py-12 text-center text-sm text-slate-400">
             {{ t('no_change_log') }}
           </td>
         </tr>
@@ -48,6 +49,12 @@
 
             <!-- Field (name of what changed) -->
             <td class="p-4 text-slate-700">{{ row.field }}</td>
+
+            <!-- Where (location of the change within the entity) -->
+            <td class="p-4 text-slate-500">
+              <span v-if="row.where">{{ row.where }}</span>
+              <span v-else class="text-slate-300">—</span>
+            </td>
 
             <!-- Old value -->
             <td class="p-4">
@@ -100,7 +107,7 @@ import { storeToRefs } from 'pinia';
 import { useAuditLogsStore } from '../stores/auditLogsStore.ts';
 import { fieldLabelKey } from '../utils/auditFieldLabels.ts';
 import { formatDate } from '../utils/formatters.ts';
-import type { AuditAction, AuditChanges, AuditEvent, AuditLog } from '../types/auditLogs.ts';
+import type { AuditAction, AuditChanges, AuditEvent, AuditLog, AuditScope } from '../types/auditLogs.ts';
 
 const props = defineProps<{
   entityType: string;
@@ -134,6 +141,7 @@ type ActionKey = 'created' | 'updated' | 'deleted' | 'added' | 'removed';
 interface DisplayRow {
   actionKey: ActionKey;
   field: string;
+  where: string;
   old: string;
   new: string;
   highlight: boolean;
@@ -203,10 +211,10 @@ function snapshotSummary(snapshot: Record<string, unknown> | undefined): string 
 
 function rowsFor(action: AuditAction, changes: AuditChanges): DisplayRow[] {
   if (action === 'created') {
-    return [{ actionKey: 'created', field: '—', old: '', new: snapshotSummary(changes.snapshot), highlight: false }];
+    return [{ actionKey: 'created', field: '—', where: '', old: '', new: snapshotSummary(changes.snapshot), highlight: false }];
   }
   if (action === 'deleted') {
-    return [{ actionKey: 'deleted', field: '—', old: snapshotSummary(changes.snapshot), new: '', highlight: false }];
+    return [{ actionKey: 'deleted', field: '—', where: '', old: snapshotSummary(changes.snapshot), new: '', highlight: false }];
   }
 
   const rows: DisplayRow[] = [];
@@ -214,6 +222,7 @@ function rowsFor(action: AuditAction, changes: AuditChanges): DisplayRow[] {
     rows.push({
       actionKey: 'updated',
       field: label(key),
+      where: '',
       old: formatValue(change.from),
       new: formatValue(change.to),
       highlight: true,
@@ -223,9 +232,16 @@ function rowsFor(action: AuditAction, changes: AuditChanges): DisplayRow[] {
     rows.push(eventRow(ev));
   }
   if (rows.length === 0) {
-    rows.push({ actionKey: 'updated', field: '—', old: '', new: '', highlight: false });
+    rows.push({ actionKey: 'updated', field: '—', where: '', old: '', new: '', highlight: false });
   }
   return rows;
+}
+
+// Render an event's location path as a breadcrumb (e.g. "Housing › Rev. 2"),
+// translating each hop's kind only when it has no label of its own.
+function formatScope(scope: AuditScope[] | null | undefined): string {
+  if (!scope || scope.length === 0) return '';
+  return scope.map((s) => s.label || t(`event_${s.type}`)).join(' › ');
 }
 
 // A generic event -> row. Field shows the subject's name (or a translated kind
@@ -236,6 +252,7 @@ function eventRow(ev: AuditEvent): DisplayRow {
   return {
     actionKey: tagAction(tag),
     field: ev.label ?? fallbackLabel,
+    where: formatScope(ev.scope),
     old: ev.from ?? '',
     new: ev.to ?? '',
     highlight: true,

@@ -4,8 +4,24 @@ import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 import { setRevisionSubProductsSchema } from '../schemas/subProducts.schema.js';
+import {
+  logAudit,
+  resolveActor,
+  valuesEqual,
+  type AuditEvent,
+  type AuditScope,
+} from '../services/audit.js';
 
 const router = Router();
+
+// One sub-product revision resolved with the fields the change log needs:
+// its identity, its owning sub-product, and the display labels for both.
+interface SubProductRevisionDetail {
+  sprId: number;
+  subProductId: number;
+  subProductName: string;
+  revLabel: string;
+}
 
 // GET /api/product-revisions/compare?a=&b= — structured diff (server-side).
 // Registered before /:revId routes so the literal path takes precedence.
@@ -216,36 +232,54 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const revExists = await client.query(
-      `SELECT id FROM product_revisions WHERE id = $1`,
+    const revInfo = await client.query<{ productId: number; label: string }>(
+      `SELECT product_id AS "productId", label FROM product_revisions WHERE id = $1`,
       [revId],
     );
-    if (revExists.rowCount === 0) {
+    if (revInfo.rowCount === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
+    // Snapshot the current membership (keyed by sub-product, since a product
+    // revision holds at most one revision per sub-product) so we can diff it
+    // against the new set for the product change log.
+    const oldMembers = await client.query<SubProductRevisionDetail>(
+      `SELECT spr.sub_product_id AS "subProductId", sp.name AS "subProductName",
+         prsp.sub_product_revision_id AS "sprId", spr.label AS "revLabel"
+       FROM product_revision_sub_products prsp
+       JOIN sub_product_revisions spr ON spr.id = prsp.sub_product_revision_id
+       JOIN sub_products sp ON sp.id = spr.sub_product_id
+       WHERE prsp.product_revision_id = $1`,
+      [revId],
+    );
+
+    // Resolve the incoming revisions once — identity (for dedup) plus name and
+    // label (for the change log) in a single fetch, reused for both below.
+    const incomingIds = data.subProductRevisionIds;
+    const detail = incomingIds.length
+      ? await client.query<SubProductRevisionDetail>(
+          `SELECT spr.id AS "sprId", spr.sub_product_id AS "subProductId",
+             sp.name AS "subProductName", spr.label AS "revLabel"
+           FROM sub_product_revisions spr
+           JOIN sub_products sp ON sp.id = spr.sub_product_id
+           WHERE spr.id = ANY($1::int[])`,
+          [incomingIds],
+        )
+      : { rows: [] };
+    const detailBySpr = new Map(detail.rows.map((r) => [r.sprId, r]));
+
     // A product revision may hold at most ONE revision per sub-product.
-    // Deduplicate the incoming list: the last entry per sub-product wins.
-    let cleanIds = data.subProductRevisionIds;
-    if (cleanIds.length > 0) {
-      const ownerResult = await client.query(
-        `SELECT id, sub_product_id AS "subProductId"
-         FROM sub_product_revisions
-         WHERE id = ANY($1::int[])`,
-        [cleanIds],
-      );
-      const ownerOf = new Map<number, number>(
-        ownerResult.rows.map((r: any) => [r.id, r.subProductId]),
-      );
-      const bySubProduct = new Map<number, number>();
-      for (const sprId of cleanIds) {
-        const spId = ownerOf.get(sprId);
-        if (spId == null) continue; // unknown revision id — drop it
-        bySubProduct.set(spId, sprId);
-      }
-      cleanIds = Array.from(bySubProduct.values());
+    // Deduplicate the incoming list (last entry per sub-product wins), dropping
+    // unknown revision ids. Keyed by sub-product, so it doubles as the "new"
+    // side of the change-log diff below.
+    const newBySp = new Map<number, SubProductRevisionDetail>();
+    for (const sprId of incomingIds) {
+      const d = detailBySpr.get(sprId);
+      if (!d) continue; // unknown revision id — drop it
+      newBySp.set(d.subProductId, d);
     }
+    const cleanIds = Array.from(newBySp.values()).map((d) => d.sprId);
 
     await client.query(
       `DELETE FROM product_revision_sub_products WHERE product_revision_id = $1`,
@@ -260,6 +294,52 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
          VALUES ($1, $2, $3)`,
         [revId, sprId, position++],
       );
+    }
+
+    // ── Product log: which sub-products were added / changed / removed for
+    // this product revision. Each event records the product revision as scope.
+    const oldBySp = new Map(oldMembers.rows.map((r) => [r.subProductId, r]));
+    const scope: AuditScope[] = [
+      { type: 'product_revision', label: revInfo.rows[0].label },
+    ];
+
+    const events: AuditEvent[] = [];
+    for (const [spId, n] of newBySp) {
+      const prev = oldBySp.get(spId);
+      if (!prev) {
+        events.push({
+          type: 'sub_product',
+          tag: 'added',
+          label: n.subProductName,
+          scope,
+          to: n.revLabel,
+        });
+      } else if (!valuesEqual(prev.sprId, n.sprId)) {
+        events.push({
+          type: 'sub_product',
+          tag: 'changed',
+          label: n.subProductName,
+          scope,
+          from: prev.revLabel,
+          to: n.revLabel,
+        });
+      }
+    }
+    for (const [spId, o] of oldBySp) {
+      if (!newBySp.has(spId)) {
+        events.push({
+          type: 'sub_product',
+          tag: 'removed',
+          label: o.subProductName,
+          scope,
+          from: o.revLabel,
+        });
+      }
+    }
+
+    if (events.length > 0) {
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(client, 'product', revInfo.rows[0].productId, 'updated', { events }, actor);
     }
 
     await client.query('COMMIT');

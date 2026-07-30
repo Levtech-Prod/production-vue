@@ -20,6 +20,16 @@ export interface FieldChange {
 }
 
 /**
+ * One hop in an event's location path, from the logged entity down to the
+ * subject (e.g. sub-product → sub-product revision). `type` is an i18n key
+ * suffix (`event_<type>`); `label` is that hop's own name (e.g. 'Rev. 2').
+ */
+export interface AuditScope {
+  type: string;
+  label: string;
+}
+
+/**
  * A generic, extensible change item for entities whose log spans related
  * records (e.g. a product's sub-products and BOM parts).
  *
@@ -28,12 +38,16 @@ export interface FieldChange {
  *  - `tag`   is the change kind shown in the Type column.
  *  - `label` is the subject's own name for the Field column (part/sub-product/
  *            revision name); omit to fall back to the `type` label.
+ *  - `scope` locates the subject within the entity's tree (outermost first),
+ *            e.g. which sub-product + revision a BOM part change happened in.
+ *            Omit for top-level changes with no meaningful location.
  *  - `from` / `to` hold the old / new detail values.
  */
 export interface AuditEvent {
   type: string;
   tag: 'added' | 'removed' | 'changed';
   label?: string | null;
+  scope?: AuditScope[];
   from?: string | null;
   to?: string | null;
 }

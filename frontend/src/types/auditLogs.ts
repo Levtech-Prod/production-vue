@@ -6,6 +6,12 @@ export interface FieldChange {
   to: unknown;
 }
 
+/** One hop in an event's location path (e.g. sub-product → its revision). */
+export interface AuditScope {
+  type: string;
+  label: string;
+}
+
 /**
  * A generic change item — the single mechanism for every collection change
  * (part/category parameters, a product's sub-products, BOM parts, revisions).
@@ -15,6 +21,8 @@ export interface AuditEvent {
   tag: 'added' | 'removed' | 'changed';
   /** Subject's own name for the Field column; falls back to the `type` label. */
   label?: string | null;
+  /** Location path from the entity down to the subject (outermost first). */
+  scope?: AuditScope[] | null;
   from?: string | null;
   to?: string | null;
 }
