@@ -19,16 +19,23 @@ export interface FieldChange {
   to: unknown;
 }
 
-/** A named parameter (part category parameter) and its value. */
-export interface NamedParam {
-  name: string;
-  value: string;
-}
-
-export interface ParameterDelta {
-  added: NamedParam[];
-  removed: NamedParam[];
-  changed: { name: string; from: string; to: string }[];
+/**
+ * A generic, extensible change item for entities whose log spans related
+ * records (e.g. a product's sub-products and BOM parts).
+ *
+ *  - `type`  names the subject kind (i18n key suffix), used as the Field label
+ *            when no `label` is given (e.g. 'default_revision').
+ *  - `tag`   is the change kind shown in the Type column.
+ *  - `label` is the subject's own name for the Field column (part/sub-product/
+ *            revision name); omit to fall back to the `type` label.
+ *  - `from` / `to` hold the old / new detail values.
+ */
+export interface AuditEvent {
+  type: string;
+  tag: 'added' | 'removed' | 'changed';
+  label?: string | null;
+  from?: string | null;
+  to?: string | null;
 }
 
 /**
@@ -117,40 +124,45 @@ export function diffFields<T extends Record<string, unknown>>(
   return changes;
 }
 
-/**
- * Diff two sets of named parameters into added / removed / changed. Matched by
- * `name`. Values compared with the same normalization as scalar fields.
- */
-export function diffParameters(
-  before: NamedParam[],
-  after: NamedParam[],
-): ParameterDelta {
-  const beforeByName = new Map(before.map((p) => [p.name, p.value]));
-  const afterByName = new Map(after.map((p) => [p.name, p.value]));
-
-  const added: NamedParam[] = [];
-  const removed: NamedParam[] = [];
-  const changed: { name: string; from: string; to: string }[] = [];
-
-  for (const { name, value } of after) {
-    if (!beforeByName.has(name)) {
-      added.push({ name, value });
-    } else if (!valuesEqual(beforeByName.get(name), value)) {
-      changed.push({ name, from: beforeByName.get(name) ?? '', to: value });
-    }
-  }
-  for (const { name, value } of before) {
-    if (!afterByName.has(name)) removed.push({ name, value });
-  }
-
-  return { added, removed, changed };
+/** A keyed, labelled value for diffing collections into events. */
+export interface KeyedValue {
+  /** Stable identity for matching (parameter id, etc.); undefined = new item. */
+  key: string | number | undefined;
+  /** Display name for the Field column. */
+  label: string;
+  /** The value compared for changes (a raw value, or a descriptor string). */
+  value: string;
 }
 
-/** True when a parameter delta contains no actual changes. */
-export function isEmptyParameterDelta(delta: ParameterDelta): boolean {
-  return (
-    delta.added.length === 0 &&
-    delta.removed.length === 0 &&
-    delta.changed.length === 0
+/**
+ * Diff two keyed collections into add / remove / change events. Matched by
+ * `key` (stable across renames); items with no key are treated as additions.
+ * The single mechanism used for both part parameter values and part-category
+ * parameter definitions.
+ */
+export function diffKeyedEvents(
+  before: KeyedValue[],
+  after: KeyedValue[],
+  type: string,
+): AuditEvent[] {
+  const beforeByKey = new Map(
+    before.filter((x) => x.key != null).map((x) => [x.key, x]),
   );
+  const afterKeys = new Set(after.filter((x) => x.key != null).map((x) => x.key));
+
+  const events: AuditEvent[] = [];
+  for (const a of after) {
+    const prev = a.key != null ? beforeByKey.get(a.key) : undefined;
+    if (!prev) {
+      events.push({ type, tag: 'added', label: a.label, to: a.value });
+    } else if (!valuesEqual(prev.value, a.value)) {
+      events.push({ type, tag: 'changed', label: a.label, from: prev.value, to: a.value });
+    }
+  }
+  for (const b of before) {
+    if (b.key != null && !afterKeys.has(b.key)) {
+      events.push({ type, tag: 'removed', label: b.label, from: b.value });
+    }
+  }
+  return events;
 }

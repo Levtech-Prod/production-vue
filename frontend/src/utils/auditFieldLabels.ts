@@ -18,9 +18,19 @@ export const PART_CATEGORY_FIELD_LABEL_KEYS: Record<string, string> = {
   image: 'field_image',
 };
 
+export const PRODUCT_FIELD_LABEL_KEYS: Record<string, string> = {
+  name: 'field_name',
+  sku: 'field_sku',
+  type: 'field_type',
+  description: 'field_description',
+  image: 'field_image',
+  status: 'field_status',
+};
+
 const LABELS_BY_ENTITY: Record<string, Record<string, string>> = {
   part: PART_FIELD_LABEL_KEYS,
   part_category: PART_CATEGORY_FIELD_LABEL_KEYS,
+  product: PRODUCT_FIELD_LABEL_KEYS,
 };
 
 /** i18n key for a field of `entityType`, or the raw key if none is registered. */
