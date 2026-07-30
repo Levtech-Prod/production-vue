@@ -286,13 +286,15 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
       [revId],
     );
 
-    let position = 0;
-    for (const sprId of cleanIds) {
+    // Re-insert the deduplicated set in one round-trip; ORDINALITY restores the
+    // 0-based position from the array order.
+    if (cleanIds.length > 0) {
       await client.query(
         `INSERT INTO product_revision_sub_products
            (product_revision_id, sub_product_revision_id, position)
-         VALUES ($1, $2, $3)`,
-        [revId, sprId, position++],
+         SELECT $1, sprid, ord - 1
+         FROM unnest($2::int[]) WITH ORDINALITY AS t(sprid, ord)`,
+        [revId, cleanIds],
       );
     }
 

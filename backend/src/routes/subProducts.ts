@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { PoolClient } from 'pg';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
@@ -32,6 +33,50 @@ function bomLineDetails(
   if (unit) bits.push(unit);
   if (notes) bits.push(`"${notes}"`);
   return bits.join(' · ');
+}
+
+// A BOM line as accepted from a request payload.
+interface RevisionPartInput {
+  partId: number;
+  quantity: number;
+  unit?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Upsert a revision's BOM lines in a single round-trip. Duplicate part ids in
+ * the payload are collapsed last-wins (matching the old per-row upsert loop),
+ * which also avoids Postgres' "ON CONFLICT cannot affect row a second time"
+ * error that a naive batched upsert would hit on duplicates. The ON CONFLICT
+ * clause still overrides rows copied from a duplicated source revision.
+ */
+async function insertRevisionParts(
+  client: PoolClient,
+  revisionId: number,
+  parts: RevisionPartInput[],
+): Promise<void> {
+  if (parts.length === 0) return;
+  const byPart = new Map<number, RevisionPartInput>();
+  for (const p of parts) byPart.set(p.partId, p);
+  const lines = Array.from(byPart.values());
+  await client.query(
+    `INSERT INTO sub_product_revision_parts
+       (sub_product_revision_id, part_id, quantity, unit, notes)
+     SELECT $1, part_id, quantity, unit, notes
+     FROM unnest($2::int[], $3::numeric[], $4::text[], $5::text[])
+       AS t(part_id, quantity, unit, notes)
+     ON CONFLICT (sub_product_revision_id, part_id)
+     DO UPDATE SET quantity = EXCLUDED.quantity,
+                   unit = EXCLUDED.unit,
+                   notes = EXCLUDED.notes`,
+    [
+      revisionId,
+      lines.map((p) => p.partId),
+      lines.map((p) => p.quantity),
+      lines.map((p) => p.unit || null),
+      lines.map((p) => p.notes || null),
+    ],
+  );
 }
 
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
@@ -198,18 +243,7 @@ router.post('/', requireAuth, async (req, res) => {
     const rev1 = revResult.rows[0];
 
     // Attach any parts chosen at creation time to Rev. 1.
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [rev1.id, part.partId, part.quantity, part.unit || null, part.notes || null],
-      );
-    }
+    await insertRevisionParts(client, rev1.id, data.parts);
 
     // Product-level log: a new sub-product was added (name only, by request).
     const actor = await resolveActor(client, req.user?.id);
@@ -346,24 +380,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
 
     // Explicitly provided parts are inserted (and override duplicated ones
     // for the same part via upsert).
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [
-          newRevision.id,
-          part.partId,
-          part.quantity,
-          part.unit || null,
-          part.notes || null,
-        ],
-      );
-    }
+    await insertRevisionParts(client, newRevision.id, data.parts);
 
     await client.query('COMMIT');
     res.json(newRevision);
@@ -487,18 +504,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       `DELETE FROM sub_product_revision_parts WHERE sub_product_revision_id = $1`,
       [revId],
     );
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [revId, part.partId, part.quantity, part.unit || null, part.notes || null],
-      );
-    }
+    await insertRevisionParts(client, revId, data.parts);
 
     // ── Product log: which BOM parts were added / changed / removed ──
     // Resolve the product plus the sub-product name and revision label so each
