@@ -36,17 +36,17 @@
             :key="entry.log.id + '-' + idx"
             class="border-t border-slate-100 hover:bg-slate-50 transition-colors"
           >
-            <!-- Action badge (spans the group) -->
-            <td v-if="idx === 0" :rowspan="entry.rows.length" class="p-4 align-top">
+            <!-- Action — per row, reflecting what happened -->
+            <td class="p-4">
               <span
                 class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="actionClass(entry.log.action)"
+                :class="actionClass(row.actionKey)"
               >
-                {{ t(entry.log.action) }}
+                {{ t(actionKeyLabel(row.actionKey)) }}
               </span>
             </td>
 
-            <!-- Field -->
+            <!-- Field (name of what changed) -->
             <td class="p-4 text-slate-700">{{ row.field }}</td>
 
             <!-- Old value -->
@@ -100,7 +100,7 @@ import { storeToRefs } from 'pinia';
 import { useAuditLogsStore } from '../stores/auditLogsStore.ts';
 import { fieldLabelKey } from '../utils/auditFieldLabels.ts';
 import { formatDate } from '../utils/formatters.ts';
-import type { AuditAction, AuditChanges, AuditLog } from '../types/auditLogs.ts';
+import type { AuditAction, AuditChanges, AuditEvent, AuditLog } from '../types/auditLogs.ts';
 
 const props = defineProps<{
   entityType: string;
@@ -126,22 +126,51 @@ watch(
 
 // ── Flatten each log into one or more table rows ──────────────────────────────
 
+// Per-row action shown in the Action column. Additions -> 'added', removals ->
+// 'removed', any modification -> 'updated'; whole-record create/delete keep
+// their own labels.
+type ActionKey = 'created' | 'updated' | 'deleted' | 'added' | 'removed';
+
 interface DisplayRow {
+  actionKey: ActionKey;
   field: string;
   old: string;
   new: string;
   highlight: boolean;
 }
 
-function actionClass(action: AuditAction): string {
-  switch (action) {
+function actionClass(key: ActionKey): string {
+  switch (key) {
     case 'created':
+    case 'added':
       return 'bg-green-50 text-green-700';
     case 'deleted':
+    case 'removed':
       return 'bg-red-50 text-red-700';
     default:
       return 'bg-amber-50 text-amber-700';
   }
+}
+
+function actionKeyLabel(key: ActionKey): string {
+  if (key === 'added') return 'action_added';
+  if (key === 'removed') return 'action_removed';
+  if (key === 'created' || key === 'deleted') return key;
+  return 'updated'; // default / unknown
+}
+
+// A parameter/event delta tag -> a row action ('changed' reads as 'updated').
+function tagAction(tag: 'added' | 'removed' | 'changed'): ActionKey {
+  return tag === 'changed' ? 'updated' : tag;
+}
+
+// Legacy rows may lack an explicit tag — derive it from which values exist.
+function deriveTag(from?: string | null, to?: string | null): 'added' | 'removed' | 'changed' {
+  const hasFrom = from != null && from !== '';
+  const hasTo = to != null && to !== '';
+  if (hasTo && !hasFrom) return 'added';
+  if (hasFrom && !hasTo) return 'removed';
+  return 'changed';
 }
 
 function label(field: string): string {
@@ -163,38 +192,54 @@ function snapshotSummary(snapshot: Record<string, unknown> | undefined): string 
   if (!snapshot) return '';
   const parts: string[] = [];
   if (snapshot.name) parts.push(String(snapshot.name));
-  if (snapshot.code) parts.push(`(${snapshot.code})`);
-  if (snapshot.category) parts.push(`· ${snapshot.category}`);
+  // code (parts) or sku (products) — whichever identifies the record.
+  const identifier = snapshot.code ?? snapshot.sku;
+  if (identifier) parts.push(`(${identifier})`);
+  // category (parts) or type (products) as a trailing qualifier.
+  const qualifier = snapshot.category ?? snapshot.type;
+  if (qualifier) parts.push(`· ${qualifier}`);
   return parts.join(' ');
 }
 
 function rowsFor(action: AuditAction, changes: AuditChanges): DisplayRow[] {
   if (action === 'created') {
-    return [{ field: '—', old: '', new: snapshotSummary(changes.snapshot), highlight: false }];
+    return [{ actionKey: 'created', field: '—', old: '', new: snapshotSummary(changes.snapshot), highlight: false }];
   }
   if (action === 'deleted') {
-    return [{ field: '—', old: snapshotSummary(changes.snapshot), new: '', highlight: false }];
+    return [{ actionKey: 'deleted', field: '—', old: snapshotSummary(changes.snapshot), new: '', highlight: false }];
   }
 
   const rows: DisplayRow[] = [];
   for (const [key, change] of Object.entries(changes.fields ?? {})) {
     rows.push({
+      actionKey: 'updated',
       field: label(key),
       old: formatValue(change.from),
       new: formatValue(change.to),
       highlight: true,
     });
   }
-  const params = changes.parameters;
-  if (params) {
-    for (const p of params.added) rows.push({ field: p.name, old: '', new: p.value, highlight: true });
-    for (const p of params.changed) rows.push({ field: p.name, old: p.from, new: p.to, highlight: true });
-    for (const p of params.removed) rows.push({ field: p.name, old: p.value, new: '', highlight: true });
+  for (const ev of changes.events ?? []) {
+    rows.push(eventRow(ev));
   }
   if (rows.length === 0) {
-    rows.push({ field: '—', old: '', new: '', highlight: false });
+    rows.push({ actionKey: 'updated', field: '—', old: '', new: '', highlight: false });
   }
   return rows;
+}
+
+// A generic event -> row. Field shows the subject's name (or a translated kind
+// label when it has none, e.g. the default revision); the action reflects the kind.
+function eventRow(ev: AuditEvent): DisplayRow {
+  const tag = ev.tag ?? deriveTag(ev.from, ev.to);
+  const fallbackLabel = ev.type ? t(`event_${ev.type}`) : '—';
+  return {
+    actionKey: tagAction(tag),
+    field: ev.label ?? fallbackLabel,
+    old: ev.from ?? '',
+    new: ev.to ?? '',
+    highlight: true,
+  };
 }
 
 const displayLogs = computed(() =>
