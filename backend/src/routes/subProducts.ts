@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { PoolClient } from 'pg';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
@@ -9,8 +10,74 @@ import {
   replaceRevisionPartsSchema,
 } from '../schemas/subProducts.schema.js';
 import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
+import {
+  logAudit,
+  resolveActor,
+  valuesEqual,
+  type AuditEvent,
+  type AuditScope,
+} from '../services/audit.js';
 
 const router = Router();
+
+// Compact descriptor of a BOM line's fields (quantity, unit, notes) for the
+// product log. The part name is carried separately as the event label, so it
+// is not repeated here.
+function bomLineDetails(
+  quantity: number | null,
+  unit: string | null,
+  notes: string | null,
+): string {
+  const bits: string[] = [];
+  if (quantity != null) bits.push(`× ${quantity}`);
+  if (unit) bits.push(unit);
+  if (notes) bits.push(`"${notes}"`);
+  return bits.join(' · ');
+}
+
+// A BOM line as accepted from a request payload.
+interface RevisionPartInput {
+  partId: number;
+  quantity: number;
+  unit?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Upsert a revision's BOM lines in a single round-trip. Duplicate part ids in
+ * the payload are collapsed last-wins (matching the old per-row upsert loop),
+ * which also avoids Postgres' "ON CONFLICT cannot affect row a second time"
+ * error that a naive batched upsert would hit on duplicates. The ON CONFLICT
+ * clause still overrides rows copied from a duplicated source revision.
+ */
+async function insertRevisionParts(
+  client: PoolClient,
+  revisionId: number,
+  parts: RevisionPartInput[],
+): Promise<void> {
+  if (parts.length === 0) return;
+  const byPart = new Map<number, RevisionPartInput>();
+  for (const p of parts) byPart.set(p.partId, p);
+  const lines = Array.from(byPart.values());
+  await client.query(
+    `INSERT INTO sub_product_revision_parts
+       (sub_product_revision_id, part_id, quantity, unit, notes)
+     SELECT $1, part_id, quantity, unit, notes
+     FROM unnest($2::int[], $3::numeric[], $4::text[], $5::text[])
+       AS t(part_id, quantity, unit, notes)
+     ON CONFLICT (sub_product_revision_id, part_id)
+     DO UPDATE SET quantity = EXCLUDED.quantity,
+                   unit = EXCLUDED.unit,
+                   notes = EXCLUDED.notes`,
+    [
+      revisionId,
+      lines.map((p) => p.partId),
+      lines.map((p) => p.quantity),
+      lines.map((p) => p.unit || null),
+      lines.map((p) => p.notes || null),
+    ],
+  );
+}
 
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
 // Registered before /:spId routes so the literal path takes precedence.
@@ -176,18 +243,13 @@ router.post('/', requireAuth, async (req, res) => {
     const rev1 = revResult.rows[0];
 
     // Attach any parts chosen at creation time to Rev. 1.
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [rev1.id, part.partId, part.quantity, part.unit || null, part.notes || null],
-      );
-    }
+    await insertRevisionParts(client, rev1.id, data.parts);
+
+    // Product-level log: a new sub-product was added (name only, by request).
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(client, 'product', data.productId, 'updated', {
+      events: [{ type: 'sub_product', tag: 'added', label: subProduct.name }],
+    }, actor);
 
     await client.query('COMMIT');
     res.json({ ...subProduct, revisions: [rev1] });
@@ -318,24 +380,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
 
     // Explicitly provided parts are inserted (and override duplicated ones
     // for the same part via upsert).
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [
-          newRevision.id,
-          part.partId,
-          part.quantity,
-          part.unit || null,
-          part.notes || null,
-        ],
-      );
-    }
+    await insertRevisionParts(client, newRevision.id, data.parts);
 
     await client.query('COMMIT');
     res.json(newRevision);
@@ -438,21 +483,98 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
+    // Snapshot the current BOM (with part names) before the replace, so we can
+    // diff old vs new for the product change log.
+    const oldParts = await client.query<{
+      partId: number;
+      name: string;
+      quantity: number | null;
+      unit: string | null;
+      notes: string | null;
+    }>(
+      `SELECT sprp.part_id AS "partId", p.name,
+         sprp.quantity::integer AS quantity, sprp.unit, sprp.notes
+       FROM sub_product_revision_parts sprp
+       JOIN parts p ON p.id = sprp.part_id
+       WHERE sprp.sub_product_revision_id = $1`,
+      [revId],
+    );
+
     await client.query(
       `DELETE FROM sub_product_revision_parts WHERE sub_product_revision_id = $1`,
       [revId],
     );
-    for (const part of data.parts) {
-      await client.query(
-        `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (sub_product_revision_id, part_id)
-         DO UPDATE SET quantity = EXCLUDED.quantity,
-                       unit = EXCLUDED.unit,
-                       notes = EXCLUDED.notes`,
-        [revId, part.partId, part.quantity, part.unit || null, part.notes || null],
-      );
+    await insertRevisionParts(client, revId, data.parts);
+
+    // ── Product log: which BOM parts were added / changed / removed ──
+    // Resolve the product plus the sub-product name and revision label so each
+    // part event records *where* the change happened (which sub-product + rev).
+    const prod = await client.query<{
+      productId: number;
+      subProductName: string;
+      revLabel: string;
+    }>(
+      `SELECT sp.product_id AS "productId", sp.name AS "subProductName",
+         spr.label AS "revLabel"
+       FROM sub_products sp
+       JOIN sub_product_revisions spr ON spr.id = $2
+       WHERE sp.id = $1`,
+      [spId, revId],
+    );
+    const productId = prod.rows[0]?.productId;
+    const scope: AuditScope[] = prod.rows[0]
+      ? [
+          { type: 'sub_product', label: prod.rows[0].subProductName },
+          { type: 'sub_product_revision', label: prod.rows[0].revLabel },
+        ]
+      : [];
+
+    const incomingIds = data.parts.map((p) => p.partId);
+    const nameRes = await client.query<{ id: number; name: string }>(
+      `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
+      [incomingIds.length ? incomingIds : [0]],
+    );
+    const nameById = new Map(nameRes.rows.map((r) => [r.id, r.name]));
+    const oldByPart = new Map(oldParts.rows.map((r) => [r.partId, r]));
+    const newIds = new Set(incomingIds);
+
+    const events: AuditEvent[] = [];
+    for (const p of data.parts) {
+      const name = nameById.get(p.partId) ?? oldByPart.get(p.partId)?.name ?? String(p.partId);
+      const to = bomLineDetails(p.quantity, p.unit || null, p.notes || null);
+      const prev = oldByPart.get(p.partId);
+      if (!prev) {
+        events.push({ type: 'part', tag: 'added', label: name, scope, to });
+      } else if (
+        !valuesEqual(prev.quantity, p.quantity) ||
+        !valuesEqual(prev.unit, p.unit || null) ||
+        !valuesEqual(prev.notes, p.notes || null)
+      ) {
+        events.push({
+          type: 'part',
+          tag: 'changed',
+          label: name,
+          scope,
+          from: bomLineDetails(prev.quantity, prev.unit, prev.notes),
+          to,
+        });
+      }
+    }
+    for (const o of oldParts.rows) {
+      if (!newIds.has(o.partId)) {
+        events.push({
+          type: 'part',
+          tag: 'removed',
+          label: o.name,
+          scope,
+          from: bomLineDetails(o.quantity, o.unit, o.notes),
+        });
+      }
+    }
+
+    if (events.length > 0 && productId) {
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(client, 'product', productId, 'updated', { events }, actor);
     }
 
     await client.query('COMMIT');

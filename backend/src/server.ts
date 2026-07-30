@@ -16,6 +16,7 @@ import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
+import auditLogRoutes from './routes/auditLogs.js';
 import { ErrorCodes } from './errorCodes.js';
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/api/product-types', productTypeRoutes);
 app.use('/api/sub-product-types', subProductTypeRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
+app.use('/api/audit-logs', auditLogRoutes);
 
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/api', uploadRoutes);

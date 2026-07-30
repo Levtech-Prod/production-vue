@@ -11,12 +11,11 @@
       </div>
 
       <div class="flex items-center gap-0.5 shrink-0">
-        <!-- History icon — visible once there's any movement logged -->
+        <!-- History — always available: every part has at least a change log -->
         <button
-          v-if="entries.length"
           type="button"
           class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-          :title="t('stock_history')"
+          :title="t('history')"
           @click="showHistoryModal = true"
         >
           <Clock class="h-4 w-4" />
@@ -211,6 +210,7 @@
     v-model="showHistoryModal"
     :entries="entries"
     :part-name="part.name"
+    :part-id="part.id"
   />
 </template>
 

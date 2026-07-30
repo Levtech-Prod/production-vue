@@ -26,7 +26,17 @@
         </div>
 
         <div class="min-w-0 flex-1">
-          <h1 class="text-2xl font-bold">{{ detail.name }}</h1>
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-bold">{{ detail.name }}</h1>
+            <button
+              type="button"
+              class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+              :title="t('change_log')"
+              @click="emit('show-history')"
+            >
+              <Clock class="h-4 w-4" />
+            </button>
+          </div>
           <div class="font-mono text-sm text-slate-500">{{ detail.sku }}</div>
           <p v-if="detail.description" class="mt-2 text-sm text-slate-500">
             {{ detail.description }}
@@ -110,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { Archive, Star } from 'lucide-vue-next';
+import { Archive, Star, Clock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatDate } from '../../../utils/formatters.ts';
 import type { ProductDetail } from '../../../types/products.ts';
@@ -122,7 +132,10 @@ const props = defineProps<{
   isArchived: boolean;
 }>();
 
-const emit = defineEmits<{ (e: 'set-active-revision', id: number): void }>();
+const emit = defineEmits<{
+  (e: 'set-active-revision', id: number): void;
+  (e: 'show-history'): void;
+}>();
 
 const { t } = useI18n();
 
