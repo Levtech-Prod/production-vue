@@ -8,10 +8,9 @@ import {
   logAudit,
   resolveActor,
   diffFields,
-  diffParameters,
-  isEmptyParameterDelta,
+  diffKeyedEvents,
   valuesEqual,
-  type NamedParam,
+  type KeyedValue,
 } from '../services/audit.js';
 
 const router = Router();
@@ -349,25 +348,27 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       };
     }
 
-    // Parameters: build the delta from data already read above (no extra query).
+    // Parameters: build events from data already read above (no extra query).
     const paramNameRes = await client.query<{ id: number; name: string }>(
       `SELECT id, name FROM part_category_parameters WHERE id = ANY($1::int[])`,
       [incomingParameterIds.length ? incomingParameterIds : [0]],
     );
     const paramNameById = new Map(paramNameRes.rows.map((r) => [r.id, r.name]));
-    const beforeParams: NamedParam[] = existingResult.rows.map((r) => ({
-      name: r.name,
+    const beforeParams: KeyedValue[] = existingResult.rows.map((r) => ({
+      key: r.parameter_id,
+      label: r.name,
       value: r.value,
     }));
-    const afterParams: NamedParam[] = data.parameters.map((p) => ({
-      name: paramNameById.get(p.parameterId) ?? String(p.parameterId),
+    const afterParams: KeyedValue[] = data.parameters.map((p) => ({
+      key: p.parameterId,
+      label: paramNameById.get(p.parameterId) ?? String(p.parameterId),
       value: p.value,
     }));
-    const paramDelta = diffParameters(beforeParams, afterParams);
+    const paramEvents = diffKeyedEvents(beforeParams, afterParams, 'parameter');
 
     const changes: Record<string, unknown> = {};
     if (Object.keys(fields).length > 0) changes.fields = fields;
-    if (!isEmptyParameterDelta(paramDelta)) changes.parameters = paramDelta;
+    if (paramEvents.length > 0) changes.events = paramEvents;
 
     if (Object.keys(changes).length > 0) {
       const actor = await resolveActor(client, userId);

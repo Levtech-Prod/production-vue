@@ -11,9 +11,9 @@ import {
   resolveActor,
   diffFields,
   valuesEqual,
-  isEmptyParameterDelta,
-  type NamedParam,
-  type ParameterDelta,
+  diffKeyedEvents,
+  type AuditEvent,
+  type KeyedValue,
 } from '../services/audit.js';
 
 const router = Router();
@@ -30,8 +30,8 @@ interface CategoryParam {
 }
 
 // Compact human-readable descriptor of a parameter definition. Excludes
-// sort_order so reordering parameters never registers as a change. Includes the
-// name so a rename is visible in the from -> to diff.
+// sort_order so reordering parameters never registers as a change. Includes
+// `required` so toggling it is logged, and the name so a rename is visible.
 function paramDescriptor(p: CategoryParam): string {
   const bits: string[] = [`${p.name}: ${p.type}`];
   if (p.unit) bits.push(p.unit);
@@ -41,40 +41,10 @@ function paramDescriptor(p: CategoryParam): string {
   return bits.join(' · ');
 }
 
-// Diff category parameters by id (stable across renames), into added / removed
-// / changed. New rows (no id) are additions; missing ids are removals.
-function diffCategoryParameters(
-  before: CategoryParam[],
-  after: CategoryParam[],
-): ParameterDelta {
-  const beforeById = new Map(
-    before.filter((p) => p.id != null).map((p) => [p.id as number, p]),
-  );
-  const afterIds = new Set(
-    after.filter((p) => p.id != null).map((p) => p.id as number),
-  );
-
-  const added: NamedParam[] = [];
-  const removed: NamedParam[] = [];
-  const changed: { name: string; from: string; to: string }[] = [];
-
-  for (const p of after) {
-    const prev = p.id != null ? beforeById.get(p.id) : undefined;
-    if (!prev) {
-      added.push({ name: p.name, value: paramDescriptor(p) });
-    } else {
-      const from = paramDescriptor(prev);
-      const to = paramDescriptor(p);
-      if (from !== to) changed.push({ name: p.name, from, to });
-    }
-  }
-  for (const p of before) {
-    if (p.id != null && !afterIds.has(p.id)) {
-      removed.push({ name: p.name, value: paramDescriptor(p) });
-    }
-  }
-
-  return { added, removed, changed };
+// A parameter definition as a keyed value: matched by id (stable across
+// renames), labelled by name, compared via its descriptor.
+function toKeyedValue(p: CategoryParam): KeyedValue {
+  return { key: p.id, label: p.name, value: paramDescriptor(p) };
 }
 
 router.get('/', requireAuth, async (_req, res) => {
@@ -172,8 +142,8 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   const userId = req.user?.id;
   const client = await pool.connect();
 
-  // Parameter delta for the audit log; stays null when `parameters` was omitted.
-  let paramDelta: ParameterDelta | null = null;
+  // Parameter change events for the audit log; empty when `parameters` was omitted.
+  let paramEvents: AuditEvent[] = [];
 
   try {
     await client.query('BEGIN');
@@ -227,8 +197,8 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       );
 
       // Diff before mutating: existing rows vs the incoming set, matched by id.
-      paramDelta = diffCategoryParameters(
-        existingResult.rows.map((r) => ({
+      const beforeParams: KeyedValue[] = existingResult.rows.map((r) =>
+        toKeyedValue({
           id: r.id,
           name: r.name,
           type: r.type,
@@ -236,8 +206,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           required: r.required,
           showAsColumn: r.showAsColumn,
           options: r.options,
-        })),
-        incomingParameters.map((p) => ({
+        }),
+      );
+      const afterParams: KeyedValue[] = incomingParameters.map((p) =>
+        toKeyedValue({
           id: p.id,
           name: p.name,
           type: p.type,
@@ -245,8 +217,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           required: p.required,
           showAsColumn: p.showAsColumn ?? false,
           options: p.type === 'dropdown' ? p.options : [],
-        })),
+        }),
       );
+      paramEvents = diffKeyedEvents(beforeParams, afterParams, 'parameter');
 
       const existingIds = existingResult.rows.map((row) => row.id);
 
@@ -361,9 +334,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 
     const changes: Record<string, unknown> = {};
     if (Object.keys(fields).length > 0) changes.fields = fields;
-    if (paramDelta && !isEmptyParameterDelta(paramDelta)) {
-      changes.parameters = paramDelta;
-    }
+    if (paramEvents.length > 0) changes.events = paramEvents;
 
     if (Object.keys(changes).length > 0) {
       const actor = await resolveActor(client, userId);

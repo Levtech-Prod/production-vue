@@ -9,8 +9,29 @@ import {
   replaceRevisionPartsSchema,
 } from '../schemas/subProducts.schema.js';
 import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
+import {
+  logAudit,
+  resolveActor,
+  valuesEqual,
+  type AuditEvent,
+} from '../services/audit.js';
 
 const router = Router();
+
+// Compact descriptor of a BOM line's fields (quantity, unit, notes) for the
+// product log. The part name is carried separately as the event label, so it
+// is not repeated here.
+function bomLineDetails(
+  quantity: number | null,
+  unit: string | null,
+  notes: string | null,
+): string {
+  const bits: string[] = [];
+  if (quantity != null) bits.push(`× ${quantity}`);
+  if (unit) bits.push(unit);
+  if (notes) bits.push(`"${notes}"`);
+  return bits.join(' · ');
+}
 
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
 // Registered before /:spId routes so the literal path takes precedence.
@@ -188,6 +209,12 @@ router.post('/', requireAuth, async (req, res) => {
         [rev1.id, part.partId, part.quantity, part.unit || null, part.notes || null],
       );
     }
+
+    // Product-level log: a new sub-product was added (name only, by request).
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(client, 'product', data.productId, 'updated', {
+      events: [{ type: 'sub_product', tag: 'added', label: subProduct.name }],
+    }, actor);
 
     await client.query('COMMIT');
     res.json({ ...subProduct, revisions: [rev1] });
@@ -438,6 +465,23 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
+    // Snapshot the current BOM (with part names) before the replace, so we can
+    // diff old vs new for the product change log.
+    const oldParts = await client.query<{
+      partId: number;
+      name: string;
+      quantity: number | null;
+      unit: string | null;
+      notes: string | null;
+    }>(
+      `SELECT sprp.part_id AS "partId", p.name,
+         sprp.quantity::integer AS quantity, sprp.unit, sprp.notes
+       FROM sub_product_revision_parts sprp
+       JOIN parts p ON p.id = sprp.part_id
+       WHERE sprp.sub_product_revision_id = $1`,
+      [revId],
+    );
+
     await client.query(
       `DELETE FROM sub_product_revision_parts WHERE sub_product_revision_id = $1`,
       [revId],
@@ -453,6 +497,59 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
                        notes = EXCLUDED.notes`,
         [revId, part.partId, part.quantity, part.unit || null, part.notes || null],
       );
+    }
+
+    // ── Product log: which BOM parts were added / changed / removed ──
+    const prod = await client.query<{ productId: number }>(
+      `SELECT product_id AS "productId" FROM sub_products WHERE id = $1`,
+      [spId],
+    );
+    const productId = prod.rows[0]?.productId;
+
+    const incomingIds = data.parts.map((p) => p.partId);
+    const nameRes = await client.query<{ id: number; name: string }>(
+      `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
+      [incomingIds.length ? incomingIds : [0]],
+    );
+    const nameById = new Map(nameRes.rows.map((r) => [r.id, r.name]));
+    const oldByPart = new Map(oldParts.rows.map((r) => [r.partId, r]));
+    const newIds = new Set(incomingIds);
+
+    const events: AuditEvent[] = [];
+    for (const p of data.parts) {
+      const name = nameById.get(p.partId) ?? oldByPart.get(p.partId)?.name ?? String(p.partId);
+      const to = bomLineDetails(p.quantity, p.unit || null, p.notes || null);
+      const prev = oldByPart.get(p.partId);
+      if (!prev) {
+        events.push({ type: 'part', tag: 'added', label: name, to });
+      } else if (
+        !valuesEqual(prev.quantity, p.quantity) ||
+        !valuesEqual(prev.unit, p.unit || null) ||
+        !valuesEqual(prev.notes, p.notes || null)
+      ) {
+        events.push({
+          type: 'part',
+          tag: 'changed',
+          label: name,
+          from: bomLineDetails(prev.quantity, prev.unit, prev.notes),
+          to,
+        });
+      }
+    }
+    for (const o of oldParts.rows) {
+      if (!newIds.has(o.partId)) {
+        events.push({
+          type: 'part',
+          tag: 'removed',
+          label: o.name,
+          from: bomLineDetails(o.quantity, o.unit, o.notes),
+        });
+      }
+    }
+
+    if (events.length > 0 && productId) {
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(client, 'product', productId, 'updated', { events }, actor);
     }
 
     await client.query('COMMIT');
