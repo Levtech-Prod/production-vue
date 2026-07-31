@@ -15,6 +15,7 @@
         :default-revision-label="defaultRevisionLabel"
         :is-archived="isArchived"
         @set-active-revision="setActiveRevision"
+        @show-history="historyOpen = true"
       />
 
       <!-- Main grid: structure tree + right panel -->
@@ -151,6 +152,13 @@
     </div>
 
     <!-- Modals -->
+    <ChangeLogModal
+      v-if="detail"
+      v-model="historyOpen"
+      entity-type="product"
+      :entity-id="detail.id"
+      :title="detail.name"
+    />
     <SubProductModal
       v-if="detail"
       v-model="subProductModalOpen"
@@ -242,6 +250,7 @@ import EditRevisionModal from './detail/EditRevisionModal.vue';
 import ComposeRevisionModal from './detail/ComposeRevisionModal.vue';
 import PartsEditorPanel from './detail/PartsEditorPanel.vue';
 import ProductOverviewCard from './detail/ProductOverviewCard.vue';
+import ChangeLogModal from '../../components/ChangeLogModal.vue';
 import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
@@ -275,6 +284,9 @@ const authStore = useAuthStore();
 const productId = computed(() => Number(route.params.id));
 const detail = computed(() => store.detail);
 const isArchived = computed(() => detail.value?.status === 'archived');
+
+// Change log modal (opened from the overview card header).
+const historyOpen = ref(false);
 const isAdmin = computed(() => authStore.isAdmin);
 
 // ── Selection / revision-switching state ──────────────────────────────────────

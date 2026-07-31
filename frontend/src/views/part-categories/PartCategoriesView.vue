@@ -96,6 +96,15 @@
                 <div class="flex items-center justify-end gap-1">
                   <button
                     type="button"
+                    class="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                    :title="t('change_log')"
+                    @click.stop="openHistory(category)"
+                  >
+                    <Clock class="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
                     class="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"
                     :title="t('edit')"
                     @click.stop="openEdit(category)"
@@ -200,6 +209,15 @@
       :image="previewCategory?.image"
       :title="previewCategory?.name"
     />
+
+    <!-- Change log -->
+    <ChangeLogModal
+      v-if="historyCategory"
+      v-model="historyOpen"
+      entity-type="part_category"
+      :entity-id="historyCategory.id"
+      :title="historyCategory.name"
+    />
   </div>
 </template>
 
@@ -213,7 +231,8 @@ import type {
 } from '../../types/partCategories.ts';
 import CategoryFormModal from './PartCategoryModal.vue';
 import PartCategoryParameterList from './PartCategoryParamsList.vue';
-import { Pencil, Trash2, Plus, Search, ClipboardList } from 'lucide-vue-next';
+import ChangeLogModal from '../../components/ChangeLogModal.vue';
+import { Pencil, Trash2, Plus, Search, ClipboardList, Clock } from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
@@ -257,6 +276,15 @@ const previewCategory = ref<PartCategory | null>(null);
 function openImagePreview(category: PartCategory) {
   previewCategory.value = category;
   imagePreviewOpen.value = true;
+}
+
+// Change log
+const historyOpen = ref(false);
+const historyCategory = ref<PartCategory | null>(null);
+
+function openHistory(category: PartCategory) {
+  historyCategory.value = category;
+  historyOpen.value = true;
 }
 
 // Modal state

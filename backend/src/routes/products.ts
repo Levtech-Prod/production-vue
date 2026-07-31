@@ -9,8 +9,37 @@ import {
   setProductStatusSchema,
   type ProductStatus,
 } from '../schemas/products.schema.js';
+import {
+  logAudit,
+  resolveActor,
+  diffFields,
+  valuesEqual,
+} from '../services/audit.js';
 
 const router = Router();
+
+// Write a product audit row in its own short transaction. Used for the rare
+// reactivation-with-SKU-conflict path, whose retry loop can't run inside the
+// main transaction (a 23505 aborts it). Best-effort: a logging failure must not
+// fail the status change the user already made.
+async function logProductAudit(
+  productId: number,
+  changes: Record<string, unknown>,
+  userId: number | undefined,
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const actor = await resolveActor(client, userId);
+    await logAudit(client, 'product', productId, 'updated', changes, actor);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Failed to write product audit log', err);
+  } finally {
+    client.release();
+  }
+}
 
 // How many "<sku>-N" candidates to try in resolveSkuConflictOnReactivate
 // before giving up. Collisions are resolved on the first or second try in
@@ -94,8 +123,11 @@ router.get('/', requireAuth, async (_req, res) => {
 // — once sub-products exist and are selected for it).
 router.post('/', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
+  const client = await pool.connect();
   try {
-    const productResult = await query(
+    await client.query('BEGIN');
+    const productResult = await client.query(
       `INSERT INTO products (name, sku, type, description, image)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, sku, type, description, image,
@@ -108,8 +140,17 @@ router.post('/', requireAuth, async (req, res) => {
         data.image,
       ],
     );
-    res.json({ ...productResult.rows[0], revisions: [] });
+    const product = productResult.rows[0];
+
+    const actor = await resolveActor(client, userId);
+    await logAudit(client, 'product', product.id, 'created', {
+      snapshot: { name: data.name, sku: data.sku, type: data.type },
+    }, actor);
+
+    await client.query('COMMIT');
+    res.json({ ...product, revisions: [] });
   } catch (err: any) {
+    await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res
         .status(409)
@@ -120,6 +161,8 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
     }
     throw err;
+  } finally {
+    client.release();
   }
 });
 
@@ -295,6 +338,12 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
       );
     }
 
+    // Product-level log: a new revision was created.
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(client, 'product', productId, 'updated', {
+      events: [{ type: 'revision', tag: 'added', label: newRevision.label }],
+    }, actor);
+
     await client.query('COMMIT');
     res.json(newRevision);
   } catch (err) {
@@ -312,6 +361,7 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
   const data = setDefaultRevisionSchema.parse(req.body);
+  const userId = req.user?.id;
 
   // When setting (not clearing), the revision must belong to this product.
   if (data.revisionId != null) {
@@ -324,15 +374,54 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
     }
   }
 
-  const result = await query(
-    `UPDATE products SET default_revision_id = $1 WHERE id = $2
-     RETURNING id, default_revision_id AS "defaultRevisionId"`,
-    [data.revisionId, productId],
-  );
-  if (result.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE products SET default_revision_id = $1
+       FROM (SELECT id, default_revision_id FROM products WHERE id = $2) old
+       WHERE products.id = old.id
+       RETURNING products.id, products.default_revision_id AS "defaultRevisionId",
+         old.default_revision_id AS "oldDefaultRevisionId"`,
+      [data.revisionId, productId],
+    );
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+
+    const row = result.rows[0];
+    if (!valuesEqual(row.oldDefaultRevisionId, row.defaultRevisionId)) {
+      // Resolve both ids to revision labels for a readable log entry.
+      const labels = await client.query<{ id: number; label: string }>(
+        `SELECT id, label FROM product_revisions WHERE id = ANY($1::int[])`,
+        [[row.oldDefaultRevisionId, row.defaultRevisionId].filter((v) => v != null)],
+      );
+      const labelById = new Map(labels.rows.map((r) => [r.id, r.label]));
+      const from = row.oldDefaultRevisionId != null
+        ? labelById.get(row.oldDefaultRevisionId) ?? null : null;
+      const to = row.defaultRevisionId != null
+        ? labelById.get(row.defaultRevisionId) ?? null : null;
+      const actor = await resolveActor(client, userId);
+      await logAudit(client, 'product', productId, 'updated', {
+        events: [{
+          type: 'default_revision',
+          tag: from && to ? 'changed' : to ? 'added' : 'removed',
+          from,
+          to,
+        }],
+      }, actor);
+    }
+
+    await client.query('COMMIT');
+    const { oldDefaultRevisionId: _o, ...out } = row;
+    res.json(out);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-  res.json(result.rows[0]);
 });
 
 // PATCH /api/products/:productId/status — archive or re-activate a product
@@ -342,19 +431,38 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
   const data = setProductStatusSchema.parse(req.body);
+  const userId = req.user?.id;
+  const client = await pool.connect();
 
   try {
-    const result = await query(
+    await client.query('BEGIN');
+    // Capture the previous status so the audit records the transition.
+    const result = await client.query(
       `UPDATE products SET status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, sku, status, updated_at AS "updatedAt"`,
+       FROM (SELECT id, status FROM products WHERE id = $2) old
+       WHERE products.id = old.id
+       RETURNING products.id, products.sku, products.status,
+         products.updated_at AS "updatedAt", old.status AS "oldStatus"`,
       [data.status, productId],
     );
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
     }
-    return res.json(result.rows[0]);
+
+    const row = result.rows[0];
+    if (!valuesEqual(row.oldStatus, row.status)) {
+      const actor = await resolveActor(client, userId);
+      await logAudit(client, 'product', productId, 'updated', {
+        fields: { status: { from: row.oldStatus, to: row.status } },
+      }, actor);
+    }
+
+    await client.query('COMMIT');
+    const { oldStatus: _prev, ...out } = row;
+    return res.json(out);
   } catch (err: any) {
+    await client.query('ROLLBACK');
     // Archiving never conflicts (archived rows sit outside the partial
     // unique index), so a 23505 here only happens on reactivation.
     if (err?.code !== '23505' || data.status !== 'active') {
@@ -367,7 +475,16 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
     if (!reactivated) {
       return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
     }
+    // The conflict path resolves outside the aborted transaction; record the
+    // reactivation separately (best-effort).
+    await logProductAudit(
+      productId,
+      { fields: { status: { from: 'archived', to: 'active' } } },
+      userId,
+    );
     return res.json(reactivated);
+  } finally {
+    client.release();
   }
 });
 
@@ -378,15 +495,27 @@ router.patch('/:productId', requireAuth, async (req, res) => {
     return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
   }
   const data = productPayloadSchema.parse(req.body);
+  const userId = req.user?.id;
+  const client = await pool.connect();
 
   try {
-    const result = await query(
+    await client.query('BEGIN');
+
+    // Capture old + new in one statement (see parts.ts) for the audit diff.
+    const result = await client.query(
       `UPDATE products
        SET name = $1, sku = $2, type = $3, description = $4, image = $5,
            updated_at = NOW()
-       WHERE id = $6
-       RETURNING id, name, sku, type, description, image,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+       FROM (SELECT * FROM products WHERE id = $6) old
+       WHERE products.id = old.id
+       RETURNING products.id, products.name, products.sku, products.type,
+         products.description, products.image,
+         products.created_at AS "createdAt", products.updated_at AS "updatedAt",
+         old.name        AS "oldName",
+         old.sku         AS "oldSku",
+         old.type        AS "oldType",
+         old.description AS "oldDescription",
+         old.image       AS "oldImage"`,
       [
         data.name,
         data.sku,
@@ -397,10 +526,42 @@ router.patch('/:productId', requireAuth, async (req, res) => {
       ],
     );
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
     }
-    res.json(result.rows[0]);
+
+    const row = result.rows[0];
+    const fields = diffFields(
+      { name: row.oldName, sku: row.oldSku, type: row.oldType, description: row.oldDescription },
+      { name: row.name, sku: row.sku, type: row.type, description: row.description },
+      ['name', 'sku', 'type', 'description'],
+    ) as Record<string, { from: unknown; to: unknown }>;
+
+    if (!valuesEqual(row.oldImage, row.image)) {
+      fields.image = {
+        from: row.oldImage ? '(image)' : null,
+        to: row.image ? '(image)' : null,
+      };
+    }
+
+    if (Object.keys(fields).length > 0) {
+      const actor = await resolveActor(client, userId);
+      await logAudit(client, 'product', productId, 'updated', { fields }, actor);
+    }
+
+    await client.query('COMMIT');
+
+    const {
+      oldName: _on,
+      oldSku: _os,
+      oldType: _ot,
+      oldDescription: _od,
+      oldImage: _oi,
+      ...productOut
+    } = row;
+    res.json(productOut);
   } catch (err: any) {
+    await client.query('ROLLBACK');
     if (err?.code === '23505') {
       return res
         .status(409)
@@ -411,6 +572,8 @@ router.patch('/:productId', requireAuth, async (req, res) => {
       return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
     }
     throw err;
+  } finally {
+    client.release();
   }
 });
 

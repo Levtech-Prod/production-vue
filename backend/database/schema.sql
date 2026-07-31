@@ -310,3 +310,20 @@ ALTER TABLE sub_products DROP CONSTRAINT IF EXISTS sub_products_type_fkey;
 ALTER TABLE sub_products
   ADD CONSTRAINT sub_products_type_fkey FOREIGN KEY (type)
     REFERENCES sub_product_types (name) ON UPDATE CASCADE;
+
+-- Generic, append-only audit log (see migration 012). No FK on entity_id so a
+-- log row survives a hard-delete of the entity it describes.
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          SERIAL PRIMARY KEY,
+  entity_type VARCHAR(40)  NOT NULL,
+  entity_id   INTEGER      NOT NULL,
+  action      VARCHAR(10)  NOT NULL,
+  changes     JSONB        NOT NULL DEFAULT '{}',
+  actor_id    INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+  actor_name  VARCHAR(120),
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_audit_action CHECK (action IN ('created', 'updated', 'deleted'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+  ON audit_logs (entity_type, entity_id, created_at DESC);
