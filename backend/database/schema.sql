@@ -311,6 +311,107 @@ ALTER TABLE sub_products
   ADD CONSTRAINT sub_products_type_fkey FOREIGN KEY (type)
     REFERENCES sub_product_types (name) ON UPDATE CASCADE;
 
+-- ===========================================================================
+-- Required Document Types (see migration 013)
+-- ---------------------------------------------------------------------------
+-- Document requirements are defined once per product / sub-product TYPE
+-- (template tables). Each physical file is recorded once in `stored_files`;
+-- thin per-revision rows point at a stored file + a document type, so a file
+-- can be shared across revisions by pointer without being copied on disk.
+-- Product docs are scoped per product REVISION (not per product). The old
+-- `product_documents` and `sub_product_revision_documents` tables are retained
+-- one release for rollback — the latter renamed to `..._legacy` below since the
+-- reshaped table reuses the canonical name. All blocks are idempotent.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS product_document_types (
+  id                 SERIAL PRIMARY KEY,
+  product_type_id    INTEGER NOT NULL REFERENCES product_types(id) ON DELETE CASCADE,
+  name               VARCHAR(120) NOT NULL,
+  icon               VARCHAR(60)  NOT NULL,
+  allowed_extensions TEXT[] NOT NULL DEFAULT '{}',
+  required           BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order         INTEGER NOT NULL DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(product_type_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_document_types (
+  id                  SERIAL PRIMARY KEY,
+  sub_product_type_id INTEGER NOT NULL REFERENCES sub_product_types(id) ON DELETE CASCADE,
+  name                VARCHAR(120) NOT NULL,
+  icon                VARCHAR(60)  NOT NULL,
+  allowed_extensions  TEXT[] NOT NULL DEFAULT '{}',
+  required            BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order          INTEGER NOT NULL DEFAULT 0,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(sub_product_type_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_document_types_type_id
+  ON product_document_types(product_type_id);
+CREATE INDEX IF NOT EXISTS idx_sub_product_document_types_type_id
+  ON sub_product_document_types(sub_product_type_id);
+
+CREATE TABLE IF NOT EXISTS stored_files (
+  id          SERIAL PRIMARY KEY,
+  storage_key TEXT     NOT NULL,   -- relative path within uploads/documents/
+  size_bytes  BIGINT   NOT NULL,
+  mime_type   VARCHAR(100),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_stored_files_storage_key ON stored_files(storage_key);
+
+CREATE TABLE IF NOT EXISTS product_revision_documents (
+  id                  SERIAL PRIMARY KEY,
+  product_revision_id INTEGER NOT NULL REFERENCES product_revisions(id) ON DELETE CASCADE,
+  document_type_id    INTEGER REFERENCES product_document_types(id) ON DELETE SET NULL,
+  stored_file_id      INTEGER NOT NULL REFERENCES stored_files(id),
+  original_name       VARCHAR(255) NOT NULL,
+  uploaded_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_rev_id
+  ON product_revision_documents(product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_type_id
+  ON product_revision_documents(document_type_id);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_stored_file_id
+  ON product_revision_documents(stored_file_id);
+
+-- Move the old sub-product docs table aside before creating the reshaped one
+-- (guarded on the legacy `filename` column so it never renames the new table).
+DO $$
+BEGIN
+  IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sub_product_revision_documents' AND column_name = 'filename'
+      )
+     AND NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'sub_product_revision_documents_legacy'
+      )
+  THEN
+    ALTER TABLE sub_product_revision_documents
+      RENAME TO sub_product_revision_documents_legacy;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  document_type_id        INTEGER REFERENCES sub_product_document_types(id) ON DELETE SET NULL,
+  stored_file_id          INTEGER NOT NULL REFERENCES stored_files(id),
+  original_name           VARCHAR(255) NOT NULL,
+  uploaded_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_sp_rev_id
+  ON sub_product_revision_documents(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_type_id
+  ON sub_product_revision_documents(document_type_id);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_stored_file_id
+  ON sub_product_revision_documents(stored_file_id);
+
 -- Generic, append-only audit log (see migration 012). No FK on entity_id so a
 -- log row survives a hard-delete of the entity it describes.
 CREATE TABLE IF NOT EXISTS audit_logs (
