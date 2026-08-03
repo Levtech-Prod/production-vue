@@ -15,6 +15,7 @@ import {
   diffFields,
   valuesEqual,
 } from '../services/audit.js';
+import { carryForwardOnNewRevision } from '../services/documentFiles.js';
 
 const router = Router();
 
@@ -337,6 +338,18 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
         [newRevision.id, data.duplicateFromId],
       );
     }
+
+    // Carry-forward (document-system-plan.md §3.4): inherit the source
+    // revision's documents — or, with no explicit source, the previous
+    // revision's — by reference. Only rows are copied; the files themselves
+    // stay stored once and are shared between the two revisions.
+    await carryForwardOnNewRevision(
+      client,
+      'product',
+      productId,
+      newRevision.id,
+      data.duplicateFromId,
+    );
 
     // Product-level log: a new revision was created.
     const actor = await resolveActor(client, req.user?.id);

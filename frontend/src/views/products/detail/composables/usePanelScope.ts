@@ -17,21 +17,14 @@ export function usePanelScope(selection: Ref<Selection>, activeProductRevId: Ref
       : null;
   });
 
-  // Documents scope: unlike the BOM (which needs a real revision to look
-  // up), product-level documents don't depend on any revision existing —
-  // see docsKeyFor below, which ignores `revId` for the 'product' kind. So
-  // this stays available even before the product has a first revision
-  // (0 is just a type placeholder, never sent to the API).
-  const docsScope = computed<PanelScope | null>(() => {
-    const sel = selection.value;
-    if (sel.type === 'subProduct') return { kind: 'spRev', spId: sel.spId, revId: sel.spRevId };
-    return { kind: 'product', revId: activeProductRevId.value ?? 0 };
-  });
-
-  // Product documents are product-level (not revision-scoped) — one cache entry.
+  // One cache entry per revision on both sides. Product documents are stored
+  // per product REVISION now (document-system-plan.md §3.3), so Rev.1 and
+  // Rev.2 must not share a single 'product' bucket.
   function docsKeyFor(scope: PanelScope): string {
-    return scope.kind === 'product' ? 'product' : `sp:${scope.spId}:${scope.revId}`;
+    return scope.kind === 'product'
+      ? `prod:${scope.revId}`
+      : `sp:${scope.spId}:${scope.revId}`;
   }
 
-  return { panelScope, docsScope, docsKeyFor };
+  return { panelScope, docsKeyFor };
 }

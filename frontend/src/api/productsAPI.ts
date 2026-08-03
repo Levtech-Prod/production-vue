@@ -121,20 +121,23 @@ export const subProductsApi = {
   },
 };
 
+// Documents hang off a REVISION on both sides now (document-system-plan.md
+// §3.3) — product documents are scoped to a product revision, not the whole
+// product. `PanelScope` already carries the selected revision id.
 export const documentsApi = {
-  getProductDocuments(productId: number) {
-    return api.get<ProductDocument[]>(`/products/${productId}/documents`);
+  getProductRevisionDocuments(revId: number) {
+    return api.get<ProductDocument[]>(`/product-revisions/${revId}/documents`);
   },
-  uploadProductDocument(productId: number, file: File, name?: string) {
+  uploadProductRevisionDocument(revId: number, file: File, name?: string) {
     const formData = new FormData();
     formData.append('file', file);
     if (name && name.trim()) formData.append('name', name.trim());
-    return api.post<ProductDocument>(`/products/${productId}/documents`, formData, {
+    return api.post<ProductDocument>(`/product-revisions/${revId}/documents`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  deleteProductDocument(productId: number, docId: number) {
-    return api.delete(`/products/${productId}/documents/${docId}`);
+  deleteProductRevisionDocument(revId: number, docId: number) {
+    return api.delete(`/product-revisions/${revId}/documents/${docId}`);
   },
   getSpRevisionDocuments(spId: number, revId: number) {
     return api.get<ProductDocument[]>(`/sub-products/${spId}/revisions/${revId}/documents`);

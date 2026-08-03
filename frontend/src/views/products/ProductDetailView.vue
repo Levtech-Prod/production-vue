@@ -79,14 +79,14 @@
           </div>
 
           <DocumentsPanel
-            v-if="activeTab === 'documents' && docsScope"
+            v-if="activeTab === 'documents' && panelScope"
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
             :uploading="docsUploading"
             :can-edit="!isArchived"
             :empty-text="
-              docsScope.kind === 'product'
+              panelScope.kind === 'product'
                 ? t('no_product_documents')
                 : t('no_sp_rev_documents')
             "
@@ -333,10 +333,7 @@ const tabs = computed(() => [
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
 
-const { panelScope, docsScope, docsKeyFor } = usePanelScope(
-  selection,
-  activeProductRevId,
-);
+const { panelScope, docsKeyFor } = usePanelScope(selection, activeProductRevId);
 
 const {
   docs,
@@ -357,7 +354,7 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
-} = useDocuments(productId, docsScope, docsKeyFor, spRevInfo);
+} = useDocuments(panelScope, docsKeyFor, spRevInfo);
 
 const {
   bom,
@@ -377,13 +374,10 @@ const {
 watch(panelScope, (scope) => {
   if (scope) void loadContent(scope);
 });
-// Load docs whenever their scope changes (e.g. selecting a different
-// sub-product) — product-level docs don't need a revision to exist, so this
-// can fire even before the product has one. The initial/per-product load is
-// handled explicitly in loadAndApplyDefaults() below instead of relying on
-// this watcher, since for a brand-new, revision-less product `docsScope`
-// never changes value across navigation (always `{ kind: 'product', revId: 0 }`).
-watch(docsScope, (scope) => {
+// Load docs whenever the panel scope changes (e.g. selecting a different
+// sub-product, or switching product revision — product documents are stored
+// per product revision now, so each one has its own set).
+watch(panelScope, (scope) => {
   if (scope) void loadDocs(scope);
 });
 
@@ -700,11 +694,10 @@ async function onCreateSubProductRevision(
 async function loadAndApplyDefaults() {
   await reload();
   applyDefaults();
-  // Explicit (rather than relying solely on the docsScope watcher below):
-  // for a brand-new product with no revisions yet, docsScope's value never
-  // actually changes across a product switch (always product-level, revId
-  // placeholder), so the watcher alone wouldn't fire here.
-  if (docsScope.value) void loadDocs(docsScope.value);
+  // Explicit (rather than relying solely on the panelScope watcher above):
+  // switching between two products whose active revision happens to be the
+  // same object leaves the scope value unchanged, so the watcher wouldn't fire.
+  if (panelScope.value) void loadDocs(panelScope.value);
 }
 
 onMounted(loadAndApplyDefaults);

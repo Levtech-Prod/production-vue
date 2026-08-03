@@ -21,7 +21,6 @@ interface DocToDelete {
  *  step) and delete, all scoped to whatever the Documents/BOM panels are
  *  currently showing (see `usePanelScope`). */
 export function useDocuments(
-  productId: ComputedRef<number>,
   panelScope: ComputedRef<PanelScope | null>,
   docsKeyFor: (scope: PanelScope) => string,
   spRevInfo: SpRevLookup,
@@ -54,7 +53,7 @@ export function useDocuments(
     try {
       const res =
         scope.kind === 'product'
-          ? await documentsApi.getProductDocuments(productId.value)
+          ? await documentsApi.getProductRevisionDocuments(scope.revId)
           : await documentsApi.getSpRevisionDocuments(scope.spId, scope.revId);
       if (token !== docsToken) return;
       docsCache.set(key, res.data);
@@ -100,7 +99,7 @@ export function useDocuments(
     try {
       const res =
         scope.kind === 'product'
-          ? await documentsApi.uploadProductDocument(productId.value, file, name)
+          ? await documentsApi.uploadProductRevisionDocument(scope.revId, file, name)
           : await documentsApi.uploadSpRevisionDocument(scope.spId, scope.revId, file, name);
       const key = docsKeyFor(scope);
       const updated = [res.data, ...(docsCache.get(key) ?? [])];
@@ -123,7 +122,7 @@ export function useDocuments(
   const deleteConfirm = useConfirmDelete<DocToDelete>(async (d) => {
     try {
       if (d.scope.kind === 'product') {
-        await documentsApi.deleteProductDocument(productId.value, d.id);
+        await documentsApi.deleteProductRevisionDocument(d.scope.revId, d.id);
       } else {
         await documentsApi.deleteSpRevisionDocument(d.scope.spId, d.scope.revId, d.id);
       }

@@ -163,9 +163,13 @@ export interface ComparePartsResult {
 
 export interface ProductDocument {
   id: number;
+  /** Which document-type card the file belongs to; null = "Other documents". */
+  documentTypeId: number | null;
   originalName: string;
+  /** Storage key: the file's path relative to uploads/documents/. */
   filename: string;
   mimeType: string | null;
+  sizeBytes: number;
   path: string;
   createdAt: string;
 }

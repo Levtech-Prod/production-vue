@@ -17,6 +17,7 @@ import {
   type AuditEvent,
   type AuditScope,
 } from '../services/audit.js';
+import { carryForwardOnNewRevision } from '../services/documentFiles.js';
 
 const router = Router();
 
@@ -381,6 +382,18 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
     // Explicitly provided parts are inserted (and override duplicated ones
     // for the same part via upsert).
     await insertRevisionParts(client, newRevision.id, data.parts);
+
+    // Carry-forward (document-system-plan.md §3.4): inherit the source
+    // revision's documents — or, with no explicit source, the previous
+    // revision's — by reference. Only rows are copied; the files themselves
+    // stay stored once and are shared between the two revisions.
+    await carryForwardOnNewRevision(
+      client,
+      'subProduct',
+      spId,
+      newRevision.id,
+      data.duplicateFromId,
+    );
 
     await client.query('COMMIT');
     res.json(newRevision);

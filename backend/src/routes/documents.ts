@@ -1,112 +1,60 @@
+// Revision documents (document-system-plan.md, Stories 1–2).
+//
+// Both product and sub-product documents now hang off a REVISION and point at a
+// row in `stored_files` rather than owning their bytes, so the same file can be
+// shared by several revisions. The sharing rules — carry-forward, copy-on-write
+// and the stateless cleanup check — live in `services/documentFiles.ts`; this
+// file is the HTTP surface over them.
+//
+// The two families are structurally identical, so each verb is written once
+// against a `DocumentScope` and the routes below are thin parameter-parsing
+// wrappers. Story 5 replaces the flat GET with the grouped payload (per document
+// type + status + summary), adds `documentTypeId` to upload/replace, and adds
+// the forced-download endpoints.
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
-import { query } from '../db.js';
+import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
+import {
+  documentUploadSchema,
+  type DocumentUploadPayload,
+} from '../schemas/documents.schema.js';
+import {
+  deleteDocument,
+  documentsDir,
+  findEntityForRevision,
+  insertDocument,
+  insertStoredFile,
+  listDocuments,
+  placeUpload,
+  publicPath,
+  repointDocument,
+  resolveEntityFolder,
+  safeUnlink,
+  unlinkStoredFile,
+  type DocumentRow,
+  type DocumentScope,
+} from '../services/documentFiles.js';
 
 const router = Router();
 
-// ── Storage ────────────────────────────────────────────────────────────────
+// ── Upload handling ────────────────────────────────────────────────────────
 
-const uploadDir = path.join(process.cwd(), 'uploads', 'documents');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// Files first land in the base documents folder under a temporary name, then
-// the request handler moves them into their per-entity subfolder once the
-// SKU (and any custom name) is known.
+// Files first land in the base documents folder under a temporary name; the
+// handler moves them into the owning entity's folder once it is resolved.
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
+  destination: (_req, _file, cb) => cb(null, documentsDir),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `tmp-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
   },
 });
 
-// ── Filesystem helpers ───────────────────────────────────────────────────────
-
-// Make a string safe to use as a single path segment (folder or file name):
-// strip path separators / control chars and guard against traversal.
-function sanitizeSegment(input: string): string {
-  const cleaned = input
-    .replace(/[/\\]/g, '_') // path separators
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x1f]/g, '') // control chars
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (cleaned === '' || cleaned === '.' || cleaned === '..') return '_';
-  return cleaned;
-}
-
-// Build the "{name}-{sku}" style folder name. Spaces in the name are turned
-// into dashes so the folder is a single tidy token. Sub-products may have no
-// SKU (see migration 002) — in that case the folder is just "{name}".
-function folderName(prefix: string, name: string, sku: string | null): string {
-  const dashedName = name.replace(/\s+/g, '-');
-  const suffix = sku ? `-${sku}` : '';
-  return sanitizeSegment(`${prefix}${dashedName}${suffix}`);
-}
-
-// Resolve the final on-disk file name inside `dirAbs`, based on a desired base
-// name (custom or original). Preserves the original extension and appends
-// " (n)" if a file with that name already exists so nothing is overwritten.
-function resolveUniqueName(
-  dirAbs: string,
-  desiredName: string,
-  originalName: string,
-): string {
-  const originalExt = path.extname(originalName);
-  let base = sanitizeSegment(desiredName || originalName);
-
-  // Ensure the desired name keeps a sensible extension.
-  if (path.extname(base) === '' && originalExt) base += originalExt;
-
-  const ext = path.extname(base);
-  const stem = base.slice(0, base.length - ext.length) || base;
-
-  let candidate = base;
-  let counter = 1;
-  while (fs.existsSync(path.join(dirAbs, candidate))) {
-    candidate = `${stem} (${counter})${ext}`;
-    counter += 1;
-  }
-  return candidate;
-}
-
-// Move the uploaded temp file into `folder`, naming it from the custom name (if
-// provided) or the original name. Returns { filename, path, displayName } where
-// `filename` is relative to the documents dir (folder/name).
-function placeUpload(
-  file: Express.Multer.File,
-  folder: string,
-  customName: string | undefined,
-): { filename: string; path: string; displayName: string } {
-  const dirAbs = path.join(uploadDir, folder);
-  if (!fs.existsSync(dirAbs)) fs.mkdirSync(dirAbs, { recursive: true });
-
-  const desired = (customName ?? '').trim();
-  const finalName = resolveUniqueName(dirAbs, desired, file.originalname);
-
-  fs.renameSync(file.path, path.join(dirAbs, finalName));
-
-  const relative = `${folder}/${finalName}`;
-  // filename stays raw (used for filesystem access on delete); the public path
-  // is URL-encoded per segment so spaces/parentheses resolve correctly.
-  const urlPath = `/uploads/documents/${encodeURIComponent(folder)}/${encodeURIComponent(finalName)}`;
-  return {
-    filename: relative,
-    path: urlPath,
-    displayName: finalName,
-  };
-}
-
-function safeUnlink(absPath: string): void {
-  if (fs.existsSync(absPath)) {
-    try { fs.unlinkSync(absPath); } catch { /* ignore */ }
-  }
-}
-
+// Story 5 widens this for engineering formats (.step, .hex, .elf, .pcbdoc, …)
+// and adds the per-document-type extension allow-list on top.
 const allowedMimeTypes = [
   'application/pdf',
   'application/msword',
@@ -131,108 +79,244 @@ const upload = multer({
   },
 });
 
-// ── Helper ─────────────────────────────────────────────────────────────────
+// ── Response shape ─────────────────────────────────────────────────────────
 
-function docRow(row: any) {
+function docResponse(row: DocumentRow) {
   return {
     id: row.id,
+    documentTypeId: row.document_type_id,
     originalName: row.original_name,
-    filename: row.filename,
+    filename: row.storage_key,
     mimeType: row.mime_type,
-    path: row.path,
+    sizeBytes: Number(row.size_bytes),
+    path: publicPath(row.storage_key),
     createdAt: row.created_at,
   };
 }
 
-// ── Product documents ──────────────────────────────────────────────────────
+// ── Shared handlers ────────────────────────────────────────────────────────
 
-// GET /api/products/:productId/documents
-router.get('/products/:productId/documents', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
+/**
+ * Store an uploaded file in the revision's owning entity folder and record it
+ * as a new document row. The `stored_files` row and the document row are
+ * inserted in one transaction; if it fails, the file just written is removed
+ * again so a rolled-back upload leaves nothing behind.
+ */
+async function handleUpload(
+  res: Response,
+  scope: DocumentScope,
+  revisionId: number,
+  file: Express.Multer.File,
+  customName: string | undefined,
+  userId: number | null,
+) {
+  const entity = await findEntityForRevision(pool, scope, revisionId);
+  if (!entity) {
+    safeUnlink(file.path);
+    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
   }
-  const result = await query(
-    `SELECT id, original_name, filename, mime_type, path, created_at
-     FROM product_documents
-     WHERE product_id = $1
-     ORDER BY created_at DESC`,
-    [productId],
-  );
-  res.json(result.rows.map(docRow));
-});
 
-// POST /api/products/:productId/documents — multipart upload
-router.post(
-  '/products/:productId/documents',
-  requireAuth,
-  upload.single('file'),
-  async (req: any, res) => {
-    const productId = Number(req.params.productId);
-    if (!productId || Number.isNaN(productId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-    }
-    if (!req.file) {
-      return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-    }
+  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
+  const placed = placeUpload(file, folder, customName);
 
-    // Resolve the product name + SKU for the destination folder "{name}-{sku}".
-    const product = await query(`SELECT name, sku FROM products WHERE id = $1`, [productId]);
-    if (product.rowCount === 0) {
-      safeUnlink(req.file.path);
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const storedFileId = await insertStoredFile(client, {
+      storageKey: placed.storageKey,
+      sizeBytes: file.size,
+      mimeType: file.mimetype,
+    });
+    const row = await insertDocument(client, scope, {
+      revisionId,
+      storedFileId,
+      originalName: placed.displayName,
+      uploadedBy: userId,
+    });
+    await client.query('COMMIT');
+    res.status(201).json(docResponse(row));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    unlinkStoredFile(placed.storageKey);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
-    const folder = folderName('', product.rows[0].name, product.rows[0].sku);
-    const placed = placeUpload(req.file, folder, req.body?.name);
+/**
+ * Copy-on-write replace: store the incoming file as a NEW stored file and
+ * repoint only this revision's row at it. Any other revision that was sharing
+ * the previous file keeps it unchanged; the previous file is unlinked only if
+ * this row was the last reference — and only after the transaction commits,
+ * since an unlink cannot be rolled back.
+ */
+async function handleReplace(
+  res: Response,
+  scope: DocumentScope,
+  revisionId: number,
+  docId: number,
+  file: Express.Multer.File,
+  customName: string | undefined,
+) {
+  const entity = await findEntityForRevision(pool, scope, revisionId);
+  if (!entity) {
+    safeUnlink(file.path);
+    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+  }
 
-    const result = await query(
-      `INSERT INTO product_documents
-         (product_id, original_name, filename, mime_type, path, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, original_name, filename, mime_type, path, created_at`,
-      [
-        productId,
-        placed.displayName,
-        placed.filename,
-        req.file.mimetype,
-        placed.path,
-        req.user?.id ?? null,
-      ],
-    );
-    res.status(201).json(docRow(result.rows[0]));
-  },
-);
+  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
+  const placed = placeUpload(file, folder, customName);
 
-// DELETE /api/products/:productId/documents/:docId
-router.delete(
-  '/products/:productId/documents/:docId',
-  requireAuth,
-  async (req, res) => {
-    const productId = Number(req.params.productId);
-    const docId = Number(req.params.docId);
-    if (!productId || !docId) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-    }
-
-    const existing = await query(
-      `SELECT filename FROM product_documents WHERE id = $1 AND product_id = $2`,
-      [docId, productId],
-    );
-    if (existing.rowCount === 0) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const storedFileId = await insertStoredFile(client, {
+      storageKey: placed.storageKey,
+      sizeBytes: file.size,
+      mimeType: file.mimetype,
+    });
+    const result = await repointDocument(client, scope, {
+      revisionId,
+      docId,
+      storedFileId,
+      originalName: placed.displayName,
+    });
+    if (!result) {
+      await client.query('ROLLBACK');
+      unlinkStoredFile(placed.storageKey);
       return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
     }
+    await client.query('COMMIT');
+    unlinkStoredFile(result.orphanKey);
+    res.json(docResponse(result.row));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    unlinkStoredFile(placed.storageKey);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
-    // Delete file from disk
-    const filePath = path.join(uploadDir, existing.rows[0].filename);
-    if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+/** Delete one revision's document row, unlinking the file only if unshared. */
+async function handleDelete(
+  res: Response,
+  scope: DocumentScope,
+  revisionId: number,
+  docId: number,
+) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { found, orphanKey } = await deleteDocument(client, scope, revisionId, docId);
+    if (!found) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
     }
-
-    await query(`DELETE FROM product_documents WHERE id = $1`, [docId]);
+    await client.query('COMMIT');
+    unlinkStoredFile(orphanKey);
     res.status(204).end();
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Parameter parsing ──────────────────────────────────────────────────────
+
+/** Parse a positive integer route param, or null when it isn't one. */
+function parseId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Validate the multipart text fields. Multer has already written the file to
+ * disk by this point, so a rejected body takes the temp file with it rather
+ * than leaving it behind.
+ */
+function parseUploadBody(req: Request): DocumentUploadPayload {
+  try {
+    return documentUploadSchema.parse(req.body ?? {});
+  } catch (err) {
+    if (req.file) safeUnlink(req.file.path);
+    throw err;
+  }
+}
+
+/**
+ * Sub-product document routes carry the sub-product id as well as the revision
+ * id. Confirm the revision really belongs to that sub-product so a valid
+ * revision id under the wrong parent is a 404, not a silent cross-read.
+ */
+async function spRevisionBelongsTo(spId: number, revId: number): Promise<boolean> {
+  const entity = await findEntityForRevision(pool, 'subProduct', revId);
+  return entity?.id === spId;
+}
+
+// ── Product revision documents ─────────────────────────────────────────────
+
+// GET /api/product-revisions/:revId/documents
+router.get('/product-revisions/:revId/documents', requireAuth, async (req, res) => {
+  const revId = parseId(req.params.revId);
+  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+
+  const rows = await listDocuments(pool, 'product', revId);
+  res.json(rows.map(docResponse));
+});
+
+// POST /api/product-revisions/:revId/documents — multipart upload
+router.post(
+  '/product-revisions/:revId/documents',
+  requireAuth,
+  upload.single('file'),
+  async (req, res) => {
+    const revId = parseId(req.params.revId);
+    if (!revId) {
+      if (req.file) safeUnlink(req.file.path);
+      return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    }
+    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
+
+    const { name } = parseUploadBody(req);
+    return handleUpload(res, 'product', revId, req.file, name, req.user?.id ?? null);
   },
 );
+
+// PUT /api/product-revisions/:revId/documents/:docId — replace (copy-on-write)
+router.put(
+  '/product-revisions/:revId/documents/:docId',
+  requireAuth,
+  upload.single('file'),
+  async (req, res) => {
+    const revId = parseId(req.params.revId);
+    const docId = parseId(req.params.docId);
+    if (!revId || !docId) {
+      if (req.file) safeUnlink(req.file.path);
+      return res.status(400).json({
+        code: revId ? ErrorCodes.INVALID_DOCUMENT_ID : ErrorCodes.INVALID_REVISION_ID,
+      });
+    }
+    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
+
+    const { name } = parseUploadBody(req);
+    return handleReplace(res, 'product', revId, docId, req.file, name);
+  },
+);
+
+// DELETE /api/product-revisions/:revId/documents/:docId
+router.delete('/product-revisions/:revId/documents/:docId', requireAuth, async (req, res) => {
+  const revId = parseId(req.params.revId);
+  const docId = parseId(req.params.docId);
+  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
+
+  return handleDelete(res, 'product', revId, docId);
+});
 
 // ── Sub-product revision documents ─────────────────────────────────────────
 
@@ -241,18 +325,16 @@ router.get(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
   async (req, res) => {
-    const revId = Number(req.params.revId);
-    if (!revId || Number.isNaN(revId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
+    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
-    const result = await query(
-      `SELECT id, original_name, filename, mime_type, path, created_at
-       FROM sub_product_revision_documents
-       WHERE sub_product_revision_id = $1
-       ORDER BY created_at DESC`,
-      [revId],
-    );
-    res.json(result.rows.map(docRow));
+
+    const rows = await listDocuments(pool, 'subProduct', revId);
+    res.json(rows.map(docResponse));
   },
 );
 
@@ -261,44 +343,53 @@ router.post(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
   upload.single('file'),
-  async (req: any, res) => {
-    const spId = Number(req.params.spId);
-    const revId = Number(req.params.revId);
-    if (!revId || Number.isNaN(revId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  async (req, res) => {
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    if (!spId || !revId) {
+      if (req.file) safeUnlink(req.file.path);
+      return res.status(400).json({
+        code: spId ? ErrorCodes.INVALID_REVISION_ID : ErrorCodes.INVALID_SUB_PRODUCT_ID,
+      });
     }
-    if (!spId || Number.isNaN(spId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-    }
-    if (!req.file) {
-      return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-    }
-
-    // Resolve the sub-product name + SKU for the folder "sub-{name}-{sku}".
-    const subProduct = await query(`SELECT name, sku FROM sub_products WHERE id = $1`, [spId]);
-    if (subProduct.rowCount === 0) {
+    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
       safeUnlink(req.file.path);
-      return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
-    const folder = folderName('sub-', subProduct.rows[0].name, subProduct.rows[0].sku);
-    const placed = placeUpload(req.file, folder, req.body?.name);
+    const { name } = parseUploadBody(req);
+    return handleUpload(res, 'subProduct', revId, req.file, name, req.user?.id ?? null);
+  },
+);
 
-    const result = await query(
-      `INSERT INTO sub_product_revision_documents
-         (sub_product_revision_id, original_name, filename, mime_type, path, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, original_name, filename, mime_type, path, created_at`,
-      [
-        revId,
-        placed.displayName,
-        placed.filename,
-        req.file.mimetype,
-        placed.path,
-        req.user?.id ?? null,
-      ],
-    );
-    res.status(201).json(docRow(result.rows[0]));
+// PUT /api/sub-products/:spId/revisions/:revId/documents/:docId — replace
+router.put(
+  '/sub-products/:spId/revisions/:revId/documents/:docId',
+  requireAuth,
+  upload.single('file'),
+  async (req, res) => {
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    const docId = parseId(req.params.docId);
+    if (!spId || !revId || !docId) {
+      if (req.file) safeUnlink(req.file.path);
+      return res.status(400).json({
+        code: !spId
+          ? ErrorCodes.INVALID_SUB_PRODUCT_ID
+          : !revId
+            ? ErrorCodes.INVALID_REVISION_ID
+            : ErrorCodes.INVALID_DOCUMENT_ID,
+      });
+    }
+    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
+      safeUnlink(req.file.path);
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+
+    const { name } = parseUploadBody(req);
+    return handleReplace(res, 'subProduct', revId, docId, req.file, name);
   },
 );
 
@@ -307,28 +398,17 @@ router.delete(
   '/sub-products/:spId/revisions/:revId/documents/:docId',
   requireAuth,
   async (req, res) => {
-    const revId = Number(req.params.revId);
-    const docId = Number(req.params.docId);
-    if (!revId || !docId) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    const docId = parseId(req.params.docId);
+    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
+    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
-    const existing = await query(
-      `SELECT filename FROM sub_product_revision_documents
-       WHERE id = $1 AND sub_product_revision_id = $2`,
-      [docId, revId],
-    );
-    if (existing.rowCount === 0) {
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
-    }
-
-    const filePath = path.join(uploadDir, existing.rows[0].filename);
-    if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-    }
-
-    await query(`DELETE FROM sub_product_revision_documents WHERE id = $1`, [docId]);
-    res.status(204).end();
+    return handleDelete(res, 'subProduct', revId, docId);
   },
 );
 
