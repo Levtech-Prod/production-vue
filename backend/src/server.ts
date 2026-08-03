@@ -14,6 +14,7 @@ import subProductTypeRoutes from './routes/subProductTypes.js';
 import path from 'path';
 import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
+import documentTypeRoutes from './routes/documentTypes.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
@@ -40,6 +41,7 @@ app.use('/api/audit-logs', auditLogRoutes);
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/api', uploadRoutes);
 app.use('/api', documentRoutes);
+app.use('/api', documentTypeRoutes);
 
 app.use(
   (
