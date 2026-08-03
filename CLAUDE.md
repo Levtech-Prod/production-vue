@@ -36,3 +36,7 @@ These rules apply to all code written or edited in this project.
 
 - If a better approach exists besides what was asked, propose it in addition to doing the requested task — don't silently substitute it.
 - If a request is ambiguous or missing details needed to do it correctly, ask before proceeding rather than guessing.
+
+## Planning & implementation review
+
+- In any planning or implementation session, review the result before finishing: confirm it is the best, most optimized solution — and that it is not overengineered. Prefer the simplest design that fully meets the requirement over one with unnecessary abstraction, tables, or machinery.
