@@ -343,16 +343,11 @@ const messages = {
 
     // Document types (Settings > Product/Sub-product Types > "Document types")
     manage_document_types: 'Document Types',
-    document_types_for: 'Document types for',
     add_document_type: 'Add Document Type',
-    edit_document_type: 'Edit Document Type',
     delete_document_type: 'Delete Document Type',
     no_document_types_msg:
       'No document types yet. Click "Add Document Type" to create the first one.',
-    icon: 'Icon',
     allowed_extensions: 'Allowed Extensions',
-    allowed_extensions_hint:
-      'Press Enter or comma to add. Leave empty to allow any file type.',
     allowed_extensions_placeholder: 'e.g. .pdf, .zip',
     any_extension: 'Any file type',
     optional: 'Optional',
@@ -886,16 +881,11 @@ const messages = {
 
     // Dokumentumtípusok (Beállítások > Termék-/altermék-típusok > "Dokumentumtípusok")
     manage_document_types: 'Dokumentumtípusok',
-    document_types_for: 'Dokumentumtípusok ehhez',
     add_document_type: 'Dokumentumtípus hozzáadása',
-    edit_document_type: 'Dokumentumtípus szerkesztése',
     delete_document_type: 'Dokumentumtípus törlése',
     no_document_types_msg:
       'Még nincs dokumentumtípus. Kattints a „Dokumentumtípus hozzáadása" gombra az első létrehozásához.',
-    icon: 'Ikon',
     allowed_extensions: 'Engedélyezett kiterjesztések',
-    allowed_extensions_hint:
-      'Enter vagy vessző a hozzáadáshoz. Üresen hagyva bármilyen fájltípus engedélyezett.',
     allowed_extensions_placeholder: 'pl. .pdf, .zip',
     any_extension: 'Bármilyen fájltípus',
     optional: 'Opcionális',

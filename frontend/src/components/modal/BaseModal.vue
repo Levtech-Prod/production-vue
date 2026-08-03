@@ -66,10 +66,10 @@ defineEmits<{
 const maxWidthClass = computed(
   () =>
     ({
-      sm: 'max-w-sm',
-      md: 'max-w-md',
-      lg: 'max-w-2xl',
-      xl: 'max-w-4xl',
+      sm: 'max-w-md',
+      md: 'max-w-xl',
+      lg: 'max-w-3xl',
+      xl: 'max-w-6xl',
     })[props.size],
 );
 </script>

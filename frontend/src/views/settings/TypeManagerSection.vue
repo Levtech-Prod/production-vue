@@ -1,6 +1,8 @@
 <template>
-  <div class="card overflow-hidden">
-    <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+  <div class="card">
+    <div
+      class="flex items-center justify-between border-b border-slate-100 px-4 py-3"
+    >
       <h2 class="text-lg font-semibold text-slate-800">{{ title }}</h2>
       <button
         type="button"
@@ -12,11 +14,14 @@
       </button>
     </div>
 
+    <!-- No overflow-hidden here (unlike a plain card) — the expanded slot's
+         content (DocumentTypesSection.vue) needs to render an IconPicker
+         popover that can escape this box. -->
     <table class="w-full text-left text-sm">
       <thead class="bg-blue-50 text-xs uppercase text-black">
         <tr>
-          <th class="p-4">{{ t('name') }}</th>
-          <th class="p-4">{{ t('actions') }}</th>
+          <th class="rounded-tl-2xl p-4">{{ t('name') }}</th>
+          <th class="rounded-tr-2xl p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -25,42 +30,61 @@
             {{ loading ? t('loading') : emptyMessage }}
           </td>
         </tr>
-        <tr
-          v-for="item in items"
-          :key="item.id"
-          class="border-t border-slate-100 even:bg-slate-50 hover:bg-slate-200 transition-colors"
-        >
-          <td class="p-4 font-medium">{{ item.name }}</td>
-          <td class="p-4">
-            <div class="flex items-center gap-2">
-              <button
-                v-if="onManageDocuments"
-                type="button"
-                class="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                :title="manageDocumentsLabel"
-                @click="onManageDocuments(item)"
-              >
-                <Files class="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                :title="t('edit')"
-                @click="openEdit(item)"
-              >
-                <Pencil class="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                class="rounded-lg p-2 text-red-600 hover:bg-red-50"
-                :title="t('delete')"
-                @click="openDeleteConfirm(item)"
-              >
-                <Trash2 class="h-4 w-4" />
-              </button>
-            </div>
-          </td>
-        </tr>
+
+        <template v-for="item in items" :key="item.id">
+          <tr
+            class="border-t border-slate-100 transition-colors"
+            :class="
+              isExpanded(item.id)
+                ? 'bg-blue-50 hover:bg-blue-100'
+                : 'even:bg-slate-50 hover:bg-slate-200'
+            "
+          >
+            <td class="p-4 font-medium">{{ item.name }}</td>
+            <td class="p-4">
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+                  :title="t('edit')"
+                  @click="openEdit(item)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button>
+                <button
+                  v-if="$slots.expanded"
+                  type="button"
+                  class="rounded-lg p-2 transition-colors hover:bg-blue-50"
+                  :class="
+                    isExpanded(item.id)
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'text-slate-500 hover:text-blue-600'
+                  "
+                  :title="t('manage_document_types')"
+                  @click="toggleExpand(item)"
+                >
+                  <Files class="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                  :title="t('delete')"
+                  @click="openDeleteConfirm(item)"
+                >
+                  <Trash2 class="h-4 w-4" />
+                </button>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Expanded section — mounted only while open, so it always loads
+               fresh data (no stale-cache handling needed). -->
+          <tr v-if="$slots.expanded && isExpanded(item.id)" class="bg-white">
+            <td colspan="2" class="border-b border-slate-200 px-4 pb-4">
+              <slot name="expanded" :item="item" />
+            </td>
+          </tr>
+        </template>
       </tbody>
     </table>
   </div>
@@ -87,7 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, useSlots } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Files, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import TypeFormModal from './TypeFormModal.vue';
@@ -118,16 +142,27 @@ const props = defineProps<{
   successCreateMessage: string;
   successUpdateMessage: string;
   successDeleteMessage: string;
-  // Optional: when provided, an extra per-row button opens the caller's own
-  // "manage documents" surface for that item (used by the Document Types
-  // settings feature — kept optional so this component stays a generic
-  // name-only type manager for anything that doesn't need it).
-  onManageDocuments?: (item: TypeItem) => void;
-  manageDocumentsLabel?: string;
 }>();
 
 const { t, te } = useI18n();
 const notificationStore = useNotificationStore();
+const $slots = useSlots();
+
+// ── Inline expand/collapse (mirrors PartCategoriesView's parameter rows) ──
+// A Set, not a single id, so multiple rows can be expanded at once.
+const expandedIds = ref<Set<number>>(new Set());
+
+function isExpanded(id: number): boolean {
+  return expandedIds.value.has(id);
+}
+
+function toggleExpand(item: TypeItem) {
+  if (isExpanded(item.id)) {
+    expandedIds.value.delete(item.id);
+  } else {
+    expandedIds.value.add(item.id);
+  }
+}
 
 // Add/edit modal
 const modalOpen = ref(false);
@@ -165,7 +200,11 @@ async function onSaved(name: string) {
     if (issues) {
       saveError.value = localizeZodIssues(issues, t).join(' ');
     } else {
-      saveError.value = translateApiError(err, { t, te }, props.saveErrorFallbackKey);
+      saveError.value = translateApiError(
+        err,
+        { t, te },
+        props.saveErrorFallbackKey,
+      );
     }
   } finally {
     saving.value = false;
@@ -191,10 +230,16 @@ async function confirmDelete() {
   if (!itemToDelete.value) return;
   deleting.value = true;
 
+  const deletedId = itemToDelete.value.id;
+
   try {
-    await props.onDelete(itemToDelete.value.id);
+    await props.onDelete(deletedId);
     notificationStore.showToast(props.successDeleteMessage, 'success');
     closeDeleteConfirm();
+    // The item may currently be expanded (its "manage documents" section
+    // open); drop that state too so a re-added item of the same id later
+    // doesn't reopen stale UI.
+    expandedIds.value.delete(deletedId);
   } catch (err: any) {
     closeDeleteConfirm();
     notificationStore.showModal(

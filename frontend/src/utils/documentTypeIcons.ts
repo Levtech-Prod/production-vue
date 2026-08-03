@@ -45,7 +45,10 @@ export const DOCUMENT_TYPE_ICONS = [
   'shield-check', 'download', 'upload',
 ] as const;
 
-export type DocumentTypeIcon = (typeof DOCUMENT_TYPE_ICONS)[number];
+// Not exported — every consumer outside this file works with icon names as
+// plain `string` (see DocumentType.icon / DocumentTypeDraft.icon), since a
+// row's icon may come back from the API without narrowing to this union.
+type DocumentTypeIcon = (typeof DOCUMENT_TYPE_ICONS)[number];
 
 const ICON_COMPONENTS: Record<DocumentTypeIcon, Component> = {
   file: File, 'file-text': FileText, 'file-code': FileCode,

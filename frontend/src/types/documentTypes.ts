@@ -28,3 +28,15 @@ export interface DeleteDocumentTypeResult {
   // documents") — lets the caller tell the admin what just happened.
   filesMovedToOther: number;
 }
+
+/** In-progress edit buffer for one table row — either a new, unsaved row
+ *  (`id: null`) or an existing row being edited in place. Used by
+ *  DocumentTypesSection.vue / DocumentTypeRowForm.vue for inline add/edit,
+ *  as opposed to the old separate-modal flow. */
+export interface DocumentTypeDraft {
+  id: number | null;
+  name: string;
+  icon: string;
+  allowedExtensions: string[];
+  required: boolean;
+}
