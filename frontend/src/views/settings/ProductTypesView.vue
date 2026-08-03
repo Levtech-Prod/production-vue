@@ -22,6 +22,8 @@
         :success-create-message="t('success.save_product_type')"
         :success-update-message="t('success.update_product_type')"
         :success-delete-message="t('success.delete_product_type')"
+        :manage-documents-label="t('manage_document_types')"
+        :on-manage-documents="(item) => openDocumentTypes('product', item)"
       />
 
       <TypeManagerSection
@@ -41,19 +43,44 @@
         :success-create-message="t('success.save_sub_product_type')"
         :success-update-message="t('success.update_sub_product_type')"
         :success-delete-message="t('success.delete_sub_product_type')"
+        :manage-documents-label="t('manage_document_types')"
+        :on-manage-documents="(item) => openDocumentTypes('sub-product', item)"
       />
     </div>
+
+    <DocumentTypesModal
+      v-if="documentTypesTarget"
+      v-model="documentTypesModalOpen"
+      :family="documentTypesTarget.family"
+      :type-id="documentTypesTarget.id"
+      :type-name="documentTypesTarget.name"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useProductTypesStore } from '../../stores/productTypesStore.ts';
 import TypeManagerSection from './TypeManagerSection.vue';
+import DocumentTypesModal from './DocumentTypesModal.vue';
+import type { DocumentTypeFamily } from '../../types/documentTypes.ts';
 
 const { t } = useI18n();
 const productTypesStore = useProductTypesStore();
 
 onMounted(() => productTypesStore.loadAll());
+
+// Which type's document requirements the modal is currently showing —
+// null until the admin clicks "Document types" on a product/sub-product
+// type row (see TypeManagerSection's onManageDocuments).
+const documentTypesModalOpen = ref(false);
+const documentTypesTarget = ref<{ family: DocumentTypeFamily; id: number; name: string } | null>(
+  null,
+);
+
+function openDocumentTypes(family: DocumentTypeFamily, item: { id: number; name: string }) {
+  documentTypesTarget.value = { family, id: item.id, name: item.name };
+  documentTypesModalOpen.value = true;
+}
 </script>

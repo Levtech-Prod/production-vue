@@ -5,7 +5,7 @@ import { documentsApi } from '../../../../../api/productsAPI.ts';
 import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
 import type { ProductDocument } from '../../../../../types/products.ts';
 import type { PanelScope } from '../../types.ts';
-import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
+import { useConfirmDelete } from '../../../../../composables/useConfirmDelete.ts';
 
 interface SpRevLookup {
   (spId: number, revId: number): { sp?: { name: string }; rev?: { label: string } };

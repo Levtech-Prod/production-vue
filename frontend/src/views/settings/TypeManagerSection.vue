@@ -34,6 +34,15 @@
           <td class="p-4">
             <div class="flex items-center gap-2">
               <button
+                v-if="onManageDocuments"
+                type="button"
+                class="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                :title="manageDocumentsLabel"
+                @click="onManageDocuments(item)"
+              >
+                <Files class="h-4 w-4" />
+              </button>
+              <button
                 type="button"
                 class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
                 :title="t('edit')"
@@ -80,7 +89,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Pencil, Plus, Trash2 } from 'lucide-vue-next';
+import { Files, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import TypeFormModal from './TypeFormModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
@@ -109,6 +118,12 @@ const props = defineProps<{
   successCreateMessage: string;
   successUpdateMessage: string;
   successDeleteMessage: string;
+  // Optional: when provided, an extra per-row button opens the caller's own
+  // "manage documents" surface for that item (used by the Document Types
+  // settings feature — kept optional so this component stays a generic
+  // name-only type manager for anything that doesn't need it).
+  onManageDocuments?: (item: TypeItem) => void;
+  manageDocumentsLabel?: string;
 }>();
 
 const { t, te } = useI18n();

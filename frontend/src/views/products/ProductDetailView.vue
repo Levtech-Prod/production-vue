@@ -256,7 +256,7 @@ import { useRevisionSelection } from './detail/composables/useRevisionSelection.
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
-import { useConfirmDelete } from './detail/composables/useConfirmDelete.ts';
+import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { useAuthStore } from '../../stores/auth.ts';

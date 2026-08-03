@@ -341,6 +341,22 @@ const messages = {
     no_sub_product_types_msg:
       'No sub-product types yet. Click "Add Sub-product Type" to create the first one.',
 
+    // Document types (Settings > Product/Sub-product Types > "Document types")
+    manage_document_types: 'Document Types',
+    document_types_for: 'Document types for',
+    add_document_type: 'Add Document Type',
+    edit_document_type: 'Edit Document Type',
+    delete_document_type: 'Delete Document Type',
+    no_document_types_msg:
+      'No document types yet. Click "Add Document Type" to create the first one.',
+    icon: 'Icon',
+    allowed_extensions: 'Allowed Extensions',
+    allowed_extensions_hint:
+      'Press Enter or comma to add. Leave empty to allow any file type.',
+    allowed_extensions_placeholder: 'e.g. .pdf, .zip',
+    any_extension: 'Any file type',
+    optional: 'Optional',
+
     errors: {
       // Mirror the `code` field returned by the backend (see
       // backend/src/errorCodes.ts) so a failed request can be translated
@@ -445,6 +461,24 @@ const messages = {
       save_sub_product_type_failed: 'The sub-product type could not be saved',
       delete_sub_product_type_failed:
         'The sub-product type could not be deleted',
+
+      // Document types module — backend codes
+      INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
+      PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'A document type with this name already exists for this product type.',
+      PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'The document type order could not be saved — please reload and try again.',
+      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
+      SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'A document type with this name already exists for this sub-product type.',
+      SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'The document type order could not be saved — please reload and try again.',
+      // Document types module — frontend-only fallbacks
+      save_document_type_failed: 'The document type could not be saved',
+      delete_document_type_failed: 'The document type could not be deleted',
+      reorder_document_types_failed: 'The new order could not be saved',
     },
 
     success: {
@@ -475,6 +509,12 @@ const messages = {
       save_sub_product_type: 'The sub-product type was saved successfully',
       update_sub_product_type: 'The sub-product type was updated successfully',
       delete_sub_product_type: 'The sub-product type was deleted successfully.',
+
+      save_document_type: 'The document type was saved successfully',
+      update_document_type: 'The document type was updated successfully',
+      delete_document_type: 'The document type was deleted successfully.',
+      delete_document_type_with_files:
+        'The document type was deleted. {count} file(s) were moved to "Other documents".',
     },
 
     validation: {
@@ -508,6 +548,8 @@ const messages = {
         'Are you sure you want to delete this product type',
       delete_sub_product_type_msg:
         'Are you sure you want to delete this sub-product type',
+      delete_document_type_msg:
+        'Are you sure you want to delete this document type? Any files already uploaded under it will be moved to "Other documents" — they are not deleted',
     },
   },
   hu: {
@@ -842,6 +884,22 @@ const messages = {
     no_sub_product_types_msg:
       'Még nincs altermék-típus. Kattints az „Altermék-típus hozzáadása" gombra az első létrehozásához.',
 
+    // Dokumentumtípusok (Beállítások > Termék-/altermék-típusok > "Dokumentumtípusok")
+    manage_document_types: 'Dokumentumtípusok',
+    document_types_for: 'Dokumentumtípusok ehhez',
+    add_document_type: 'Dokumentumtípus hozzáadása',
+    edit_document_type: 'Dokumentumtípus szerkesztése',
+    delete_document_type: 'Dokumentumtípus törlése',
+    no_document_types_msg:
+      'Még nincs dokumentumtípus. Kattints a „Dokumentumtípus hozzáadása" gombra az első létrehozásához.',
+    icon: 'Ikon',
+    allowed_extensions: 'Engedélyezett kiterjesztések',
+    allowed_extensions_hint:
+      'Enter vagy vessző a hozzáadáshoz. Üresen hagyva bármilyen fájltípus engedélyezett.',
+    allowed_extensions_placeholder: 'pl. .pdf, .zip',
+    any_extension: 'Bármilyen fájltípus',
+    optional: 'Opcionális',
+
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
       INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
@@ -940,6 +998,24 @@ const messages = {
       delete_product_type_failed: 'A terméktípus törlése nem sikerült',
       save_sub_product_type_failed: 'Az altermék-típus mentése nem sikerült',
       delete_sub_product_type_failed: 'Az altermék-típus törlése nem sikerült',
+
+      // Dokumentumtípusok modul — backend kódok
+      INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Érvénytelen dokumentumtípus-azonosító',
+      PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
+      PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'Már létezik ilyen nevű dokumentumtípus ennél a terméktípusnál.',
+      PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
+      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'Érvénytelen dokumentumtípus-azonosító',
+      SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
+      SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'Már létezik ilyen nevű dokumentumtípus ennél az altermék-típusnál.',
+      SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
+      // Dokumentumtípusok modul — frontend fallbackok
+      save_document_type_failed: 'A dokumentumtípus mentése nem sikerült',
+      delete_document_type_failed: 'A dokumentumtípus törlése nem sikerült',
+      reorder_document_types_failed: 'Az új sorrendet nem sikerült menteni',
     },
 
     success: {
@@ -971,6 +1047,12 @@ const messages = {
       update_sub_product_type:
         'Az altermék-típus módosítása sikeresen megtörtént',
       delete_sub_product_type: 'Az altermék-típus sikeresen törölve.',
+
+      save_document_type: 'A dokumentumtípus mentése sikeresen megtörtént',
+      update_document_type: 'A dokumentumtípus módosítása sikeresen megtörtént',
+      delete_document_type: 'A dokumentumtípus sikeresen törölve.',
+      delete_document_type_with_files:
+        'A dokumentumtípus törölve. {count} fájl átkerült az "Egyéb dokumentumok" közé.',
     },
 
     validation: {
@@ -1002,6 +1084,8 @@ const messages = {
       delete_product_type_msg: 'Biztosan törölni szeretnéd ezt a terméktípust',
       delete_sub_product_type_msg:
         'Biztosan törölni szeretnéd ezt az altermék-típust',
+      delete_document_type_msg:
+        'Biztosan törölni szeretnéd ezt a dokumentumtípust? Az alá már feltöltött fájlok az "Egyéb dokumentumok" közé kerülnek, nem törlődnek',
     },
   },
 };
