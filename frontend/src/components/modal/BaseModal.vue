@@ -3,7 +3,8 @@
     <Transition name="modal">
       <div
         v-if="modelValue"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="fixed inset-0 flex items-center justify-center p-4"
+        :style="{ zIndex: OVERLAY_LAYERS[layer] }"
         @mousedown.self="$emit('update:modelValue', false)"
       >
         <!-- Backdrop -->
@@ -49,14 +50,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { X } from 'lucide-vue-next';
+import { OVERLAY_LAYERS, type ModalLayer } from '../../utils/overlayLayers.ts';
 
 const props = withDefaults(
   defineProps<{
     modelValue: boolean;
     title: string;
     size?: 'sm' | 'md' | 'lg' | 'xl';
+    /** Set to 'nested' when this dialog opens from inside another one. */
+    layer?: ModalLayer;
   }>(),
-  { size: 'lg' },
+  { size: 'lg', layer: 'modal' },
 );
 
 defineEmits<{
