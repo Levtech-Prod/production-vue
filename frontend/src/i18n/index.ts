@@ -273,7 +273,6 @@ const messages = {
     allowed_extensions_hint: 'Allowed file types: {list}',
     no_document_types_hint:
       'No document requirements are defined for this type yet. Add them under Settings → Product types; files uploaded here go to "Other documents".',
-    document_types: 'Document types',
     total_types: 'Total types',
     doc_status_complete: 'Uploaded',
     doc_status_missing: 'Missing',
@@ -844,7 +843,6 @@ const messages = {
     allowed_extensions_hint: 'Engedélyezett fájltípusok: {list}',
     no_document_types_hint:
       'Ehhez a típushoz még nincsenek dokumentum-követelmények. A Beállítások → Terméktípusok alatt vehetők fel; az itt feltöltött fájlok az „Egyéb dokumentumok” közé kerülnek.',
-    document_types: 'Dokumentumtípusok',
     total_types: 'Összes típus',
     doc_status_complete: 'Feltöltve',
     doc_status_missing: 'Hiányzik',

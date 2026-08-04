@@ -1,9 +1,27 @@
 <template>
   <div class="flex-1 overflow-y-auto">
     <div class="px-4 pb-4 pt-3">
-      <span class="mb-3 block min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {{ title }}
-      </span>
+      <!-- Header: title, plus the counts as stat chips on the right. They sit
+           here rather than among the cards so they read as a summary OF the
+           grid instead of another card in it — and the title row was empty
+           space anyway, so they cost no vertical room. -->
+      <div
+        class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-slate-100 pb-2"
+      >
+        <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-slate-400">
+          {{ title }}
+        </span>
+
+        <dl
+          v-if="!loading && docs.documentTypes.length > 0"
+          class="flex shrink-0 items-center gap-3 text-[11px]"
+        >
+          <div v-for="stat in stats" :key="stat.labelKey" class="flex items-baseline gap-1">
+            <dd class="font-semibold" :class="stat.valueClass">{{ stat.value }}</dd>
+            <dt class="text-slate-400">{{ t(stat.labelKey) }}</dt>
+          </div>
+        </dl>
+      </div>
 
       <div v-if="loading" class="py-6 text-center text-sm text-slate-400">
         {{ t('loading') }}
@@ -49,31 +67,6 @@
             @delete-file="(doc) => emit('delete-doc', doc)"
             @show-all="openGroupId = OTHER_GROUP"
           />
-
-          <!-- Counts. Only meaningful once requirements exist. Each status is
-               explained by its badge tooltip on the cards themselves. -->
-          <div
-            v-if="docs.documentTypes.length > 0"
-            class="h-fit rounded-xl border border-slate-200 bg-slate-50 p-3"
-          >
-            <p class="mb-2 text-xs font-semibold text-slate-600">
-              {{ t('document_types') }}
-            </p>
-            <dl class="flex flex-col gap-1 text-[11px] text-slate-500">
-              <div class="flex items-center justify-between">
-                <dt>{{ t('total_types') }}</dt>
-                <dd class="font-semibold text-slate-700">{{ docs.summary.totalTypes }}</dd>
-              </div>
-              <div class="flex items-center justify-between">
-                <dt>{{ t('doc_status_complete') }}</dt>
-                <dd class="font-semibold text-emerald-600">{{ docs.summary.uploaded }}</dd>
-              </div>
-              <div class="flex items-center justify-between">
-                <dt>{{ t('doc_status_missing') }}</dt>
-                <dd class="font-semibold text-red-600">{{ docs.summary.missing }}</dd>
-              </div>
-            </dl>
-          </div>
         </div>
       </template>
     </div>
@@ -112,6 +105,26 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+// Header stats. "Missing" only turns red when there actually is something
+// missing, so a fully satisfied revision reads as calm rather than alarming.
+const stats = computed(() => [
+  {
+    labelKey: 'total_types',
+    value: props.docs.summary.totalTypes,
+    valueClass: 'text-slate-600',
+  },
+  {
+    labelKey: 'doc_status_complete',
+    value: props.docs.summary.uploaded,
+    valueClass: 'text-emerald-600',
+  },
+  {
+    labelKey: 'doc_status_missing',
+    value: props.docs.summary.missing,
+    valueClass: props.docs.summary.missing > 0 ? 'text-red-600' : 'text-slate-400',
+  },
+]);
 
 /** Stands in for the "Other documents" card, which has no document type id. */
 const OTHER_GROUP = 'other' as const;
