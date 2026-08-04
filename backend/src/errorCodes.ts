@@ -102,6 +102,13 @@ export const ErrorCodes = {
   INVALID_DOCUMENT_ID: 'INVALID_DOCUMENT_ID',
   DOCUMENT_NOT_FOUND: 'DOCUMENT_NOT_FOUND',
   DOCUMENT_DELETE_FAILED: 'DOCUMENT_DELETE_FAILED',
+  DOCUMENT_FILE_MISSING: 'DOCUMENT_FILE_MISSING',
+  // Upload named a document type that isn't defined for this entity's type.
+  DOCUMENT_TYPE_MISMATCH: 'DOCUMENT_TYPE_MISMATCH',
+  // File extension outside the document type's allowed list, or outside the
+  // global upload allow-list.
+  DOCUMENT_EXTENSION_NOT_ALLOWED: 'DOCUMENT_EXTENSION_NOT_ALLOWED',
+  DOCUMENT_TOO_LARGE: 'DOCUMENT_TOO_LARGE',
 
   // generic / global error handler
   VALIDATION_FAILED: 'VALIDATION_FAILED',

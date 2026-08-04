@@ -12,8 +12,9 @@
 // type + status + summary), adds `documentTypeId` to upload/replace, and adds
 // the forced-download endpoints.
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
+import fs from 'fs';
 import path from 'path';
 import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -25,18 +26,24 @@ import {
 import {
   deleteDocument,
   documentsDir,
+  fileExtension,
+  findDocument,
+  findDocumentTypeForRevision,
   findEntityForRevision,
   insertDocument,
   insertStoredFile,
   listDocuments,
+  listDocumentTypesForRevision,
   placeUpload,
   publicPath,
   repointDocument,
   resolveEntityFolder,
+  resolveStoredFilePath,
   safeUnlink,
   unlinkStoredFile,
   type DocumentRow,
   type DocumentScope,
+  type DocumentTypeTemplate,
 } from '../services/documentFiles.js';
 
 const router = Router();
@@ -53,48 +60,188 @@ const storage = multer.diskStorage({
   },
 });
 
-// Story 5 widens this for engineering formats (.step, .hex, .elf, .pcbdoc, …)
-// and adds the per-document-type extension allow-list on top.
-const allowedMimeTypes = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'text/csv',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-];
+// The gate is the file EXTENSION, not the MIME type (plan §7.4): engineering
+// formats mostly have no registered MIME, so browsers send them as
+// application/octet-stream and a MIME allow-list would either reject every
+// .step file or have to admit octet-stream and stop meaning anything. A
+// document type's own `allowedExtensions` narrows this further, per card.
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([
+  // Documents and data
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.txt', '.md', '.csv', '.json', '.xml', '.log',
+  // Images (no .svg — it is scriptable and we serve uploads statically)
+  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
+  // Archives
+  '.zip', '.rar', '.7z', '.gz', '.tar',
+  // Mechanical CAD / CAM
+  '.step', '.stp', '.iges', '.igs', '.stl', '.dxf', '.dwg',
+  '.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.3mf', '.obj',
+  '.nc', '.tap', '.gcode', '.cnc',
+  // Electronics CAD / fabrication
+  '.gbr', '.gbl', '.gtl', '.gbs', '.gts', '.gbo', '.gto', '.gko',
+  '.drl', '.xln', '.gerber',
+  '.pcbdoc', '.schdoc', '.prjpcb', '.sch', '.brd', '.kicad_pcb', '.kicad_sch',
+  // Firmware
+  '.hex', '.elf', '.bin', '.map', '.s19', '.srec', '.uf2', '.dfu',
+]);
+
+/** Marker so the wrapper below can tell a filter rejection from a real fault. */
+class UnsupportedFileTypeError extends Error {}
 
 const upload = multer({
   storage,
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      return cb(new Error('Unsupported file type'));
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(fileExtension(file.originalname))) {
+      return cb(new UnsupportedFileTypeError(file.originalname));
     }
     cb(null, true);
   },
 });
 
+/**
+ * `upload.single('file')` with its rejections translated into API error codes.
+ * Multer surfaces both the extension filter and the size limit as thrown
+ * errors, which would otherwise reach the global handler as a generic
+ * REQUEST_FAILED and leave the UI with nothing specific to say.
+ */
+function uploadSingle(req: Request, res: Response, next: NextFunction) {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (err instanceof UnsupportedFileTypeError) {
+      return res.status(400).json({ code: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED });
+    }
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ code: ErrorCodes.DOCUMENT_TOO_LARGE });
+    }
+    return next(err);
+  });
+}
+
 // ── Response shape ─────────────────────────────────────────────────────────
 
-function docResponse(row: DocumentRow) {
+/** Where the forced-download endpoint for a document lives. */
+function downloadUrl(scope: DocumentScope, docId: number): string {
+  const base = scope === 'product' ? 'product-revision-documents' : 'sub-product-revision-documents';
+  return `/api/${base}/${docId}/download`;
+}
+
+function docResponse(scope: DocumentScope, row: DocumentRow) {
   return {
     id: row.id,
     documentTypeId: row.document_type_id,
     originalName: row.original_name,
-    filename: row.storage_key,
     mimeType: row.mime_type,
     sizeBytes: Number(row.size_bytes),
+    // Two ways to reach the file, because the card offers both: `path` is the
+    // statically served URL for opening it in a tab, `downloadUrl` hits the
+    // endpoint that forces a save under the original name.
     path: publicPath(row.storage_key),
+    downloadUrl: downloadUrl(scope, row.id),
     createdAt: row.created_at,
   };
 }
 
+/**
+ * The panel payload: one entry per document type defined for this entity's
+ * type (in `sort_order`), each carrying its files and status, plus the ad-hoc
+ * "Other documents" bucket and a summary. Status is per plan §2 — a type with
+ * at least one file is `complete`; with none it is `missing` when required and
+ * `optional` when not.
+ */
+function groupDocuments(
+  scope: DocumentScope,
+  templates: DocumentTypeTemplate[],
+  rows: DocumentRow[],
+) {
+  const filesByType = new Map<number, DocumentRow[]>();
+  const other: DocumentRow[] = [];
+  for (const row of rows) {
+    if (row.document_type_id == null) {
+      other.push(row);
+      continue;
+    }
+    const list = filesByType.get(row.document_type_id) ?? [];
+    list.push(row);
+    filesByType.set(row.document_type_id, list);
+  }
+
+  const documentTypes = templates.map((template) => {
+    const files = filesByType.get(template.id) ?? [];
+    const status = files.length > 0 ? 'complete' : template.required ? 'missing' : 'optional';
+    return {
+      id: template.id,
+      name: template.name,
+      icon: template.icon,
+      allowedExtensions: template.allowed_extensions ?? [],
+      required: template.required,
+      status,
+      files: files.map((row) => docResponse(scope, row)),
+    };
+  });
+
+  return {
+    documentTypes,
+    other: other.map((row) => docResponse(scope, row)),
+    summary: {
+      totalTypes: documentTypes.length,
+      uploaded: documentTypes.filter((t) => t.status === 'complete').length,
+      missing: documentTypes.filter((t) => t.status === 'missing').length,
+    },
+  };
+}
+
+/**
+ * Reject a file the target card doesn't accept. An empty `allowedExtensions`
+ * means the card takes anything (the global list above still applies).
+ */
+function extensionAllowed(template: DocumentTypeTemplate, fileName: string): boolean {
+  const allowed = template.allowed_extensions ?? [];
+  return allowed.length === 0 || allowed.includes(fileExtension(fileName));
+}
+
 // ── Shared handlers ────────────────────────────────────────────────────────
+
+/**
+ * Shared preamble for upload and replace: resolve the owning entity, check the
+ * target card if one was named, and move the file into the entity's folder.
+ * Returns an error code instead when the request can't proceed — the temp file
+ * is removed on every rejection path so nothing accumulates on disk.
+ */
+async function prepareIncomingFile(
+  scope: DocumentScope,
+  revisionId: number,
+  file: Express.Multer.File,
+  body: DocumentUploadPayload,
+): Promise<{ storageKey: string; displayName: string } | { error: string }> {
+  const entity = await findEntityForRevision(pool, scope, revisionId);
+  if (!entity) {
+    safeUnlink(file.path);
+    return { error: ErrorCodes.REVISION_NOT_FOUND };
+  }
+
+  if (body.documentTypeId != null) {
+    const template = await findDocumentTypeForRevision(
+      pool,
+      scope,
+      revisionId,
+      body.documentTypeId,
+    );
+    // Not just "unknown id" — also a real document type belonging to a
+    // different product/sub-product type than this revision's entity.
+    if (!template) {
+      safeUnlink(file.path);
+      return { error: ErrorCodes.DOCUMENT_TYPE_MISMATCH };
+    }
+    if (!extensionAllowed(template, body.name ?? file.originalname)) {
+      safeUnlink(file.path);
+      return { error: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED };
+    }
+  }
+
+  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
+  return placeUpload(file, folder, body.name);
+}
 
 /**
  * Store an uploaded file in the revision's owning entity folder and record it
@@ -107,17 +254,14 @@ async function handleUpload(
   scope: DocumentScope,
   revisionId: number,
   file: Express.Multer.File,
-  customName: string | undefined,
+  body: DocumentUploadPayload,
   userId: number | null,
 ) {
-  const entity = await findEntityForRevision(pool, scope, revisionId);
-  if (!entity) {
-    safeUnlink(file.path);
-    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+  const placed = await prepareIncomingFile(scope, revisionId, file, body);
+  if ('error' in placed) {
+    const status = placed.error === ErrorCodes.REVISION_NOT_FOUND ? 404 : 400;
+    return res.status(status).json({ code: placed.error });
   }
-
-  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
-  const placed = placeUpload(file, folder, customName);
 
   const client = await pool.connect();
   try {
@@ -131,10 +275,11 @@ async function handleUpload(
       revisionId,
       storedFileId,
       originalName: placed.displayName,
+      documentTypeId: body.documentTypeId,
       uploadedBy: userId,
     });
     await client.query('COMMIT');
-    res.status(201).json(docResponse(row));
+    res.status(201).json(docResponse(scope, row));
   } catch (err) {
     await client.query('ROLLBACK');
     unlinkStoredFile(placed.storageKey);
@@ -157,16 +302,13 @@ async function handleReplace(
   revisionId: number,
   docId: number,
   file: Express.Multer.File,
-  customName: string | undefined,
+  body: DocumentUploadPayload,
 ) {
-  const entity = await findEntityForRevision(pool, scope, revisionId);
-  if (!entity) {
-    safeUnlink(file.path);
-    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+  const placed = await prepareIncomingFile(scope, revisionId, file, body);
+  if ('error' in placed) {
+    const status = placed.error === ErrorCodes.REVISION_NOT_FOUND ? 404 : 400;
+    return res.status(status).json({ code: placed.error });
   }
-
-  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
-  const placed = placeUpload(file, folder, customName);
 
   const client = await pool.connect();
   try {
@@ -189,7 +331,7 @@ async function handleReplace(
     }
     await client.query('COMMIT');
     unlinkStoredFile(result.orphanKey);
-    res.json(docResponse(result.row));
+    res.json(docResponse(scope, result.row));
   } catch (err) {
     await client.query('ROLLBACK');
     unlinkStoredFile(placed.storageKey);
@@ -260,20 +402,55 @@ async function spRevisionBelongsTo(spId: number, revId: number): Promise<boolean
 
 // ── Product revision documents ─────────────────────────────────────────────
 
-// GET /api/product-revisions/:revId/documents
+/** The grouped panel payload for one revision. */
+async function loadPanel(scope: DocumentScope, revisionId: number) {
+  const [templates, rows] = await Promise.all([
+    listDocumentTypesForRevision(pool, scope, revisionId),
+    listDocuments(pool, scope, revisionId),
+  ]);
+  return groupDocuments(scope, templates, rows);
+}
+
+/**
+ * Stream a document as a download. `Content-Disposition: attachment` with the
+ * row's display name, so the browser saves it under a meaningful name rather
+ * than opening it or using the on-disk storage key.
+ */
+async function handleDownload(res: Response, scope: DocumentScope, docId: number) {
+  const row = await findDocument(pool, scope, docId);
+  if (!row) return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
+
+  const absolute = resolveStoredFilePath(row.storage_key);
+  if (!absolute || !fs.existsSync(absolute)) {
+    return res.status(404).json({ code: ErrorCodes.DOCUMENT_FILE_MISSING });
+  }
+  if (row.mime_type) res.type(row.mime_type);
+  return res.download(absolute, row.original_name);
+}
+
+// ── Product revision documents ─────────────────────────────────────────────
+
+// GET /api/product-revisions/:revId/documents — grouped panel payload
 router.get('/product-revisions/:revId/documents', requireAuth, async (req, res) => {
   const revId = parseId(req.params.revId);
   if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
 
-  const rows = await listDocuments(pool, 'product', revId);
-  res.json(rows.map(docResponse));
+  res.json(await loadPanel('product', revId));
+});
+
+// GET /api/product-revision-documents/:docId/download
+router.get('/product-revision-documents/:docId/download', requireAuth, async (req, res) => {
+  const docId = parseId(req.params.docId);
+  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
+
+  return handleDownload(res, 'product', docId);
 });
 
 // POST /api/product-revisions/:revId/documents — multipart upload
 router.post(
   '/product-revisions/:revId/documents',
   requireAuth,
-  upload.single('file'),
+  uploadSingle,
   async (req, res) => {
     const revId = parseId(req.params.revId);
     if (!revId) {
@@ -282,8 +459,8 @@ router.post(
     }
     if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
 
-    const { name } = parseUploadBody(req);
-    return handleUpload(res, 'product', revId, req.file, name, req.user?.id ?? null);
+    const body = parseUploadBody(req);
+    return handleUpload(res, 'product', revId, req.file, body, req.user?.id ?? null);
   },
 );
 
@@ -291,7 +468,7 @@ router.post(
 router.put(
   '/product-revisions/:revId/documents/:docId',
   requireAuth,
-  upload.single('file'),
+  uploadSingle,
   async (req, res) => {
     const revId = parseId(req.params.revId);
     const docId = parseId(req.params.docId);
@@ -303,8 +480,8 @@ router.put(
     }
     if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
 
-    const { name } = parseUploadBody(req);
-    return handleReplace(res, 'product', revId, docId, req.file, name);
+    const body = parseUploadBody(req);
+    return handleReplace(res, 'product', revId, docId, req.file, body);
   },
 );
 
@@ -320,7 +497,7 @@ router.delete('/product-revisions/:revId/documents/:docId', requireAuth, async (
 
 // ── Sub-product revision documents ─────────────────────────────────────────
 
-// GET /api/sub-products/:spId/revisions/:revId/documents
+// GET /api/sub-products/:spId/revisions/:revId/documents — grouped payload
 router.get(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
@@ -333,16 +510,23 @@ router.get(
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
-    const rows = await listDocuments(pool, 'subProduct', revId);
-    res.json(rows.map(docResponse));
+    res.json(await loadPanel('subProduct', revId));
   },
 );
+
+// GET /api/sub-product-revision-documents/:docId/download
+router.get('/sub-product-revision-documents/:docId/download', requireAuth, async (req, res) => {
+  const docId = parseId(req.params.docId);
+  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
+
+  return handleDownload(res, 'subProduct', docId);
+});
 
 // POST /api/sub-products/:spId/revisions/:revId/documents
 router.post(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
-  upload.single('file'),
+  uploadSingle,
   async (req, res) => {
     const spId = parseId(req.params.spId);
     const revId = parseId(req.params.revId);
@@ -358,8 +542,8 @@ router.post(
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
-    const { name } = parseUploadBody(req);
-    return handleUpload(res, 'subProduct', revId, req.file, name, req.user?.id ?? null);
+    const body = parseUploadBody(req);
+    return handleUpload(res, 'subProduct', revId, req.file, body, req.user?.id ?? null);
   },
 );
 
@@ -367,7 +551,7 @@ router.post(
 router.put(
   '/sub-products/:spId/revisions/:revId/documents/:docId',
   requireAuth,
-  upload.single('file'),
+  uploadSingle,
   async (req, res) => {
     const spId = parseId(req.params.spId);
     const revId = parseId(req.params.revId);
@@ -388,8 +572,8 @@ router.put(
       return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
     }
 
-    const { name } = parseUploadBody(req);
-    return handleReplace(res, 'subProduct', revId, docId, req.file, name);
+    const body = parseUploadBody(req);
+    return handleReplace(res, 'subProduct', revId, docId, req.file, body);
   },
 );
 

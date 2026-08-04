@@ -47,6 +47,12 @@ interface ScopeConfig {
   entityColumn: string;
   /** The owning entity's table (products / sub_products). */
   entityTable: string;
+  /** Managed type list the entity's `type` column names. */
+  typeTable: string;
+  /** Per-type document requirement templates. */
+  documentTypeTable: string;
+  /** The template table's FK column back to the type list. */
+  documentTypeColumn: string;
   /** Prefix of the entity's on-disk folder name (plan §3.2). */
   folderPrefix: string;
 }
@@ -61,6 +67,9 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     revisionTable: 'product_revisions',
     entityColumn: 'product_id',
     entityTable: 'products',
+    typeTable: 'product_types',
+    documentTypeTable: 'product_document_types',
+    documentTypeColumn: 'product_type_id',
     folderPrefix: '',
   },
   subProduct: {
@@ -69,6 +78,9 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     revisionTable: 'sub_product_revisions',
     entityColumn: 'sub_product_id',
     entityTable: 'sub_products',
+    typeTable: 'sub_product_types',
+    documentTypeTable: 'sub_product_document_types',
+    documentTypeColumn: 'sub_product_type_id',
     folderPrefix: 'sub-',
   },
 };
@@ -188,6 +200,24 @@ export function publicPath(storageKey: string): string {
   return `/uploads/documents/${encoded}`;
 }
 
+/**
+ * Absolute path of a stored file, or null if the key would escape the
+ * documents folder. Storage keys are written by this service rather than by
+ * users, so this is belt-and-braces — but it is the one place a bad key could
+ * turn into an arbitrary file read, so it is checked before every download.
+ */
+export function resolveStoredFilePath(storageKey: string): string | null {
+  const absolute = path.resolve(documentsDir, storageKey);
+  const root = path.resolve(documentsDir);
+  if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
+  return absolute;
+}
+
+/** The extension of a file name, lowercased and dot-prefixed ('.zip'). */
+export function fileExtension(fileName: string): string {
+  return path.extname(fileName).toLowerCase();
+}
+
 /** Delete a file if it is still there; a missing file is not an error. */
 export function safeUnlink(absPath: string): void {
   if (!fs.existsSync(absPath)) return;
@@ -276,6 +306,61 @@ export async function findEntityForRevision(
      JOIN ${entityTable} e ON e.id = r.${entityColumn}
      WHERE r.id = $1`,
     [revisionId],
+  );
+  return result.rows[0] ?? null;
+}
+
+// ── Document type templates ────────────────────────────────────────────────
+
+/** One per-type document requirement, as the panel renders it. */
+export interface DocumentTypeTemplate {
+  id: number;
+  name: string;
+  icon: string;
+  allowed_extensions: string[];
+  required: boolean;
+}
+
+// Requirements are defined per TYPE, and an entity names its type by string
+// (`products.type` -> `product_types.name`), so reaching a revision's templates
+// means revision -> entity -> type list -> templates.
+function documentTypesQuery(scope: DocumentScope, extraFilter = ''): string {
+  const { revisionTable, entityTable, entityColumn, typeTable, documentTypeTable, documentTypeColumn } =
+    SCOPES[scope];
+  return `
+    SELECT dt.id, dt.name, dt.icon, dt.allowed_extensions, dt.required
+    FROM ${revisionTable} r
+    JOIN ${entityTable} e ON e.id = r.${entityColumn}
+    JOIN ${typeTable} t ON t.name = e.type
+    JOIN ${documentTypeTable} dt ON dt.${documentTypeColumn} = t.id
+    WHERE r.id = $1 ${extraFilter}
+    ORDER BY dt.sort_order ASC, dt.name ASC`;
+}
+
+/** Every document type defined for the type of this revision's entity. */
+export async function listDocumentTypesForRevision(
+  db: Queryable,
+  scope: DocumentScope,
+  revisionId: number,
+): Promise<DocumentTypeTemplate[]> {
+  const result = await db.query<DocumentTypeTemplate>(documentTypesQuery(scope), [revisionId]);
+  return result.rows;
+}
+
+/**
+ * One document type, but only if it belongs to this revision's entity type —
+ * so an upload naming a template from some other type is rejected rather than
+ * silently filed under it. Null means "not a valid card for this revision".
+ */
+export async function findDocumentTypeForRevision(
+  db: Queryable,
+  scope: DocumentScope,
+  revisionId: number,
+  documentTypeId: number,
+): Promise<DocumentTypeTemplate | null> {
+  const result = await db.query<DocumentTypeTemplate>(
+    documentTypesQuery(scope, 'AND dt.id = $2'),
+    [revisionId, documentTypeId],
   );
   return result.rows[0] ?? null;
 }
@@ -396,6 +481,24 @@ export async function listDocuments(
     [revisionId],
   );
   return result.rows;
+}
+
+/** One document by id, for the download endpoints. Null when unknown. */
+export async function findDocument(
+  db: Queryable,
+  scope: DocumentScope,
+  docId: number,
+): Promise<DocumentRow | null> {
+  const { table } = SCOPES[scope];
+  const result = await db.query<DocumentRow>(
+    `SELECT d.id, d.document_type_id, d.original_name, d.created_at,
+       sf.storage_key, sf.mime_type, sf.size_bytes
+     FROM ${table} d
+     JOIN stored_files sf ON sf.id = d.stored_file_id
+     WHERE d.id = $1`,
+    [docId],
+  );
+  return result.rows[0] ?? null;
 }
 
 /** Insert a document row pointing at an already-stored file. */

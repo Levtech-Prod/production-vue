@@ -1,11 +1,18 @@
 import { z } from 'zod';
 
+// Multipart text fields always arrive as strings, and an untouched field comes
+// through as ''. Both empty and absent mean "not provided" here.
+const optionalId = z.preprocess(
+  (value) => (value === '' || value === null ? undefined : value),
+  z.coerce.number().int().positive().optional(),
+);
+
 /**
- * Body of an upload / replace multipart request. Multipart text fields always
- * arrive as strings, so this only carries the optional display name — an empty
- * or whitespace-only value means "keep the uploaded file's own name".
+ * Body of an upload / replace multipart request.
  *
- * Story 5 extends this with `documentTypeId` (which card the file belongs to).
+ *  - `name` overrides the file's own name; empty means keep the original.
+ *  - `documentTypeId` is the card the file belongs to; omitted files land in
+ *    the ad-hoc "Other documents" bucket.
  */
 export const documentUploadSchema = z.object({
   name: z
@@ -14,5 +21,6 @@ export const documentUploadSchema = z.object({
     .max(255)
     .optional()
     .transform((value) => (value ? value : undefined)),
+  documentTypeId: optionalId,
 });
 export type DocumentUploadPayload = z.infer<typeof documentUploadSchema>;
