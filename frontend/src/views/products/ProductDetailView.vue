@@ -83,14 +83,9 @@
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
-            :uploading="docsUploading"
             :can-edit="!isArchived"
-            :empty-text="
-              panelScope.kind === 'product'
-                ? t('no_product_documents')
-                : t('no_sp_rev_documents')
-            "
             @upload-file="onUploadFile"
+            @replace-file="openDocReplaceConfirm"
             @delete-doc="openDocDeleteConfirm"
           />
 
@@ -220,11 +215,31 @@
       @confirm="confirmDocUpload"
     />
 
+    <!-- Replace document confirmation — overwriting is destructive for this
+         revision, so it is confirmed in any revision status. -->
+    <ConfirmModal
+      :visible="docReplaceConfirmVisible"
+      :title="t('replace_document')"
+      :message="
+        docToReplace
+          ? t('confirmations.replace_document_msg', {
+              current: docToReplace.doc.originalName,
+              incoming: docToReplace.file.name,
+            })
+          : ''
+      "
+      :confirm-text="t('replace')"
+      :cancel-text="t('cancel')"
+      :loading="docReplacing"
+      @confirm="confirmDocReplace"
+      @cancel="cancelDocReplace"
+    />
+
     <!-- Delete document confirmation -->
     <ConfirmModal
       :visible="docDeleteConfirmVisible"
       :title="t('delete_document')"
-      :message="`${t('confirmations.delete_document_msg')}${docToDelete ? `: ${docToDelete.name}` : ''}`"
+      :message="`${t('confirmations.delete_document_msg')}${docToDelete ? `: ${docToDelete.doc.originalName}` : ''}`"
       :confirm-text="t('delete')"
       :cancel-text="t('cancel')"
       :loading="docDeleting"
@@ -348,6 +363,12 @@ const {
   pendingDocName,
   onUploadFile,
   confirmDocUpload,
+  replaceVisible: docReplaceConfirmVisible,
+  replaceTarget: docToReplace,
+  replaceBusy: docReplacing,
+  openReplaceConfirm: openDocReplaceConfirm,
+  confirmReplace: confirmDocReplace,
+  cancelReplace: cancelDocReplace,
   deleteVisible: docDeleteConfirmVisible,
   deleteTarget: docToDelete,
   deleteBusy: docDeleting,
@@ -706,7 +727,6 @@ watch(productId, () => {
   resetForProductChange();
   clearDocsCache();
   clearContentCaches();
-  docs.value = [];
   bom.value = [];
   parts.value = [];
   activeTab.value = 'documents';

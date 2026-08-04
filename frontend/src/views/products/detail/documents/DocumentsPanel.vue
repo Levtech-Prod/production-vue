@@ -1,100 +1,145 @@
 <template>
   <div class="flex-1 overflow-y-auto">
-    <div class="px-4 pb-3 pt-3">
-      <div class="mb-2 flex items-center justify-between">
-        <span class="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-slate-400">
-          {{ title }}
-        </span>
-        <label
-          v-if="canEdit"
-          class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          :title="t('upload_document')"
-        >
-          <Upload class="h-3.5 w-3.5" />
-          {{ uploading ? t('uploading') : t('upload_document') }}
-          <input
-            type="file"
-            class="sr-only"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp"
-            :disabled="uploading"
-            @change="onSelectFile"
-          />
-        </label>
-      </div>
+    <div class="px-4 pb-4 pt-3">
+      <span class="mb-3 block min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {{ title }}
+      </span>
 
-      <div v-if="loading" class="py-4 text-center text-sm text-slate-400">
+      <div v-if="loading" class="py-6 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </div>
-      <div v-else-if="docs.length === 0" class="py-4 text-center text-sm text-slate-400">
-        {{ emptyText }}
-      </div>
-      <ul v-else class="flex flex-col gap-1">
-        <li
-          v-for="doc in docs"
-          :key="doc.id"
-          class="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
+
+      <template v-else>
+        <!-- No requirements defined for this product/sub-product type yet:
+             ad-hoc uploads still work, so explain where they come from. -->
+        <p
+          v-if="docs.documentTypes.length === 0"
+          class="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"
         >
-          <component :is="docIcon(doc.mimeType)" class="h-4 w-4 shrink-0 text-slate-400" />
-          <a
-            :href="doc.path"
-            target="_blank"
-            rel="noopener"
-            class="min-w-0 flex-1 truncate text-sm text-slate-700 hover:text-blue-600 hover:underline"
+          {{ t('no_document_types_hint') }}
+        </p>
+
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <DocumentTypeCard
+            v-for="(group, index) in docs.documentTypes"
+            :key="group.id"
+            :name="group.name"
+            :icon-name="group.icon"
+            :status="group.status"
+            :files="group.files"
+            :allowed-extensions="group.allowedExtensions"
+            :can-edit="canEdit"
+            :color-seed="index"
+            @upload-file="(file) => emit('upload-file', file, group.id)"
+            @replace-file="(doc, file) => emit('replace-file', doc, file)"
+            @delete-file="(doc) => emit('delete-doc', doc)"
+            @show-all="openGroupId = group.id"
+          />
+
+          <!-- Catch-all bucket: anything uploaded without a document type. -->
+          <DocumentTypeCard
+            :name="t('other_documents')"
+            icon-name="file-stack"
+            status="optional"
+            :files="docs.other"
+            :allowed-extensions="[]"
+            :can-edit="canEdit"
+            @upload-file="(file) => emit('upload-file', file, null)"
+            @replace-file="(doc, file) => emit('replace-file', doc, file)"
+            @delete-file="(doc) => emit('delete-doc', doc)"
+            @show-all="openGroupId = OTHER_GROUP"
+          />
+
+          <!-- Counts. Only meaningful once requirements exist. Each status is
+               explained by its badge tooltip on the cards themselves. -->
+          <div
+            v-if="docs.documentTypes.length > 0"
+            class="h-fit rounded-xl border border-slate-200 bg-slate-50 p-3"
           >
-            {{ doc.originalName }}
-          </a>
-          <span class="shrink-0 text-[10px] text-slate-400">{{ formatDate(doc.createdAt) }}</span>
-          <button
-            v-if="canEdit"
-            type="button"
-            class="shrink-0 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-            :title="t('delete_document')"
-            @click="emit('delete-doc', doc)"
-          >
-            <Trash2 class="h-4 w-4" />
-          </button>
-        </li>
-      </ul>
+            <p class="mb-2 text-xs font-semibold text-slate-600">
+              {{ t('document_types') }}
+            </p>
+            <dl class="flex flex-col gap-1 text-[11px] text-slate-500">
+              <div class="flex items-center justify-between">
+                <dt>{{ t('total_types') }}</dt>
+                <dd class="font-semibold text-slate-700">{{ docs.summary.totalTypes }}</dd>
+              </div>
+              <div class="flex items-center justify-between">
+                <dt>{{ t('doc_status_complete') }}</dt>
+                <dd class="font-semibold text-emerald-600">{{ docs.summary.uploaded }}</dd>
+              </div>
+              <div class="flex items-center justify-between">
+                <dt>{{ t('doc_status_missing') }}</dt>
+                <dd class="font-semibold text-red-600">{{ docs.summary.missing }}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </template>
     </div>
+
+    <!-- Full file list for one card, with always-visible actions. -->
+    <DocumentFilesModal
+      v-model="filesModalOpen"
+      :group="openGroup"
+      :can-edit="canEdit"
+      @upload-file="(file) => emit('upload-file', file, openDocumentTypeId)"
+      @replace-file="(doc, file) => emit('replace-file', doc, file)"
+      @delete-file="(doc) => emit('delete-doc', doc)"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { Upload, Trash2, FileText, FileSpreadsheet, File, Image } from 'lucide-vue-next';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { formatDate } from '../../../../utils/formatters.ts';
-import type { ProductDocument } from '../../../../types/products.ts';
+import DocumentTypeCard from './DocumentTypeCard.vue';
+import DocumentFilesModal, { type DocumentFilesGroup } from './DocumentFilesModal.vue';
+import type { ProductDocument, RevisionDocuments } from '../../../../types/products.ts';
 
-defineProps<{
+const props = defineProps<{
   title: string;
-  docs: ProductDocument[];
+  docs: RevisionDocuments;
   loading: boolean;
-  uploading: boolean;
   canEdit: boolean;
-  emptyText: string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'upload-file', file: File): void;
+  /** `documentTypeId` null means the "Other documents" bucket. */
+  (e: 'upload-file', file: File, documentTypeId: number | null): void;
+  (e: 'replace-file', doc: ProductDocument, file: File): void;
   (e: 'delete-doc', doc: ProductDocument): void;
 }>();
 
 const { t } = useI18n();
 
-function onSelectFile(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = ''; // allow re-selecting the same file later
-  if (file) emit('upload-file', file);
-}
+/** Stands in for the "Other documents" card, which has no document type id. */
+const OTHER_GROUP = 'other' as const;
 
-function docIcon(mimeType: string | null) {
-  if (!mimeType) return File;
-  if (mimeType.startsWith('image/')) return Image;
-  if (mimeType.includes('pdf') || mimeType.includes('word') || mimeType.includes('text'))
-    return FileText;
-  if (mimeType.includes('excel') || mimeType.includes('spreadsheet') || mimeType.includes('csv'))
-    return FileSpreadsheet;
-  return File;
-}
+// The open card is tracked by id, not by a copied snapshot, so the modal
+// re-derives from `docs` and stays current when a mutation refetches the panel.
+const openGroupId = ref<number | typeof OTHER_GROUP | null>(null);
+
+const openGroup = computed<DocumentFilesGroup | null>(() => {
+  if (openGroupId.value === null) return null;
+  if (openGroupId.value === OTHER_GROUP) {
+    return { name: t('other_documents'), allowedExtensions: [], files: props.docs.other };
+  }
+  const group = props.docs.documentTypes.find((g) => g.id === openGroupId.value);
+  return group
+    ? { name: group.name, allowedExtensions: group.allowedExtensions, files: group.files }
+    : null;
+});
+
+/** What an upload from inside the modal should be filed under. */
+const openDocumentTypeId = computed(() =>
+  typeof openGroupId.value === 'number' ? openGroupId.value : null,
+);
+
+const filesModalOpen = computed({
+  get: () => openGroupId.value !== null,
+  set: (value) => {
+    if (!value) openGroupId.value = null;
+  },
+});
 </script>

@@ -258,6 +258,35 @@ const messages = {
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
 
+    // Document type cards
+    other_documents: 'Other documents',
+    n_files: '{n} file | {n} files',
+    no_uploaded_file: 'No file uploaded',
+    show_more_files: '+{n} more…',
+    manage_files: 'Show all files',
+    close: 'Close',
+    upload: 'Upload',
+    download: 'Download',
+    replace: 'Replace',
+    replace_document: 'Replace file',
+    document_replaced: 'File replaced',
+    allowed_extensions_hint: 'Allowed file types: {list}',
+    no_document_types_hint:
+      'No document requirements are defined for this type yet. Add them under Settings → Product types; files uploaded here go to "Other documents".',
+    document_types: 'Document types',
+    total_types: 'Total types',
+    doc_status_complete: 'Uploaded',
+    doc_status_missing: 'Missing',
+    doc_status_optional: 'Optional',
+    // Shown as the status badge's tooltip on each card.
+    doc_status_complete_hint: 'At least one file uploaded',
+    doc_status_missing_hint: 'Required file(s) are missing',
+    doc_status_optional_hint: 'Not required for this item',
+    errors_document_extension_not_allowed: 'That file type is not allowed here',
+    errors_document_too_large: 'The file is too large (max 25 MB)',
+    errors_document_type_mismatch:
+      'That document type does not belong to this item',
+
     // BOM panel
     bom_title: 'Bill of Materials',
     bom_select_revision: 'Select a revision to view the BOM.',
@@ -398,11 +427,13 @@ const messages = {
 
       // Stock management
       COMPANY_ALREADY_EXISTS: 'A company with this name already exists.',
-      COMPANY_DELETE_FAILED: 'This company cannot be deleted because it has stock entries.',
+      COMPANY_DELETE_FAILED:
+        'This company cannot be deleted because it has stock entries.',
       save_company_failed: 'The company could not be saved.',
       save_stock_entry_failed: 'The stock entry could not be saved.',
       fill_required_fields: 'Please fill in all required fields.',
-      INSUFFICIENT_STOCK: 'Not enough stock available to complete this removal.',
+      INSUFFICIENT_STOCK:
+        'Not enough stock available to complete this removal.',
       BNR_RATE_UNAVAILABLE:
         'Could not reach the BNR exchange rate service. Please try again shortly.',
       save_stock_removal_failed: 'The stock removal could not be saved.',
@@ -527,6 +558,8 @@ const messages = {
       delete_category_msg: 'Are you sure you want to delete this category',
       delete_part_msg: 'Are you sure you want to delete this part',
       delete_document_msg: 'Are you sure you want to delete this document',
+      replace_document_msg:
+        'Replace "{current}" with "{incoming}"?\nOnly this revision is affected — other revisions keep the current file.',
       archive_product_msg:
         'Are you sure you want to archive this product? It will become read-only until re-activated.',
       activate_product_msg:
@@ -795,6 +828,37 @@ const messages = {
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
 
+    // Dokumentumtípus kártyák
+    other_documents: 'Egyéb dokumentumok',
+    // Hungarian doesn't inflect the noun after a numeral, so one form covers all.
+    n_files: '{n} fájl',
+    no_uploaded_file: 'Nincs feltöltött fájl',
+    show_more_files: 'még {n}…',
+    manage_files: 'Összes fájl megjelenítése',
+    close: 'Bezárás',
+    upload: 'Feltöltés',
+    download: 'Letöltés',
+    replace: 'Csere',
+    replace_document: 'Fájl cseréje',
+    document_replaced: 'Fájl kicserélve',
+    allowed_extensions_hint: 'Engedélyezett fájltípusok: {list}',
+    no_document_types_hint:
+      'Ehhez a típushoz még nincsenek dokumentum-követelmények. A Beállítások → Terméktípusok alatt vehetők fel; az itt feltöltött fájlok az „Egyéb dokumentumok” közé kerülnek.',
+    document_types: 'Dokumentumtípusok',
+    total_types: 'Összes típus',
+    doc_status_complete: 'Feltöltve',
+    doc_status_missing: 'Hiányzik',
+    doc_status_optional: 'Opcionális',
+    // A kártyákon a státuszjelvény tooltipjeként jelenik meg.
+    doc_status_complete_hint: 'Legalább egy fájl feltöltve',
+    doc_status_missing_hint: 'Kötelező fájl(ok) hiányoznak',
+    doc_status_optional_hint: 'Ehhez az elemhez nem kötelező',
+    errors_document_extension_not_allowed:
+      'Ez a fájltípus itt nem engedélyezett',
+    errors_document_too_large: 'A fájl túl nagy (max. 25 MB)',
+    errors_document_type_mismatch:
+      'Ez a dokumentumtípus nem ehhez az elemhez tartozik',
+
     // Anyagjegyzék panel
     bom_title: 'Anyagjegyzék',
     bom_select_revision: 'Válassz revíziót az anyagjegyzék megtekintéséhez.',
@@ -932,7 +996,8 @@ const messages = {
 
       // Készletkezelés
       COMPANY_ALREADY_EXISTS: 'Ilyen nevű vállalat már létezik.',
-      COMPANY_DELETE_FAILED: 'A vállalat nem törölhető, mert bevételezések hivatkoznak rá.',
+      COMPANY_DELETE_FAILED:
+        'A vállalat nem törölhető, mert bevételezések hivatkoznak rá.',
       save_company_failed: 'A vállalat mentése nem sikerült.',
       save_stock_entry_failed: 'A bevételezés mentése nem sikerült.',
       fill_required_fields: 'Kérlek töltsd ki az összes kötelező mezőt.',
@@ -996,7 +1061,8 @@ const messages = {
         'Már létezik ilyen nevű dokumentumtípus ennél a terméktípusnál.',
       PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
-      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'Érvénytelen dokumentumtípus-azonosító',
+      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID:
+        'Érvénytelen dokumentumtípus-azonosító',
       SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
       SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
         'Már létezik ilyen nevű dokumentumtípus ennél az altermék-típusnál.',
@@ -1060,6 +1126,8 @@ const messages = {
       delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
+      replace_document_msg:
+        'Lecseréled a(z) „{current}” fájlt erre: „{incoming}”?\nCsak ez a revízió változik — a többi revízióban a jelenlegi fájl marad.',
       archive_product_msg:
         'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
       activate_product_msg:
