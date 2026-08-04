@@ -16,8 +16,10 @@ import type {
   RevisionStatus,
   ProductStatus,
   ProductDocument,
+  RevisionDocuments,
   BomSubProduct,
 } from '../types/products.ts';
+import type { PanelScope } from '../views/products/detail/types.ts';
 
 export const productsApi = {
   getAll() {
@@ -121,36 +123,65 @@ export const subProductsApi = {
   },
 };
 
-// Documents hang off a REVISION on both sides now (document-system-plan.md
-// §3.3) — product documents are scoped to a product revision, not the whole
-// product. `PanelScope` already carries the selected revision id.
-export const documentsApi = {
-  getProductRevisionDocuments(revId: number) {
-    return api.get<ProductDocument[]>(`/product-revisions/${revId}/documents`);
-  },
-  uploadProductRevisionDocument(revId: number, file: File, name?: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (name && name.trim()) formData.append('name', name.trim());
-    return api.post<ProductDocument>(`/product-revisions/${revId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
-  deleteProductRevisionDocument(revId: number, docId: number) {
-    return api.delete(`/product-revisions/${revId}/documents/${docId}`);
-  },
-  getSpRevisionDocuments(spId: number, revId: number) {
-    return api.get<ProductDocument[]>(`/sub-products/${spId}/revisions/${revId}/documents`);
-  },
-  uploadSpRevisionDocument(spId: number, revId: number, file: File, name?: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (name && name.trim()) formData.append('name', name.trim());
-    return api.post<ProductDocument>(`/sub-products/${spId}/revisions/${revId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
-  deleteSpRevisionDocument(spId: number, revId: number, docId: number) {
-    return api.delete(`/sub-products/${spId}/revisions/${revId}/documents/${docId}`);
-  },
-};
+// Documents hang off a REVISION on both sides (document-system-plan.md §3.3),
+// and the two families are served by structurally identical routes that differ
+// only in their base path — so one factory covers both and `documentsApiFor`
+// picks the right one from a PanelScope.
+const multipart = { headers: { 'Content-Type': 'multipart/form-data' } };
+
+function uploadForm(file: File, name?: string, documentTypeId?: number | null): FormData {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (name && name.trim()) formData.append('name', name.trim());
+  // Omitted -> the server files it under "Other documents".
+  if (documentTypeId != null) formData.append('documentTypeId', String(documentTypeId));
+  return formData;
+}
+
+function buildDocumentsApi(basePath: (revId: number) => string) {
+  return {
+    /** Grouped panel payload: cards, the "other" bucket and the summary. */
+    getAll(revId: number) {
+      return api.get<RevisionDocuments>(`${basePath(revId)}/documents`);
+    },
+    upload(revId: number, file: File, name?: string, documentTypeId?: number | null) {
+      return api.post<ProductDocument>(
+        `${basePath(revId)}/documents`,
+        uploadForm(file, name, documentTypeId),
+        multipart,
+      );
+    },
+    /** Copy-on-write replace — only this revision's row is repointed. */
+    replace(
+      revId: number,
+      docId: number,
+      file: File,
+      name?: string,
+      documentTypeId?: number | null,
+    ) {
+      return api.put<ProductDocument>(
+        `${basePath(revId)}/documents/${docId}`,
+        uploadForm(file, name, documentTypeId),
+        multipart,
+      );
+    },
+    remove(revId: number, docId: number) {
+      return api.delete(`${basePath(revId)}/documents/${docId}`);
+    },
+  };
+}
+
+const productRevisionDocumentsApi = buildDocumentsApi((revId) => `/product-revisions/${revId}`);
+
+/** Sub-product routes are nested under their sub-product, so the id is bound
+ *  in per call rather than baked into the base path. */
+function subProductDocumentsApi(spId: number) {
+  return buildDocumentsApi((revId) => `/sub-products/${spId}/revisions/${revId}`);
+}
+
+/** The right documents API for whatever the panel is currently showing. */
+export function documentsApiFor(scope: PanelScope) {
+  return scope.kind === 'product'
+    ? productRevisionDocumentsApi
+    : subProductDocumentsApi(scope.spId);
+}

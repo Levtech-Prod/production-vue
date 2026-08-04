@@ -166,12 +166,36 @@ export interface ProductDocument {
   /** Which document-type card the file belongs to; null = "Other documents". */
   documentTypeId: number | null;
   originalName: string;
-  /** Storage key: the file's path relative to uploads/documents/. */
-  filename: string;
   mimeType: string | null;
   sizeBytes: number;
+  /** Statically served URL — opens the file in a tab. */
   path: string;
+  /** API endpoint that forces a save under the original name. */
+  downloadUrl: string;
   createdAt: string;
+}
+
+/** A card's completeness (document-system-plan.md §2). `optional` is a
+ *  non-required type with nothing uploaded — "Nem releváns" on the panel. */
+export type DocumentTypeStatus = 'complete' | 'missing' | 'optional';
+
+/** One document-type card: the requirement plus whatever satisfies it. */
+export interface DocumentTypeGroup {
+  id: number;
+  name: string;
+  icon: string;
+  allowedExtensions: string[];
+  required: boolean;
+  status: DocumentTypeStatus;
+  files: ProductDocument[];
+}
+
+/** The Documents panel payload for one revision, grouped server-side. */
+export interface RevisionDocuments {
+  documentTypes: DocumentTypeGroup[];
+  /** Ad-hoc uploads that belong to no document type. */
+  other: ProductDocument[];
+  summary: { totalTypes: number; uploaded: number; missing: number };
 }
 
 // ---- BOM ------------------------------------------------------------------
