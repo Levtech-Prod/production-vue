@@ -4,12 +4,22 @@
 -- sub-product TYPE (template tables), each physical file is stored once
 -- (`stored_files`), and thin per-revision rows point at a stored file + a
 -- document type. Product docs move from product-level to per **product
--- revision**. Existing data is migrated into the new shape; the old tables are
--- retained one release for rollback.
+-- revision**.
+--
+-- Schema only — there is no data migration: the legacy document tables are
+-- empty in every environment, so a backfill would be code that never runs.
 --
 -- Run once against the existing database:
 --   psql "$DATABASE_URL" -f database/migrations/013-document-requirements.sql
 -- Idempotent — safe to re-run.
+--
+-- Wrapped in a single transaction: DDL is transactional in Postgres, and step 3
+-- RENAMEs `sub_product_revision_documents` aside before creating the reshaped
+-- table under that name. Without the transaction, a failure between those two
+-- statements would leave no table under the canonical name at all — and the
+-- rename guard would stop a re-run from repairing it.
+
+BEGIN;
 
 -- ===========================================================================
 -- 1. Templates — required document types defined per product / sub-product type
@@ -50,19 +60,24 @@ CREATE INDEX IF NOT EXISTS idx_sub_product_document_types_type_id
 -- One row per physical file. Files are shared across revisions by having
 -- several revision-document rows point at the same stored_files.id — nothing is
 -- copied on disk. No content hashing in v1 (see plan §7 for phase-2 dedup).
--- `storage_key` is the file's path relative to uploads/documents/ (matches the
--- legacy `filename` column, so no files are moved during migration).
 
 CREATE TABLE IF NOT EXISTS stored_files (
   id          SERIAL PRIMARY KEY,
   storage_key TEXT     NOT NULL,       -- relative path within uploads/documents/
-  size_bytes  BIGINT   NOT NULL,       -- 0 for legacy rows (unknown at migration)
+  size_bytes  BIGINT   NOT NULL,
   mime_type   VARCHAR(100),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Speeds folder resolution and the migration's storage_key lookups below.
-CREATE INDEX IF NOT EXISTS idx_stored_files_storage_key ON stored_files(storage_key);
+-- UNIQUE, not just indexed: "one row per physical file" is the invariant the
+-- whole sharing model rests on — carry-forward and copy-on-write are only safe
+-- because a storage_key identifies exactly one stored_files row. The upload
+-- path already guarantees it (resolveUniqueName never reuses an on-disk name);
+-- this makes the database say so too, so a future code path cannot quietly
+-- break it. Drops the earlier non-unique index it replaces.
+DROP INDEX IF EXISTS idx_stored_files_storage_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_stored_files_storage_key
+  ON stored_files(storage_key);
 
 -- ===========================================================================
 -- 3. Per-revision document rows point at a stored file + a document type
@@ -88,22 +103,28 @@ CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_stored_file_id
   ON product_revision_documents(stored_file_id);
 
 -- Reshape sub_product_revision_documents. The new table reuses the canonical
--- name, so move the old one aside first. Guarded on the presence of the legacy
--- `filename` column (only the old shape has it) and the absence of an existing
--- legacy table, so re-running never renames the already-reshaped table.
+-- name, so the old one has to go first. Guarded on the presence of the legacy
+-- `filename` column — only the old shape has it — so a re-run skips this
+-- entirely rather than touching the already-reshaped table.
+--
+-- Dropped rather than renamed aside: the table is empty, so there is no data a
+-- `_legacy` copy could preserve, and keeping one would leave a dead table
+-- behind for a follow-up migration to clean up. The row check makes the
+-- "it's empty" assumption explicit — if it is ever wrong, this fails loudly
+-- and the whole migration rolls back, instead of silently hiding rows in a
+-- table no code reads.
 DO $$
 BEGIN
   IF EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'sub_product_revision_documents' AND column_name = 'filename'
       )
-     AND NOT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'sub_product_revision_documents_legacy'
-      )
   THEN
-    ALTER TABLE sub_product_revision_documents
-      RENAME TO sub_product_revision_documents_legacy;
+    IF EXISTS (SELECT 1 FROM sub_product_revision_documents) THEN
+      RAISE EXCEPTION
+        'sub_product_revision_documents holds rows; migration 013 expects it empty. Write a backfill migration before running this.';
+    END IF;
+    DROP TABLE sub_product_revision_documents;
   END IF;
 END $$;
 
@@ -125,90 +146,26 @@ CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_stored_file_id
   ON sub_product_revision_documents(stored_file_id);
 
 -- ===========================================================================
--- 4. Data migration — move existing docs into the new shape (no files moved)
+-- 4. Retire product_documents
 -- ===========================================================================
--- Each block is idempotent. The two backfill blocks are guarded on the target
--- table being empty so they never double-insert on re-run; stored_files inserts
--- are guarded on storage_key so files are recorded once.
+-- Product documents are now per product REVISION (section 3), so the old
+-- product-level table has no reader left in backend/src. Same guard and same
+-- reasoning as the sub-product table above: empty, so nothing to preserve —
+-- and a loud failure rather than a silent one if that is ever untrue.
 
--- 4a. Products that have documents but no revision yet: auto-create Rev.1 so the
---     revision-scoped docs have somewhere to live, and point default at it.
-INSERT INTO product_revisions (product_id, revision_number, label, status, change_notes)
-SELECT DISTINCT pd.product_id, 1, 'Rev.1', 'draft', 'Auto-created during document migration (013)'
-FROM product_documents pd
-WHERE NOT EXISTS (
-  SELECT 1 FROM product_revisions pr WHERE pr.product_id = pd.product_id
-);
-
-UPDATE products p
-SET default_revision_id = (
-  SELECT pr.id FROM product_revisions pr
-  WHERE pr.product_id = p.id
-  ORDER BY pr.revision_number
-  LIMIT 1
-)
-WHERE p.default_revision_id IS NULL
-  AND EXISTS (SELECT 1 FROM product_documents pd WHERE pd.product_id = p.id)
-  AND EXISTS (SELECT 1 FROM product_revisions pr WHERE pr.product_id = p.id);
-
--- 4b. Sub-product revision documents: one stored_files row per legacy file, then
---     a reshaped document row (document_type_id NULL -> "Other" bucket).
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables
-             WHERE table_name = 'sub_product_revision_documents_legacy')
-     AND NOT EXISTS (SELECT 1 FROM sub_product_revision_documents)
+  IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'product_documents'
+      )
   THEN
-    INSERT INTO stored_files (storage_key, size_bytes, mime_type, created_at)
-    SELECT l.filename, 0, l.mime_type, l.created_at
-    FROM sub_product_revision_documents_legacy l
-    WHERE NOT EXISTS (
-      SELECT 1 FROM stored_files sf WHERE sf.storage_key = l.filename
-    );
-
-    INSERT INTO sub_product_revision_documents
-      (sub_product_revision_id, document_type_id, stored_file_id, original_name, uploaded_by, created_at)
-    SELECT l.sub_product_revision_id, NULL, sf.id, l.original_name, l.uploaded_by, l.created_at
-    FROM sub_product_revision_documents_legacy l
-    JOIN stored_files sf ON sf.storage_key = l.filename;
+    IF EXISTS (SELECT 1 FROM product_documents) THEN
+      RAISE EXCEPTION
+        'product_documents holds rows; migration 013 expects it empty. Write a backfill migration before running this.';
+    END IF;
+    DROP TABLE product_documents;
   END IF;
 END $$;
 
--- 4c. Product documents: one stored_files row per legacy file, then a document
---     row on the product's default (else earliest) revision. Products with no
---     revision were given one in 4a, so every product doc has a target here.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM product_revision_documents) THEN
-    INSERT INTO stored_files (storage_key, size_bytes, mime_type, created_at)
-    SELECT pd.filename, 0, pd.mime_type, pd.created_at
-    FROM product_documents pd
-    WHERE NOT EXISTS (
-      SELECT 1 FROM stored_files sf WHERE sf.storage_key = pd.filename
-    );
-
-    INSERT INTO product_revision_documents
-      (product_revision_id, document_type_id, stored_file_id, original_name, uploaded_by, created_at)
-    SELECT t.rev_id, NULL, sf.id, pd.original_name, pd.uploaded_by, pd.created_at
-    FROM product_documents pd
-    JOIN stored_files sf ON sf.storage_key = pd.filename
-    JOIN LATERAL (
-      SELECT COALESCE(
-        p.default_revision_id,
-        (SELECT pr.id FROM product_revisions pr
-         WHERE pr.product_id = pd.product_id
-         ORDER BY pr.revision_number LIMIT 1)
-      ) AS rev_id
-      FROM products p WHERE p.id = pd.product_id
-    ) t ON TRUE
-    WHERE t.rev_id IS NOT NULL;
-  END IF;
-END $$;
-
--- ---------------------------------------------------------------------------
--- Rollback note: the legacy tables are intentionally retained for one release.
---   * product_documents                        (unchanged, still populated)
---   * sub_product_revision_documents_legacy     (renamed from the old table)
--- A follow-up migration drops them once the new document routes have shipped
--- and been verified in production.
--- ---------------------------------------------------------------------------
+COMMIT;

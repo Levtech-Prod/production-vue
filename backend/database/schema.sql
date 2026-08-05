@@ -235,35 +235,13 @@ ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key;
 CREATE UNIQUE INDEX IF NOT EXISTS products_sku_active_unique
   ON products (sku) WHERE status = 'active';
 
--- ===========================================================================
--- Documents module
--- Files attached to products (product-level) or sub-product revisions.
--- ===========================================================================
-
-CREATE TABLE IF NOT EXISTS product_documents (
-  id            SERIAL PRIMARY KEY,
-  product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  original_name VARCHAR(255) NOT NULL,
-  filename      VARCHAR(255) NOT NULL,
-  mime_type     VARCHAR(100),
-  path          TEXT NOT NULL,
-  uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
-  id                      SERIAL PRIMARY KEY,
-  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
-  original_name           VARCHAR(255) NOT NULL,
-  filename                VARCHAR(255) NOT NULL,
-  mime_type               VARCHAR(100),
-  path                    TEXT NOT NULL,
-  uploaded_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_product_documents_product_id ON product_documents(product_id);
-CREATE INDEX IF NOT EXISTS idx_sp_rev_documents_sp_rev_id ON sub_product_revision_documents(sub_product_revision_id);
+-- Documents live further down, in the "Required Document Types" section: they
+-- hang off a product / sub-product REVISION and point at a `stored_files` row
+-- rather than owning their bytes (see migration 013). The old product-level
+-- `product_documents` and the flat `sub_product_revision_documents` that used
+-- to be defined here were dropped by that migration and are deliberately not
+-- recreated — defining them here would have every fresh database create two
+-- tables no code reads.
 
 -- ===========================================================================
 -- Product / Sub-product types (Settings page)
@@ -318,10 +296,9 @@ ALTER TABLE sub_products
 -- (template tables). Each physical file is recorded once in `stored_files`;
 -- thin per-revision rows point at a stored file + a document type, so a file
 -- can be shared across revisions by pointer without being copied on disk.
--- Product docs are scoped per product REVISION (not per product). The old
--- `product_documents` and `sub_product_revision_documents` tables are retained
--- one release for rollback — the latter renamed to `..._legacy` below since the
--- reshaped table reuses the canonical name. All blocks are idempotent.
+-- Product docs are scoped per product REVISION (not per product). The tables
+-- these replaced were dropped by migration 013 (both were empty), so nothing
+-- legacy is defined here. All blocks are idempotent.
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS product_document_types (
@@ -360,7 +337,11 @@ CREATE TABLE IF NOT EXISTS stored_files (
   mime_type   VARCHAR(100),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_stored_files_storage_key ON stored_files(storage_key);
+-- UNIQUE: one stored_files row per physical file is the invariant the sharing
+-- model (carry-forward / copy-on-write) rests on. See migration 013.
+DROP INDEX IF EXISTS idx_stored_files_storage_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_stored_files_storage_key
+  ON stored_files(storage_key);
 
 CREATE TABLE IF NOT EXISTS product_revision_documents (
   id                  SERIAL PRIMARY KEY,
@@ -378,23 +359,6 @@ CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_type_id
 CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_stored_file_id
   ON product_revision_documents(stored_file_id);
 
--- Move the old sub-product docs table aside before creating the reshaped one
--- (guarded on the legacy `filename` column so it never renames the new table).
-DO $$
-BEGIN
-  IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'sub_product_revision_documents' AND column_name = 'filename'
-      )
-     AND NOT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'sub_product_revision_documents_legacy'
-      )
-  THEN
-    ALTER TABLE sub_product_revision_documents
-      RENAME TO sub_product_revision_documents_legacy;
-  END IF;
-END $$;
 
 CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
   id                      SERIAL PRIMARY KEY,

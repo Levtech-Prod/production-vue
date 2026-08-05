@@ -245,8 +245,6 @@ const messages = {
     // Documents panel
     product_documents: 'Product Documents',
     sp_rev_documents: '{name} — {label} Documents',
-    no_product_documents: 'No documents uploaded for this product.',
-    no_sp_rev_documents: 'No documents uploaded for this revision.',
     upload_document: 'Upload document',
     document_name: 'File name',
     document_name_hint:
@@ -814,8 +812,6 @@ const messages = {
     // Dokumentumok panel
     product_documents: 'Termék dokumentumok',
     sp_rev_documents: '{name} — {label} dokumentumok',
-    no_product_documents: 'Ehhez a termékhez nincs feltöltött dokumentum.',
-    no_sp_rev_documents: 'Ehhez a revízióhoz nincs feltöltött dokumentum.',
     upload_document: 'Dokumentum feltöltése',
     document_name: 'Fájlnév',
     document_name_hint:
