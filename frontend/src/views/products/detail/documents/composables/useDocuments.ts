@@ -62,17 +62,23 @@ export function useDocuments(
     return panelScope.value != null && docsKeyFor(panelScope.value) === docsKeyFor(scope);
   }
 
-  /** Fetch and cache one scope. Null when the request failed or was superseded
-   *  by a newer one — a slow response must never overwrite a later selection. */
+  /** Fetch one scope. Null when the request failed or was superseded by a newer
+   *  one — a slow response must never overwrite a later selection.
+   *
+   *  The response is cached either way: it is valid data for the scope it was
+   *  asked for, whether or not that scope is still on screen, so switching back
+   *  is instant instead of refetching. Only the *return* is suppressed. */
   async function fetchDocs(scope: PanelScope): Promise<RevisionDocuments | null> {
     const token = ++docsToken;
+    const key = docsKeyFor(scope);
     try {
       const res = await documentsApiFor(scope).getAll(scope.revId);
-      if (token !== docsToken) return null;
-      docsCache.set(docsKeyFor(scope), res.data);
-      return res.data;
+      docsCache.set(key, res.data);
+      return token === docsToken ? res.data : null;
     } catch {
-      if (token === docsToken) docsCache.delete(docsKeyFor(scope));
+      // Drop any cached value: after a failed refresh (post-mutation) it is
+      // stale, and re-reading is cheaper than showing something wrong.
+      docsCache.delete(key);
       return null;
     }
   }
@@ -82,15 +88,24 @@ export function useDocuments(
     const cached = docsCache.get(docsKeyFor(scope));
     if (cached) {
       docs.value = cached;
+      // A cache hit is not loading — and it may be resolving a scope switch
+      // that happened while an earlier, slower load was still in flight. That
+      // load will bail out below without touching the flag, so if this branch
+      // did not clear it the spinner would cover perfectly good cached data.
+      docsLoading.value = false;
       return;
     }
+
     docsLoading.value = true;
-    const fresh = await fetchDocs(scope);
-    // If the user moved on, leave both the view and the spinner to the newer
-    // call that superseded this one.
-    if (!isCurrent(scope)) return;
-    docs.value = fresh ?? EMPTY;
-    docsLoading.value = false;
+    try {
+      const fresh = await fetchDocs(scope);
+      // If the user moved on, leave the view to the newer call.
+      if (isCurrent(scope)) docs.value = fresh ?? EMPTY;
+    } finally {
+      // Only the call whose scope is still on screen owns the flag; a
+      // superseded one clearing it would hide the newer call's spinner.
+      if (isCurrent(scope)) docsLoading.value = false;
+    }
   }
 
   /** Re-read a scope after a mutation, updating the view if still on it. */
