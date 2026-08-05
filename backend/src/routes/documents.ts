@@ -233,7 +233,13 @@ async function prepareIncomingFile(
       safeUnlink(file.path);
       return { error: ErrorCodes.DOCUMENT_TYPE_MISMATCH };
     }
-    if (!extensionAllowed(template, body.name ?? file.originalname)) {
+    // Always the UPLOADED file's name, never `body.name`: the rule is about
+    // the bytes, and a custom name is only a label. Checking the label
+    // rejected valid uploads (typing "Gerber Files" for a .zip on a
+    // .zip-only card) and would let a mislabelled file through the card's
+    // gate — `resolveDisplayName` guarantees the stored name ends in this
+    // same, already-validated extension.
+    if (!extensionAllowed(template, file.originalname)) {
       safeUnlink(file.path);
       return { error: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED };
     }

@@ -139,10 +139,31 @@ export function resolveEntityFolder(
   return folder;
 }
 
+/** `original_name` is VARCHAR(255); appending an extension must not overflow it. */
+const MAX_DISPLAY_NAME = 255;
+
+function clampDisplayName(name: string): string {
+  if (name.length <= MAX_DISPLAY_NAME) return name;
+  const ext = path.extname(name);
+  return name.slice(0, MAX_DISPLAY_NAME - ext.length) + ext;
+}
+
 /**
  * The name a document is shown under: the custom name when one was given,
- * otherwise the uploaded file's own name — with the original extension
- * appended when the custom name lacks one.
+ * otherwise the uploaded file's own name.
+ *
+ * The extension ALWAYS comes from the uploaded file, and is appended rather
+ * than substituted when a custom name carries a different one ("notes.txt"
+ * for a .zip becomes "notes.txt.zip"). Two reasons:
+ *
+ *  - It is the extension that was validated — against the global allow-list
+ *    and the card's `allowedExtensions`. Letting a label rename `x.zip` to
+ *    `x.svg` would put an unvalidated extension on a file served statically
+ *    from `/uploads`.
+ *  - Appending never guesses. Substituting means deciding which trailing
+ *    dot-segment of the typed name is "the extension", and `path.extname`
+ *    reads "v2.1 release" as ".1 release" — so a legitimate name with a dot
+ *    in it would be silently truncated.
  *
  * Deliberately independent of what is already on disk. The display name is
  * what the user typed (or uploaded); collision handling belongs to
@@ -157,9 +178,11 @@ export function resolveDisplayName(
   const base = sanitizeSegment((desiredName ?? '').trim() || originalName);
   const originalExt = path.extname(originalName);
 
-  // Ensure a custom name keeps a sensible extension.
-  if (path.extname(base) === '' && originalExt) return base + originalExt;
-  return base;
+  if (!originalExt) return clampDisplayName(base);
+  if (path.extname(base).toLowerCase() === originalExt.toLowerCase()) {
+    return clampDisplayName(base);
+  }
+  return clampDisplayName(base + originalExt);
 }
 
 /**
