@@ -305,11 +305,37 @@ export async function insertStoredFile(
  *
  * Both document tables are checked: cheap (each `stored_file_id` column is
  * indexed) and immune to a stored file ever being shared across families.
+ *
+ * MUST be called inside the caller's transaction — `db` is a tx client, never
+ * the pool. The row lock below is what makes the check correct, and a lock
+ * taken in autocommit is released before it can do any good.
  */
 export async function releaseStoredFile(
   db: Queryable,
   storedFileId: number,
 ): Promise<string | null> {
+  // Serialise every release of THIS file before asking the question.
+  //
+  // Without the lock, two transactions each deleting a different row that
+  // shares the file both answer "no" and both leak it: under READ COMMITTED
+  // neither can see the other's uncommitted delete, so each still sees a row
+  // it thinks needs the file, and the file is orphaned on disk with no
+  // `stored_files` row left pointing at it. Holding the lock first makes the
+  // second transaction wait; when it proceeds, its next statement gets a fresh
+  // READ COMMITTED snapshot and sees the truth.
+  //
+  // The same lock closes the opposite race: inserting a document row that
+  // references this file takes a FOR KEY SHARE lock on it, which conflicts
+  // with FOR UPDATE. So a carry-forward that would adopt the file cannot slip
+  // in between the check and the delete — it either lands first (and the check
+  // sees it) or waits until we are done.
+  const locked = await db.query<{ id: number }>(
+    `SELECT id FROM stored_files WHERE id = $1 FOR UPDATE`,
+    [storedFileId],
+  );
+  // Already released by a transaction that committed while we waited.
+  if (locked.rowCount === 0) return null;
+
   const referenced = await db.query<{ one: number }>(
     `SELECT 1 AS one FROM product_revision_documents WHERE stored_file_id = $1
      UNION ALL
