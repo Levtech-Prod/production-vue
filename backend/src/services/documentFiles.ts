@@ -140,26 +140,40 @@ export function resolveEntityFolder(
 }
 
 /**
- * Resolve the final on-disk file name inside `dirAbs`, based on a desired base
- * name (custom or original). Preserves the original extension and appends
- * " (n)" if a file with that name already exists so nothing is overwritten —
- * which is also what keeps copy-on-write copies beside the file they replace.
+ * The name a document is shown under: the custom name when one was given,
+ * otherwise the uploaded file's own name — with the original extension
+ * appended when the custom name lacks one.
+ *
+ * Deliberately independent of what is already on disk. The display name is
+ * what the user typed (or uploaded); collision handling belongs to
+ * `resolveUniqueName` and must never leak back into it, or replacing a file
+ * with a new version of itself would rename the document to "foo (1).ext"
+ * merely because the file being replaced is still on disk at that moment.
  */
-export function resolveUniqueName(
-  dirAbs: string,
-  desiredName: string,
+export function resolveDisplayName(
+  desiredName: string | undefined,
   originalName: string,
 ): string {
+  const base = sanitizeSegment((desiredName ?? '').trim() || originalName);
   const originalExt = path.extname(originalName);
-  let base = sanitizeSegment(desiredName || originalName);
 
-  // Ensure the desired name keeps a sensible extension.
-  if (path.extname(base) === '' && originalExt) base += originalExt;
+  // Ensure a custom name keeps a sensible extension.
+  if (path.extname(base) === '' && originalExt) return base + originalExt;
+  return base;
+}
 
-  const ext = path.extname(base);
-  const stem = base.slice(0, base.length - ext.length) || base;
+/**
+ * Resolve the final on-disk file name inside `dirAbs` for a document with this
+ * display name. Appends " (n)" if a file with that name already exists so
+ * nothing is overwritten — which is also what keeps copy-on-write copies
+ * beside the file they replace. Only the STORED name is suffixed; see
+ * `resolveDisplayName`.
+ */
+export function resolveUniqueName(dirAbs: string, displayName: string): string {
+  const ext = path.extname(displayName);
+  const stem = displayName.slice(0, displayName.length - ext.length) || displayName;
 
-  let candidate = base;
+  let candidate = displayName;
   let counter = 1;
   while (fs.existsSync(path.join(dirAbs, candidate))) {
     candidate = `${stem} (${counter})${ext}`;
@@ -170,15 +184,20 @@ export function resolveUniqueName(
 
 /** A file moved into place on disk, not yet recorded in the database. */
 export interface PlacedFile {
-  /** Path relative to `documentsDir` — becomes `stored_files.storage_key`. */
+  /** Path relative to `documentsDir` — becomes `stored_files.storage_key`.
+   *  May carry a " (n)" suffix to avoid overwriting a neighbouring file. */
   storageKey: string;
-  /** The name shown to users — becomes the document row's `original_name`. */
+  /** The name shown to users — becomes the document row's `original_name`.
+   *  Never suffixed: two revisions may legitimately show the same name. */
   displayName: string;
 }
 
 /**
  * Move an uploaded temp file into `folder`, naming it from the custom name (if
  * provided) or the original name.
+ *
+ * The two names are resolved separately on purpose — this is the whole reason
+ * `stored_files.storage_key` and `original_name` are distinct columns.
  */
 export function placeUpload(
   file: Express.Multer.File,
@@ -188,10 +207,11 @@ export function placeUpload(
   const dirAbs = path.join(documentsDir, folder);
   if (!fs.existsSync(dirAbs)) fs.mkdirSync(dirAbs, { recursive: true });
 
-  const finalName = resolveUniqueName(dirAbs, (customName ?? '').trim(), file.originalname);
-  fs.renameSync(file.path, path.join(dirAbs, finalName));
+  const displayName = resolveDisplayName(customName, file.originalname);
+  const storedName = resolveUniqueName(dirAbs, displayName);
+  fs.renameSync(file.path, path.join(dirAbs, storedName));
 
-  return { storageKey: `${folder}/${finalName}`, displayName: finalName };
+  return { storageKey: `${folder}/${storedName}`, displayName };
 }
 
 /** Public URL for a stored file, encoded per segment so spaces resolve. */
