@@ -87,6 +87,7 @@
             @upload-file="onUploadFile"
             @replace-file="openDocReplaceConfirm"
             @delete-doc="openDocDeleteConfirm"
+            @link-doc="openDocLinkModal"
           />
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
@@ -215,6 +216,16 @@
       @confirm="confirmDocUpload"
     />
 
+    <!-- Reuse a file from another revision: linked, not copied. -->
+    <DocumentLinkModal
+      v-model="docLinkModalOpen"
+      :card-name="docLinkCardName"
+      :revisions="docLinkRevisions"
+      :loading="docLinkLoading"
+      :busy="docLinking"
+      @link="confirmDocLink"
+    />
+
     <!-- Replace document confirmation — overwriting is destructive for this
          revision, so it is confirmed in any revision status. -->
     <ConfirmModal
@@ -267,6 +278,7 @@ import PartsEditorPanel from './detail/PartsEditorPanel.vue';
 import ProductOverviewCard from './detail/ProductOverviewCard.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
 import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
+import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
@@ -363,6 +375,13 @@ const {
   pendingDocName,
   onUploadFile,
   confirmDocUpload,
+  linkModalOpen: docLinkModalOpen,
+  linkCardName: docLinkCardName,
+  linkRevisions: docLinkRevisions,
+  linkLoading: docLinkLoading,
+  linkBusy: docLinking,
+  openLinkModal: openDocLinkModal,
+  confirmLink: confirmDocLink,
   replaceVisible: docReplaceConfirmVisible,
   replaceTarget: docToReplace,
   replaceBusy: docReplacing,
@@ -429,13 +448,17 @@ const modalSaving = ref(false);
 async function onSaveComposition(payload: {
   label: string;
   changeNotes: string | null;
+  documentsFromId: number | null;
 }) {
   modalSaving.value = true;
   try {
     const res = await store.createRevision(productId.value, {
       label: payload.label,
       changeNotes: payload.changeNotes,
+      // setSubProducts below sets the composition, so nothing to duplicate.
       duplicateFromId: null,
+      // null = start with no documents.
+      documentsFromId: payload.documentsFromId,
     });
     const newRev = res.data;
     await productRevisionsApi.setSubProducts(

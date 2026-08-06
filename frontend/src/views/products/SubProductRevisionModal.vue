@@ -37,6 +37,18 @@
             </option>
           </select>
         </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium uppercase tracking-wide text-slate-500">
+            {{ t('copy_documents_from') }}
+          </label>
+          <select v-model="documentsFromId" class="input">
+            <option :value="null">{{ t('copy_documents_from_none') }}</option>
+            <option v-for="rev in sortedRevisions" :key="rev.id" :value="rev.id">
+              {{ rev.label }}
+            </option>
+          </select>
+          <p class="text-xs text-slate-400">{{ t('copy_documents_from_hint') }}</p>
+        </div>
       </div>
 
       <div class="flex flex-col gap-1">
@@ -61,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import PartsPicker from './PartsPicker.vue';
@@ -92,14 +104,22 @@ const form = ref<{ label: string; changeNotes: string }>({
   changeNotes: '',
 });
 const copyFromId = ref<number | null>(null);
+// Separate from the parts source: reusing `copyFromId` would make choosing a
+// document source re-copy that revision's parts too.
+const documentsFromId = ref<number | null>(null);
 const selectedParts = ref<SelectedPart[]>([]);
 const partsPickerRef = ref<InstanceType<typeof PartsPicker> | null>(null);
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'label', label: t('label'), missing: !form.value.label.trim() },
 ]);
 
-// Prefill the parts list from an existing revision (edited locally, then sent
-// explicitly — so we do NOT also pass duplicateFromId to the API).
+// Newest first — the likeliest source.
+const sortedRevisions = computed(() =>
+  [...(props.subProduct?.revisions ?? [])].sort((a, b) => b.revisionNumber - a.revisionNumber),
+);
+
+// Prefill the parts list, edited locally then sent explicitly — so we do NOT
+// pass duplicateFromId, or a part removed here would return via the server copy.
 async function onCopyFromChange() {
   if (!copyFromId.value || !props.subProduct) return;
   try {
@@ -129,6 +149,8 @@ watch(open, (isOpen) => {
   form.value = { label: `Rev. ${next}`, changeNotes: '' };
   selectedParts.value = [];
   copyFromId.value = null;
+  // Default to newest, so documents keep carrying forward untouched.
+  documentsFromId.value = sortedRevisions.value[0]?.id ?? null;
   resetValidation();
   partsPickerRef.value?.resetValidation();
 });
@@ -143,7 +165,10 @@ function submit() {
   emit('saved', {
     label: form.value.label.trim(),
     changeNotes: form.value.changeNotes.trim() || null,
+    // Parts are sent explicitly below, so the server must not copy them too.
     duplicateFromId: null,
+    // null means "no documents", not "fall back to the latest revision".
+    documentsFromId: documentsFromId.value,
     parts: selectedParts.value.map((p) => ({
       partId: p.partId,
       quantity: Number(p.quantity),

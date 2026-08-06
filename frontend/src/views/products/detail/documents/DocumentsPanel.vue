@@ -51,6 +51,7 @@
             @upload-file="(file) => emit('upload-file', file, group.id)"
             @replace-file="(doc, file) => emit('replace-file', doc, file)"
             @delete-file="(doc) => emit('delete-doc', doc)"
+            @link-file="emit('link-doc', group.id, group.name)"
             @show-all="openGroupId = group.id"
           />
 
@@ -65,6 +66,7 @@
             @upload-file="(file) => emit('upload-file', file, null)"
             @replace-file="(doc, file) => emit('replace-file', doc, file)"
             @delete-file="(doc) => emit('delete-doc', doc)"
+            @link-file="emit('link-doc', null, t('other_documents'))"
             @show-all="openGroupId = OTHER_GROUP"
           />
         </div>
@@ -102,6 +104,8 @@ const emit = defineEmits<{
   (e: 'upload-file', file: File, documentTypeId: number | null): void;
   (e: 'replace-file', doc: ProductDocument, file: File): void;
   (e: 'delete-doc', doc: ProductDocument): void;
+  /** `documentTypeId` null = "Other documents"; the name titles the modal. */
+  (e: 'link-doc', documentTypeId: number | null, cardName: string): void;
 }>();
 
 const { t } = useI18n();

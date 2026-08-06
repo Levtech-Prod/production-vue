@@ -3,7 +3,11 @@ import type { ComputedRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { documentsApiFor } from '../../../../../api/productsAPI.ts';
 import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
-import type { ProductDocument, RevisionDocuments } from '../../../../../types/products.ts';
+import type {
+  LinkableRevision,
+  ProductDocument,
+  RevisionDocuments,
+} from '../../../../../types/products.ts';
 import type { PanelScope } from '../../types.ts';
 import { useConfirmDelete } from '../../../../../composables/useConfirmDelete.ts';
 
@@ -208,6 +212,65 @@ export function useDocuments(
     replaceConfirm.open({ doc, scope: panelScope.value, file });
   }
 
+  // ── Link a file from another revision ─────────────────────────────────────
+  //
+  // Not confirmed: linking only adds a row, so it is as undoable as an upload.
+  // Only destructive actions get a modal (plan §"Edits allowed").
+
+  const linkModalOpen = ref(false);
+  const linkCardName = ref('');
+  const linkTypeId = ref<number | null>(null);
+  const linkScope = ref<PanelScope | null>(null);
+  const linkRevisions = ref<LinkableRevision[]>([]);
+  const linkLoading = ref(false);
+  const linkBusy = ref(false);
+
+  /** `documentTypeId` null = the "Other documents" bucket. */
+  async function openLinkModal(documentTypeId: number | null, cardName: string) {
+    const scope = panelScope.value;
+    if (!scope) return;
+    linkScope.value = scope;
+    linkTypeId.value = documentTypeId;
+    linkCardName.value = cardName;
+    linkRevisions.value = [];
+    linkModalOpen.value = true;
+    linkLoading.value = true;
+    try {
+      const res = await documentsApiFor(scope).linkable(scope.revId, documentTypeId);
+      // Dropped if the modal closed meanwhile, so it can't fill a later card.
+      if (linkModalOpen.value) linkRevisions.value = res.data.revisions;
+    } catch {
+      notify.showToast(t('errors_load_linkable_failed'), 'error');
+      linkModalOpen.value = false;
+    } finally {
+      linkLoading.value = false;
+    }
+  }
+
+  async function confirmLink(sourceDocumentId: number) {
+    const scope = linkScope.value;
+    if (!scope || linkBusy.value) return;
+    linkBusy.value = true;
+    try {
+      await documentsApiFor(scope).link(scope.revId, sourceDocumentId, linkTypeId.value);
+      await refresh(scope);
+      notify.showToast(t('document_linked'), 'success');
+      linkModalOpen.value = false;
+    } catch (err) {
+      const code = (err as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      notify.showToast(
+        code === 'DOCUMENT_ALREADY_LINKED'
+          ? t('errors_document_already_linked')
+          : code === 'DOCUMENT_EXTENSION_NOT_ALLOWED'
+            ? t('errors_document_extension_not_allowed')
+            : t('errors_link_document_failed'),
+        'error',
+      );
+    } finally {
+      linkBusy.value = false;
+    }
+  }
+
   // ── Delete (with confirmation) ────────────────────────────────────────────
 
   const deleteConfirm = useConfirmDelete<PendingDoc>(async ({ doc, scope }) => {
@@ -242,6 +305,14 @@ export function useDocuments(
     onUploadFile,
     confirmDocUpload,
     closeUploadModal,
+
+    linkModalOpen,
+    linkCardName,
+    linkRevisions,
+    linkLoading,
+    linkBusy,
+    openLinkModal,
+    confirmLink,
 
     replaceVisible: computed(() => replaceConfirm.target.value != null),
     replaceTarget: computed(() => replaceConfirm.target.value),

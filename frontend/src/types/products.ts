@@ -190,6 +190,24 @@ export interface DocumentTypeGroup {
   files: ProductDocument[];
 }
 
+/** A file offered by the "use a file from another revision" picker. */
+export interface LinkableDocument extends ProductDocument {
+  /** Already on this card — shown, but not selectable. */
+  alreadyLinked: boolean;
+}
+
+/** The picker payload, grouped by the revision each file sits on. */
+export interface LinkableRevision {
+  revisionId: number;
+  revisionLabel: string;
+  revisionNumber: number;
+  files: LinkableDocument[];
+}
+
+export interface LinkableDocuments {
+  revisions: LinkableRevision[];
+}
+
 /** The Documents panel payload for one revision, grouped server-side. */
 export interface RevisionDocuments {
   documentTypes: DocumentTypeGroup[];

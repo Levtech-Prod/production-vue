@@ -10,6 +10,15 @@ These rules apply to all code written or edited in this project.
 - Avoid duplication: extract repeated logic into helper functions, composables (`frontend/src/composables`), shared variables, or sub-components rather than copy-pasting.
 - Cache data where it meaningfully improves performance (e.g. expensive queries, repeated API calls, derived state) — but don't cache prematurely or where it risks stale data on writes.
 
+## Comments
+
+- Comment only what the code can't say itself: a non-obvious *why*, a trap, a decision someone would otherwise undo. Default to none.
+- Keep them short — one line where possible, two or three at most. Prefer a clearer name or a small helper over a comment explaining unclear code.
+- Don't restate the code, narrate steps, label obvious blocks, or leave TODOs and commented-out code.
+- Worth a comment: why an approach was rejected, a subtle contract (`null` vs `undefined`, ordering, locking), a workaround with its reason, a non-obvious security or performance constraint.
+- Public helpers and exported types get a one-line JSDoc when the name alone isn't enough; skip it when it is.
+- When editing, delete comments the change made wrong or redundant — a stale comment is worse than none.
+
 ## Type safety
 
 - No `any`. Use proper types/interfaces, or `unknown` with narrowing.

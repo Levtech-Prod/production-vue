@@ -19,6 +19,17 @@
         <p class="truncate text-sm font-semibold text-slate-800" :title="name">
           {{ name }}
         </p>
+
+        <!-- What the card accepts: a property of the type, so it sits with the
+             name rather than among the footer actions. Always rendered
+             (non-breaking space when unrestricted) to keep cards equal height. -->
+        <p
+          class="truncate font-mono text-[11px] leading-4 text-slate-400"
+          :title="extensionsTitle"
+        >
+          {{ extensionsLabel }}
+        </p>
+
         <div class="mt-0.5 flex items-center justify-between gap-2">
           <!-- Also the one non-hover route to the file actions, which matters
                on touch: the card's per-file icons only appear on hover. -->
@@ -122,27 +133,29 @@
       </ul>
     </div>
 
-    <!-- Footer: what this card accepts, plus the upload action. Opening a file
-         happens by clicking its name above. -->
-    <div class="flex items-center gap-2 border-t border-slate-100 px-2 py-2">
-      <!-- Always rendered (non-breaking space when unrestricted) so the footer,
-           and so the card, keeps the same height in every state. -->
-      <span
-        class="min-w-0 flex-1 truncate px-2 py-1 font-mono text-[11px] text-slate-400"
-        :title="extensionsTitle"
-      >
-        {{ extensionsLabel }}
-      </span>
+    <!-- The two ways to add a file. Rendered even when read-only, so archived
+         products' cards keep the same height. -->
+    <div class="flex h-[2.375rem] items-center justify-between border-t border-slate-100 px-2">
+      <template v-if="canEdit">
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+          :title="t('link_document_hint')"
+          @click="emit('link-file')"
+        >
+          <Link2 class="h-3.5 w-3.5" />
+          {{ t('link_document') }}
+        </button>
 
-      <label
-        v-if="canEdit"
-        class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-        :title="acceptHint"
-      >
-        <Upload class="h-3.5 w-3.5" />
-        {{ t('upload') }}
-        <input type="file" class="sr-only" :accept="acceptAttr" @change="onUploadFile" />
-      </label>
+        <label
+          class="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+          :title="acceptHint"
+        >
+          <Upload class="h-3.5 w-3.5" />
+          {{ t('upload') }}
+          <input type="file" class="sr-only" :accept="acceptAttr" @change="onUploadFile" />
+        </label>
+      </template>
     </div>
   </div>
 </template>
@@ -150,7 +163,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Check, Circle, Download, RefreshCw, Trash2, Upload, X } from 'lucide-vue-next';
+import { Check, Circle, Download, Link2, RefreshCw, Trash2, Upload, X } from 'lucide-vue-next';
 import { resolveIcon } from '../../../../utils/documentTypeIcons.ts';
 import { formatBytes } from '../../../../utils/formatters.ts';
 import type { DocumentTypeStatus, ProductDocument } from '../../../../types/products.ts';
@@ -172,6 +185,8 @@ const emit = defineEmits<{
   (e: 'upload-file', file: File): void;
   (e: 'replace-file', doc: ProductDocument, file: File): void;
   (e: 'delete-file', doc: ProductDocument): void;
+  /** Open the "use a file from another revision" picker for this card. */
+  (e: 'link-file'): void;
   /** Open the full file list for this card in a modal. */
   (e: 'show-all'): void;
 }>();
@@ -241,8 +256,7 @@ const acceptHint = computed(() =>
     : t('upload_document'),
 );
 
-// Shown in the footer. A non-breaking space rather than nothing, so the row
-// still occupies its line when the card accepts anything.
+// A non-breaking space rather than nothing, so the line keeps its row.
 const extensionsLabel = computed(() =>
   restricted.value ? props.allowedExtensions.join(' ') : ' ',
 );

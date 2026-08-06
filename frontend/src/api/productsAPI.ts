@@ -17,6 +17,7 @@ import type {
   ProductStatus,
   ProductDocument,
   RevisionDocuments,
+  LinkableDocuments,
   BomSubProduct,
 } from '../types/products.ts';
 import type { PanelScope } from '../views/products/detail/types.ts';
@@ -167,6 +168,19 @@ function buildDocumentsApi(basePath: (revId: number) => string) {
     },
     remove(revId: number, docId: number) {
       return api.delete(`${basePath(revId)}/documents/${docId}`);
+    },
+    /** What this revision could borrow from the entity's other revisions. */
+    linkable(revId: number, documentTypeId?: number | null) {
+      return api.get<LinkableDocuments>(`${basePath(revId)}/documents/linkable`, {
+        params: documentTypeId != null ? { documentTypeId } : {},
+      });
+    },
+    /** Share a file a sibling revision holds. No bytes move. */
+    link(revId: number, sourceDocumentId: number, documentTypeId?: number | null) {
+      return api.post<ProductDocument>(`${basePath(revId)}/documents/link`, {
+        sourceDocumentId,
+        documentTypeId: documentTypeId ?? null,
+      });
     },
   };
 }

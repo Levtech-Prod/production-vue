@@ -256,6 +256,26 @@ const messages = {
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
 
+    // Reusing a file another revision already holds
+    link_document: 'Use existing',
+    link_document_hint: 'Use a file from another revision of this item',
+    link_document_title: 'Use an existing file — {card}',
+    link_document_explainer:
+      'Pick a file from another revision. It is linked to this revision, not copied — the file is stored only once.',
+    link_document_empty: 'No other revision of this item has any files yet.',
+    link_document_use: 'Use',
+    link_document_already: 'Already added',
+    document_linked: 'File linked to this revision',
+    errors_load_linkable_failed: 'Failed to load files from the other revisions',
+    errors_link_document_failed: 'Failed to link the file',
+    errors_document_already_linked: 'That file is already on this card in this revision',
+
+    // New-revision source picker
+    copy_documents_from: 'Copy documents from',
+    copy_documents_from_none: 'Start with no documents',
+    copy_documents_from_hint:
+      'The selected revision\'s documents are linked to the new revision. Files are shared, not duplicated.',
+
     // Document type cards
     other_documents: 'Other documents',
     n_files: '{n} file | {n} files',
@@ -822,6 +842,26 @@ const messages = {
     document_deleted: 'Dokumentum törölve',
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
+
+    // Másik revízió fájljának újrafelhasználása
+    link_document: 'Meglévő használata',
+    link_document_hint: 'Fájl használata ennek az elemnek egy másik revíziójából',
+    link_document_title: 'Meglévő fájl használata — {card}',
+    link_document_explainer:
+      'Válassz egy fájlt egy másik revízióból. A fájl ehhez a revízióhoz lesz csatolva, nem másolódik – csak egyszer tárolódik.',
+    link_document_empty: 'Ennek az elemnek egyetlen másik revíziójában sincs még fájl.',
+    link_document_use: 'Használom',
+    link_document_already: 'Már hozzáadva',
+    document_linked: 'Fájl csatolva ehhez a revízióhoz',
+    errors_load_linkable_failed: 'Nem sikerült betölteni a többi revízió fájljait',
+    errors_link_document_failed: 'Nem sikerült csatolni a fájlt',
+    errors_document_already_linked: 'Ez a fájl már szerepel ezen a kártyán ebben a revízióban',
+
+    // Új revízió forrásválasztó
+    copy_documents_from: 'Dokumentumok másolása innen',
+    copy_documents_from_none: 'Dokumentumok nélkül',
+    copy_documents_from_hint:
+      'A kiválasztott revízió dokumentumai az új revízióhoz lesznek csatolva. A fájlok megosztottak, nem duplikálódnak.',
 
     // Dokumentumtípus kártyák
     other_documents: 'Egyéb dokumentumok',
