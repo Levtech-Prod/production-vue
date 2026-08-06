@@ -393,6 +393,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
       spId,
       newRevision.id,
       data.duplicateFromId,
+      data.documentsFromId,
     );
 
     await client.query('COMMIT');

@@ -349,6 +349,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
       productId,
       newRevision.id,
       data.duplicateFromId,
+      data.documentsFromId,
     );
 
     // Product-level log: a new revision was created.

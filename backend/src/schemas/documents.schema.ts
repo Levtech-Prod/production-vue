@@ -24,3 +24,11 @@ export const documentUploadSchema = z.object({
   documentTypeId: optionalId,
 });
 export type DocumentUploadPayload = z.infer<typeof documentUploadSchema>;
+
+/** Body of a "use a file from another revision" request. JSON, not multipart:
+ *  no bytes move, only a pointer to an already-stored file. */
+export const documentLinkSchema = z.object({
+  sourceDocumentId: z.number().int().positive(),
+  documentTypeId: z.number().int().positive().nullable().optional(),
+});
+export type DocumentLinkPayload = z.infer<typeof documentLinkSchema>;

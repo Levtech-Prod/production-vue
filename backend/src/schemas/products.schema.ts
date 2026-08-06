@@ -16,7 +16,11 @@ export type ProductPayload = z.input<typeof productPayloadSchema>;
 export const newRevisionSchema = z.object({
   label: z.string().min(1),
   changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
+  // Sub-product composition to copy.
+  duplicateFromId: z.number().int().positive().nullable().optional(),
+  // Documents to carry forward. Null = none; omitted = fall back to
+  // `duplicateFromId`, then the previous revision (resolveCarryForwardSource).
+  documentsFromId: z.number().int().positive().nullable().optional(),
 });
 export type NewRevisionInput = z.input<typeof newRevisionSchema>;
 

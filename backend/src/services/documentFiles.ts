@@ -437,13 +437,13 @@ export async function findDocumentTypeForRevision(
 // ── Carry-forward ──────────────────────────────────────────────────────────
 
 /**
- * Which revision a newly created one inherits its documents from: the
- * explicitly duplicated revision when it really belongs to this entity,
- * otherwise the entity's most recent other revision. Returns null when there is
- * nothing to inherit.
+ * Which revision a new one inherits its documents from. An id inherits from
+ * that revision; `null` means the caller chose "no documents"; `undefined`
+ * means it said nothing, so fall back to the previous revision. Null and
+ * undefined must stay distinct, or "start empty" would copy the previous
+ * revision anyway.
  *
- * The ownership check matters — without it a caller could seed a new revision
- * with another product's documents by passing a foreign `duplicateFromId`.
+ * The ownership check stops a foreign id seeding another product's documents.
  */
 export async function resolveCarryForwardSource(
   db: Queryable,
@@ -454,7 +454,9 @@ export async function resolveCarryForwardSource(
 ): Promise<number | null> {
   const { revisionTable, entityColumn } = SCOPES[scope];
 
-  if (duplicateFromId) {
+  if (duplicateFromId === null) return null;
+
+  if (duplicateFromId !== undefined) {
     const owned = await db.query<{ id: number }>(
       `SELECT id FROM ${revisionTable} WHERE id = $1 AND ${entityColumn} = $2`,
       [duplicateFromId, entityId],
@@ -499,8 +501,9 @@ export async function carryForwardDocuments(
 }
 
 /**
- * Convenience wrapper for the two "create a revision" endpoints: resolve the
- * source revision and inherit its documents in one call.
+ * Wrapper for the two "create a revision" endpoints. `documentsFromId` wins
+ * when supplied, else `duplicateFromId` (older clients). Tested with
+ * `!== undefined`, not `??`: an explicit null means "no documents".
  */
 export async function carryForwardOnNewRevision(
   db: Queryable,
@@ -508,16 +511,121 @@ export async function carryForwardOnNewRevision(
   entityId: number,
   newRevisionId: number,
   duplicateFromId?: number | null,
+  documentsFromId?: number | null,
 ): Promise<number> {
+  const source = documentsFromId !== undefined ? documentsFromId : duplicateFromId;
   const sourceId = await resolveCarryForwardSource(
     db,
     scope,
     entityId,
     newRevisionId,
-    duplicateFromId,
+    source,
   );
   if (sourceId == null) return 0;
   return carryForwardDocuments(db, scope, sourceId, newRevisionId);
+}
+
+// ── Linking an existing file into another revision ─────────────────────────
+//
+// The manual counterpart to carry-forward, by the same mechanism: a new
+// document row over the same `stored_file_id`. Limited to one entity because a
+// file lives in that entity's folder (plan §3.2); cross-entity sharing is the
+// phase-2 hash-dedup case.
+
+/** A document row being borrowed. */
+export interface LinkSource {
+  id: number;
+  stored_file_id: number;
+  original_name: string;
+  document_type_id: number | null;
+}
+
+/** The source document for a link — null unless it sits on a different
+ *  revision of the same entity as `targetRevisionId`. */
+export async function findLinkSource(
+  db: Queryable,
+  scope: DocumentScope,
+  targetRevisionId: number,
+  docId: number,
+): Promise<LinkSource | null> {
+  const { table, revisionColumn, revisionTable, entityColumn } = SCOPES[scope];
+  const result = await db.query<LinkSource>(
+    `SELECT d.id, d.stored_file_id, d.original_name, d.document_type_id
+     FROM ${table} d
+     JOIN ${revisionTable} source ON source.id = d.${revisionColumn}
+     JOIN ${revisionTable} target ON target.id = $1
+     WHERE d.id = $2
+       AND source.${entityColumn} = target.${entityColumn}
+       AND source.id <> target.id`,
+    [targetRevisionId, docId],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Guards against linking one file twice onto the same card, which would show
+ *  two entries the user cannot tell apart. */
+export async function isStoredFileLinked(
+  db: Queryable,
+  scope: DocumentScope,
+  revisionId: number,
+  storedFileId: number,
+  documentTypeId: number | null,
+): Promise<boolean> {
+  const { table, revisionColumn } = SCOPES[scope];
+  const result = await db.query<{ one: number }>(
+    `SELECT 1 AS one FROM ${table}
+     WHERE ${revisionColumn} = $1
+       AND stored_file_id = $2
+       AND document_type_id IS NOT DISTINCT FROM $3
+     LIMIT 1`,
+    [revisionId, storedFileId, documentTypeId],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** One borrowable document, with the revision it currently belongs to. */
+export interface LinkableDocumentRow extends DocumentRow {
+  revision_id: number;
+  revision_label: string;
+  revision_number: number;
+  /** Already on the target revision — offered, but not selectable. */
+  already_linked: boolean;
+}
+
+/**
+ * Documents held by the entity's other revisions, newest first, for the picker.
+ * Rows already on the target are flagged rather than filtered out — omitting
+ * the file the user is looking for is more confusing than greying it out.
+ */
+export async function listLinkableDocuments(
+  db: Queryable,
+  scope: DocumentScope,
+  targetRevisionId: number,
+  documentTypeId: number | null,
+): Promise<LinkableDocumentRow[]> {
+  const { table, revisionColumn, revisionTable, entityColumn } = SCOPES[scope];
+  const result = await db.query<LinkableDocumentRow>(
+    `SELECT d.id, d.document_type_id, d.original_name, d.created_at,
+       sf.storage_key, sf.mime_type, sf.size_bytes,
+       source.id AS revision_id,
+       source.label AS revision_label,
+       source.revision_number,
+       EXISTS (
+         SELECT 1 FROM ${table} existing
+         WHERE existing.${revisionColumn} = target.id
+           AND existing.stored_file_id = d.stored_file_id
+           AND existing.document_type_id IS NOT DISTINCT FROM $2
+       ) AS already_linked
+     FROM ${table} d
+     JOIN stored_files sf ON sf.id = d.stored_file_id
+     JOIN ${revisionTable} source ON source.id = d.${revisionColumn}
+     JOIN ${revisionTable} target ON target.id = $1
+     WHERE source.${entityColumn} = target.${entityColumn}
+       AND source.id <> target.id
+     ORDER BY source.revision_number DESC, d.created_at DESC, d.id DESC`,
+    [targetRevisionId, documentTypeId],
+  );
+  return result.rows;
 }
 
 // ── Document rows ──────────────────────────────────────────────────────────

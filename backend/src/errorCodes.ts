@@ -109,6 +109,12 @@ export const ErrorCodes = {
   // global upload allow-list.
   DOCUMENT_EXTENSION_NOT_ALLOWED: 'DOCUMENT_EXTENSION_NOT_ALLOWED',
   DOCUMENT_TOO_LARGE: 'DOCUMENT_TOO_LARGE',
+  // Linking an existing file into a revision: the source document is unknown,
+  // or belongs to another product / sub-product (or to the target revision
+  // itself, which would just duplicate a row).
+  DOCUMENT_LINK_SOURCE_NOT_FOUND: 'DOCUMENT_LINK_SOURCE_NOT_FOUND',
+  // That physical file is already on this card in this revision.
+  DOCUMENT_ALREADY_LINKED: 'DOCUMENT_ALREADY_LINKED',
 
   // generic / global error handler
   VALIDATION_FAILED: 'VALIDATION_FAILED',

@@ -20,6 +20,7 @@ import { pool } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
+  documentLinkSchema,
   documentUploadSchema,
   type DocumentUploadPayload,
 } from '../schemas/documents.schema.js';
@@ -30,10 +31,13 @@ import {
   findDocument,
   findDocumentTypeForRevision,
   findEntityForRevision,
+  findLinkSource,
   insertDocument,
   insertStoredFile,
+  isStoredFileLinked,
   listDocuments,
   listDocumentTypesForRevision,
+  listLinkableDocuments,
   placeUpload,
   publicPath,
   repointDocument,
@@ -44,6 +48,7 @@ import {
   type DocumentRow,
   type DocumentScope,
   type DocumentTypeTemplate,
+  type LinkableDocumentRow,
 } from '../services/documentFiles.js';
 
 const router = Router();
@@ -154,10 +159,15 @@ function groupDocuments(
   templates: DocumentTypeTemplate[],
   rows: DocumentRow[],
 ) {
+  const templateIds = new Set(templates.map((template) => template.id));
   const filesByType = new Map<number, DocumentRow[]>();
   const other: DocumentRow[] = [];
   for (const row of rows) {
-    if (row.document_type_id == null) {
+    // A type id with no matching template falls through to "Other" rather than
+    // being dropped: a row can outlive its card (e.g. the entity's `type` stops
+    // matching a `product_types.name`), and a stored file must never be
+    // invisible in the panel.
+    if (row.document_type_id == null || !templateIds.has(row.document_type_id)) {
       other.push(row);
       continue;
     }
@@ -347,6 +357,75 @@ async function handleReplace(
   }
 }
 
+/** The picker payload, grouped by the revision each file sits on. */
+function groupLinkable(scope: DocumentScope, rows: LinkableDocumentRow[]) {
+  const revisions: {
+    revisionId: number;
+    revisionLabel: string;
+    revisionNumber: number;
+    files: (ReturnType<typeof docResponse> & { alreadyLinked: boolean })[];
+  }[] = [];
+
+  // The query orders by revision, so a running group beats a map plus re-sort.
+  for (const row of rows) {
+    let group = revisions[revisions.length - 1];
+    if (!group || group.revisionId !== row.revision_id) {
+      group = {
+        revisionId: row.revision_id,
+        revisionLabel: row.revision_label,
+        revisionNumber: row.revision_number,
+        files: [],
+      };
+      revisions.push(group);
+    }
+    group.files.push({ ...docResponse(scope, row), alreadyLinked: row.already_linked });
+  }
+
+  return { revisions };
+}
+
+/** Link a file a sibling revision holds: a document row over the same
+ *  `stored_file_id`. Nothing is written to disk. */
+async function handleLink(
+  res: Response,
+  scope: DocumentScope,
+  revisionId: number,
+  body: { sourceDocumentId: number; documentTypeId?: number | null },
+  userId: number | null,
+) {
+  const documentTypeId = body.documentTypeId ?? null;
+
+  const source = await findLinkSource(pool, scope, revisionId, body.sourceDocumentId);
+  if (!source) {
+    return res.status(404).json({ code: ErrorCodes.DOCUMENT_LINK_SOURCE_NOT_FOUND });
+  }
+
+  if (documentTypeId != null) {
+    // Same rule as upload: the card must belong to this entity's type.
+    const template = await findDocumentTypeForRevision(pool, scope, revisionId, documentTypeId);
+    if (!template) return res.status(400).json({ code: ErrorCodes.DOCUMENT_TYPE_MISMATCH });
+
+    // The target card's extension rule applies to a borrowed file too.
+    if (!extensionAllowed(template, source.original_name)) {
+      return res.status(400).json({ code: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED });
+    }
+  }
+
+  if (await isStoredFileLinked(pool, scope, revisionId, source.stored_file_id, documentTypeId)) {
+    return res.status(409).json({ code: ErrorCodes.DOCUMENT_ALREADY_LINKED });
+  }
+
+  // Single INSERT: no second write to keep in step, no file to roll back.
+  const row = await insertDocument(pool, scope, {
+    revisionId,
+    storedFileId: source.stored_file_id,
+    originalName: source.original_name,
+    documentTypeId,
+    uploadedBy: userId,
+  });
+  return res.status(201).json(docResponse(scope, row));
+}
+
 /** Delete one revision's document row, unlinking the file only if unshared. */
 async function handleDelete(
   res: Response,
@@ -444,6 +523,25 @@ router.get('/product-revisions/:revId/documents', requireAuth, async (req, res) 
   res.json(await loadPanel('product', revId));
 });
 
+// GET /api/product-revisions/:revId/documents/linkable?documentTypeId=
+router.get('/product-revisions/:revId/documents/linkable', requireAuth, async (req, res) => {
+  const revId = parseId(req.params.revId);
+  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+
+  const documentTypeId = parseId(req.query.documentTypeId as string | undefined);
+  const rows = await listLinkableDocuments(pool, 'product', revId, documentTypeId);
+  res.json(groupLinkable('product', rows));
+});
+
+// POST /api/product-revisions/:revId/documents/link
+router.post('/product-revisions/:revId/documents/link', requireAuth, async (req, res) => {
+  const revId = parseId(req.params.revId);
+  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+
+  const body = documentLinkSchema.parse(req.body ?? {});
+  return handleLink(res, 'product', revId, body, req.user?.id ?? null);
+});
+
 // GET /api/product-revision-documents/:docId/download
 router.get('/product-revision-documents/:docId/download', requireAuth, async (req, res) => {
   const docId = parseId(req.params.docId);
@@ -517,6 +615,43 @@ router.get(
     }
 
     res.json(await loadPanel('subProduct', revId));
+  },
+);
+
+// GET /api/sub-products/:spId/revisions/:revId/documents/linkable
+router.get(
+  '/sub-products/:spId/revisions/:revId/documents/linkable',
+  requireAuth,
+  async (req, res) => {
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
+    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+
+    const documentTypeId = parseId(req.query.documentTypeId as string | undefined);
+    const rows = await listLinkableDocuments(pool, 'subProduct', revId, documentTypeId);
+    res.json(groupLinkable('subProduct', rows));
+  },
+);
+
+// POST /api/sub-products/:spId/revisions/:revId/documents/link
+router.post(
+  '/sub-products/:spId/revisions/:revId/documents/link',
+  requireAuth,
+  async (req, res) => {
+    const spId = parseId(req.params.spId);
+    const revId = parseId(req.params.revId);
+    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
+    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+    if (!(await spRevisionBelongsTo(spId, revId))) {
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+
+    const body = documentLinkSchema.parse(req.body ?? {});
+    return handleLink(res, 'subProduct', revId, body, req.user?.id ?? null);
   },
 );
 
