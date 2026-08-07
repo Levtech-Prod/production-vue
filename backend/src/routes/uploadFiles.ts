@@ -3,44 +3,30 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { ErrorCodes } from '../errorCodes.js';
+import { tmpDir, TMP_PUBLIC_PREFIX } from '../services/uploadPaths.js';
 
 const router = express.Router();
 
-type UploadTarget =
-  | 'part-categories'
-  | 'parts'
-  | 'products'
-  | 'sub-products'
-  | 'suppliers'
-  | 'documents'
-  | 'temp';
+// Product and sub-product images are NOT targets: they live inside the owning
+// entity's folder, whose id does not exist yet when the form uploads them. They
+// go to `temp` and the create/update handler files them (see entityImages.ts).
+type UploadTarget = 'part-categories' | 'parts' | 'suppliers' | 'temp';
 
 const allowedTargets: UploadTarget[] = [
   'part-categories',
   'parts',
-  'products',
-  'sub-products',
   'suppliers',
-  'documents',
   'temp',
 ];
 
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp'];
-const documentTypes = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'text/csv',
-  ...imageTypes,
-];
 
 const baseUploadDir = path.join(process.cwd(), 'uploads');
 
+// `temp` is the staging area shared with entityImages.ts; the rest are flat
+// folders for entities that are not product-owned.
 function ensureUploadFolder(target: UploadTarget) {
-  const uploadDir = path.join(baseUploadDir, target);
+  const uploadDir = target === 'temp' ? tmpDir : path.join(baseUploadDir, target);
 
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -78,18 +64,9 @@ const upload = multer({
   limits: {
     fileSize: 25 * 1024 * 1024,
   },
-  fileFilter: (req, file, callback) => {
-    const target = req.params.target as UploadTarget;
-    const allowed = target === 'documents' ? documentTypes : imageTypes;
-
-    if (!allowed.includes(file.mimetype)) {
-      return callback(
-        new Error(
-          target === 'documents'
-            ? 'Only PDF, Word, Excel, plain text and image files are allowed'
-            : 'Only JPG, PNG and WEBP files are allowed',
-        ),
-      );
+  fileFilter: (_req, file, callback) => {
+    if (!imageTypes.includes(file.mimetype)) {
+      return callback(new Error('Only JPG, PNG and WEBP files are allowed'));
     }
 
     callback(null, true);
@@ -111,6 +88,9 @@ router.post('/upload/:target', upload.single('file'), (req, res) => {
     });
   }
 
+  // `temp` maps to the `_tmp` folder, not a folder literally named "temp".
+  const publicDir = target === 'temp' ? TMP_PUBLIC_PREFIX : `/uploads/${target}`;
+
   res.json({
     filename: req.file.filename,
     // Relative path only — the app is always served behind a reverse proxy
@@ -118,7 +98,7 @@ router.post('/upload/:target', upload.single('file'), (req, res) => {
     // path resolves correctly against whatever origin the client used.
     // Building an absolute URL here from req.protocol/req.get('host') picks
     // up the proxy's internal address instead of a client-reachable one.
-    path: `/uploads/${target}/${req.file.filename}`,
+    path: `${publicDir}/${req.file.filename}`,
   });
 });
 

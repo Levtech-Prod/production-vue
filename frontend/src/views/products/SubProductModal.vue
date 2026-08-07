@@ -72,7 +72,7 @@
       <ImageUploadField
         v-model="form.image"
         :label="t('image')"
-        target="sub-products"
+        target="temp"
         :preview-alt="form.name"
         required
         :error="fieldErrors.image"

@@ -6,6 +6,9 @@ RUN npm ci --no-audit --no-fund
 
 COPY tsconfig.json ./
 COPY src ./src
+# The maintenance scripts (uploads migration, folder-name resync) are compiled
+# and shipped too — the production stage has no tsx to run them from source.
+COPY scripts ./scripts
 RUN npm run build
 
 FROM node:22-alpine AS production
@@ -20,4 +23,4 @@ COPY database ./database
 RUN mkdir -p uploads
 
 EXPOSE 4000
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]

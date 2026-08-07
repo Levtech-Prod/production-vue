@@ -256,6 +256,11 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
 
     // Resolve the incoming revisions once — identity (for dedup) plus name and
     // label (for the change log) in a single fetch, reused for both below.
+    //
+    // Scoped to sub-products of THIS product: without it a crafted request
+    // could build a revision from another product's sub-product, which the
+    // detail page (which lists by `sp.product_id`) would then not show, and
+    // whose files live under the other product's folder.
     const incomingIds = data.subProductRevisionIds;
     const detail = incomingIds.length
       ? await client.query<SubProductRevisionDetail>(
@@ -263,8 +268,9 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
              sp.name AS "subProductName", spr.label AS "revLabel"
            FROM sub_product_revisions spr
            JOIN sub_products sp ON sp.id = spr.sub_product_id
-           WHERE spr.id = ANY($1::int[])`,
-          [incomingIds],
+           WHERE spr.id = ANY($1::int[])
+             AND sp.product_id = $2`,
+          [incomingIds, revInfo.rows[0].productId],
         )
       : { rows: [] };
     const detailBySpr = new Map(detail.rows.map((r) => [r.sprId, r]));
@@ -276,7 +282,7 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
     const newBySp = new Map<number, SubProductRevisionDetail>();
     for (const sprId of incomingIds) {
       const d = detailBySpr.get(sprId);
-      if (!d) continue; // unknown revision id — drop it
+      if (!d) continue; // unknown, or not this product's — drop it
       newBySp.set(d.subProductId, d);
     }
     const cleanIds = Array.from(newBySp.values()).map((d) => d.sprId);

@@ -1,12 +1,8 @@
 import { api } from './client';
 
-export type UploadTarget =
-  | 'part-categories'
-  | 'parts'
-  | 'products'
-  | 'sub-products'
-  | 'suppliers'
-  | 'temp';
+// Product and sub-product images upload to 'temp': they are picked before the
+// entity exists, so the backend files them into the product's folder on save.
+export type UploadTarget = 'part-categories' | 'parts' | 'suppliers' | 'temp';
 
 export interface UploadResponse {
   filename: string;

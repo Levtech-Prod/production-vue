@@ -15,6 +15,8 @@ import {
   diffFields,
   valuesEqual,
 } from '../services/audit.js';
+import { carryForwardOnNewRevision } from '../services/documentFiles.js';
+import { fileStagedImage, removeImageFile } from '../services/entityImages.js';
 
 const router = Router();
 
@@ -125,6 +127,9 @@ router.post('/', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
   const userId = req.user?.id;
   const client = await pool.connect();
+  // Set once the image is on disk under the product's folder, so a later
+  // rollback can take it back off again.
+  let filedImage: string | null = null;
   try {
     await client.query('BEGIN');
     const productResult = await client.query(
@@ -142,6 +147,22 @@ router.post('/', requireAuth, async (req, res) => {
     );
     const product = productResult.rows[0];
 
+    // The image was uploaded to `_tmp` before this row existed. Now that it has
+    // an id, move it into the product's own folder and store the final path.
+    const placed = fileStagedImage(product.image, product, null);
+    if (placed === null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
+    }
+    if (placed !== product.image) {
+      filedImage = placed;
+      await client.query(`UPDATE products SET image = $1 WHERE id = $2`, [
+        placed,
+        product.id,
+      ]);
+      product.image = placed;
+    }
+
     const actor = await resolveActor(client, userId);
     await logAudit(client, 'product', product.id, 'created', {
       snapshot: { name: data.name, sku: data.sku, type: data.type },
@@ -151,6 +172,8 @@ router.post('/', requireAuth, async (req, res) => {
     res.json({ ...product, revisions: [] });
   } catch (err: any) {
     await client.query('ROLLBACK');
+    // The move is not transactional; undo it so a failed create leaves no file.
+    removeImageFile(filedImage);
     if (err?.code === '23505') {
       return res
         .status(409)
@@ -327,16 +350,34 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
     }
 
     // When duplicating, copy the sub-product-revision links from the source.
+    // The source must belong to THIS product — same ownership check
+    // `resolveCarryForwardSource` applies to documents, so a foreign id
+    // inherits nothing instead of seeding this revision from another product.
     if (data.duplicateFromId) {
       await client.query(
         `INSERT INTO product_revision_sub_products
            (product_revision_id, sub_product_revision_id, position)
-         SELECT $1, sub_product_revision_id, position
-         FROM product_revision_sub_products
-         WHERE product_revision_id = $2`,
-        [newRevision.id, data.duplicateFromId],
+         SELECT $1, prsp.sub_product_revision_id, prsp.position
+         FROM product_revision_sub_products prsp
+         JOIN product_revisions source ON source.id = prsp.product_revision_id
+         WHERE prsp.product_revision_id = $2
+           AND source.product_id = $3`,
+        [newRevision.id, data.duplicateFromId, productId],
       );
     }
+
+    // Carry-forward (document-system-plan.md §3.4): inherit the source
+    // revision's documents — or, with no explicit source, the previous
+    // revision's — by reference. Only rows are copied; the files themselves
+    // stay stored once and are shared between the two revisions.
+    await carryForwardOnNewRevision(
+      client,
+      'product',
+      productId,
+      newRevision.id,
+      data.duplicateFromId,
+      data.documentsFromId,
+    );
 
     // Product-level log: a new revision was created.
     const actor = await resolveActor(client, req.user?.id);
@@ -497,6 +538,7 @@ router.patch('/:productId', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
   const userId = req.user?.id;
   const client = await pool.connect();
+  let filedImage: string | null = null;
 
   try {
     await client.query('BEGIN');
@@ -531,6 +573,21 @@ router.patch('/:productId', requireAuth, async (req, res) => {
     }
 
     const row = result.rows[0];
+
+    const placed = fileStagedImage(row.image, row, null);
+    if (placed === null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
+    }
+    if (placed !== row.image) {
+      filedImage = placed;
+      await client.query(`UPDATE products SET image = $1 WHERE id = $2`, [
+        placed,
+        productId,
+      ]);
+      row.image = placed;
+    }
+
     const fields = diffFields(
       { name: row.oldName, sku: row.oldSku, type: row.oldType, description: row.oldDescription },
       { name: row.name, sku: row.sku, type: row.type, description: row.description },
@@ -551,6 +608,10 @@ router.patch('/:productId', requireAuth, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Post-commit, like `unlinkStoredFile`: an unlink cannot be rolled back, so
+    // the replaced file only goes once the new one is durably recorded.
+    if (!valuesEqual(row.oldImage, row.image)) removeImageFile(row.oldImage);
+
     const {
       oldName: _on,
       oldSku: _os,
@@ -562,6 +623,7 @@ router.patch('/:productId', requireAuth, async (req, res) => {
     res.json(productOut);
   } catch (err: any) {
     await client.query('ROLLBACK');
+    removeImageFile(filedImage);
     if (err?.code === '23505') {
       return res
         .status(409)

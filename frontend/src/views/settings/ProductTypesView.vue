@@ -22,7 +22,11 @@
         :success-create-message="t('success.save_product_type')"
         :success-update-message="t('success.update_product_type')"
         :success-delete-message="t('success.delete_product_type')"
-      />
+      >
+        <template #expanded="{ item }">
+          <DocumentTypesSection family="product" :type-id="item.id" />
+        </template>
+      </TypeManagerSection>
 
       <TypeManagerSection
         :title="t('sub_product_types_section_title')"
@@ -41,7 +45,11 @@
         :success-create-message="t('success.save_sub_product_type')"
         :success-update-message="t('success.update_sub_product_type')"
         :success-delete-message="t('success.delete_sub_product_type')"
-      />
+      >
+        <template #expanded="{ item }">
+          <DocumentTypesSection family="sub-product" :type-id="item.id" />
+        </template>
+      </TypeManagerSection>
     </div>
   </div>
 </template>
@@ -51,6 +59,7 @@ import { onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useProductTypesStore } from '../../stores/productTypesStore.ts';
 import TypeManagerSection from './TypeManagerSection.vue';
+import DocumentTypesSection from './DocumentTypesSection.vue';
 
 const { t } = useI18n();
 const productTypesStore = useProductTypesStore();

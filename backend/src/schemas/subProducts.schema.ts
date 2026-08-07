@@ -24,7 +24,13 @@ export type CreateSubProductInput = z.input<typeof createSubProductSchema>;
 export const newSubProductRevisionSchema = z.object({
   label: z.string().min(1),
   changeNotes: z.string().optional().nullable(),
-  duplicateFromId: z.number().optional().nullable(),
+  // Parts to copy. The route also inserts `parts` explicitly and the two are
+  // unioned — so documents get their own field below rather than reusing this
+  // one, or choosing a document source would re-add parts the user removed.
+  duplicateFromId: z.number().int().positive().nullable().optional(),
+  // Documents to carry forward. Null = none; omitted = fall back to
+  // `duplicateFromId`, then the previous revision.
+  documentsFromId: z.number().int().positive().nullable().optional(),
   parts: z.array(revisionPartInputSchema).optional().default([]),
 });
 export type NewSubProductRevisionInput = z.input<typeof newSubProductRevisionSchema>;
