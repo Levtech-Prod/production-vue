@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "db:init": "dotenv -e .env -- sh -c 'psql \"$DATABASE_URL\" -f database/schema.sql'",
-    "db:migrate": "dotenv -e .env -- sh -c 'for f in database/migrations/*.sql; do echo \"Applying $f\"; psql \"$DATABASE_URL\" -f \"$f\"; done'"
+    "db:migrate": "dotenv -e .env -- sh -c 'for f in database/migrations/*.sql; do echo \"Applying $f\"; psql \"$DATABASE_URL\" -f \"$f\"; done'",
+    "uploads:migrate": "dotenv -e .env -- tsx scripts/migrate-uploads.ts",
+    "uploads:resync-names": "dotenv -e .env -- tsx scripts/resync-upload-folder-names.ts"
   },
   "dependencies": {
     "bcryptjs": "latest",
