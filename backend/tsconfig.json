@@ -4,10 +4,14 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
-    "rootDir": "src",
+    // "." rather than "src" so the maintenance scripts compile too and ship in
+    // the image: the production stage installs with --omit=dev, so tsx is not
+    // available to run them from source. Output is dist/src/** and
+    // dist/scripts/** — hence `node dist/src/server.js`.
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src", "scripts"]
 }
