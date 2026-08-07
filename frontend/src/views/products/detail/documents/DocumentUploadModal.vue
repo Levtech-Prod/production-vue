@@ -1,5 +1,7 @@
 <template>
-  <BaseModal v-model="open" :title="t('upload_document')" size="sm">
+  <!-- `nested`: this can be opened from inside the file-list modal, and must
+       render above it rather than relying on template order. -->
+  <BaseModal v-model="open" :title="t('upload_document')" size="sm" layer="nested">
     <div class="flex flex-col gap-3">
       <p class="text-sm text-slate-500">{{ t('document_name_hint') }}</p>
       <div

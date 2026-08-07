@@ -157,3 +157,78 @@ New migration files placed in `backend/database/migrations/` after the database 
 ```bash
 docker exec -i prodtrack-db-1 psql -U levtech -d levtechproduction -f /docker-entrypoint-initdb.d/source/migrations/<new-file>.sql
 ```
+
+## 10. One-off uploads restructure (run once, after deploying that release)
+
+The release that introduces `uploads/products/{id}-{Name}-{SKU}/` needs a one-off
+migration of the existing files. Full background: `uploads-restructure-plan.md`.
+
+Container names below use the compose project name `deploy-ssh.sh` sets
+(`levtech-production`). Confirm with `sudo docker ps --format '{{.Names}}'` —
+older text in this file used a `prodtrack-` prefix, which no longer matches.
+
+**Step 0, before deploying.** Migration 014 fails loudly if any sub-product has
+no parent, which would abort the deploy script partway. Check first:
+
+```bash
+sudo docker exec levtech-production-db-1 psql -U levtech -d levtechproduction \
+  -c "SELECT id, name, sku FROM sub_products WHERE product_id IS NULL;"
+```
+
+Assign or delete anything it returns before going further.
+
+**Step 1, back up.** The migration moves files; there is no undo once it
+commits. Do this *before* running the deploy script, since that script applies
+014 for you.
+
+```bash
+sudo docker exec levtech-production-db-1 pg_dump -U levtech levtechproduction \
+  | gzip > /volume1/docker/prodtrack-backups/db-before-uploads-$(date +%F).sql.gz
+cp -a /volume1/docker/prodtrack/backend/uploads \
+      /volume1/docker/prodtrack/backend/uploads.bak
+```
+
+**Step 2, deploy + apply 014.** From your Mac, with a clean working tree:
+
+```bash
+./deploy-ssh.sh 014-require-sub-product-parent.sql
+```
+
+Deploying before migrating is safe and deliberate: the new code writes to the
+new tree while existing rows still point at the old paths, and nothing reads a
+folder name, so the two coexist.
+
+**Step 3, migrate the files.** On the NAS:
+
+```bash
+# Inspect the plan. Changes nothing.
+sudo docker exec levtech-production-backend-1 node dist/scripts/migrate-uploads.js --dry-run
+
+# Apply, after reading the report. --yes because docker exec is not interactive.
+sudo docker exec levtech-production-backend-1 node dist/scripts/migrate-uploads.js --yes
+```
+
+The scripts are compiled into the image (`dist/scripts/`) precisely because the
+production stage installs with `--omit=dev` and so has no `tsx`. They read
+`DATABASE_URL` from the container environment, so no `.env` handling is needed —
+run them with plain `node`, not the `npm run` aliases, which use `dotenv-cli`.
+
+Read the dry-run summary before step 4:
+
+- **Unmappable** — a folder or image path whose owner cannot be derived. The run
+  **aborts** rather than guessing. Fix those by hand and re-run, or pass
+  `--skip-unmappable` to leave them in place.
+- **Source file missing** — a `stored_files` row whose file is already gone. The
+  path is rewritten anyway so the database stays consistent.
+- **Orphan files** — on disk with no row pointing at them. Left alone, never
+  deleted.
+
+The migration is idempotent, so a re-run after a partial failure resumes rather
+than double-moving. Verify afterwards with the queries in
+`uploads-restructure-plan.md` §7, then delete `uploads.bak`.
+
+Later, if folder names drift because products were renamed:
+
+```bash
+sudo docker exec levtech-production-backend-1 node dist/scripts/resync-upload-folder-names.js --dry-run
+```

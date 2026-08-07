@@ -235,35 +235,13 @@ ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key;
 CREATE UNIQUE INDEX IF NOT EXISTS products_sku_active_unique
   ON products (sku) WHERE status = 'active';
 
--- ===========================================================================
--- Documents module
--- Files attached to products (product-level) or sub-product revisions.
--- ===========================================================================
-
-CREATE TABLE IF NOT EXISTS product_documents (
-  id            SERIAL PRIMARY KEY,
-  product_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  original_name VARCHAR(255) NOT NULL,
-  filename      VARCHAR(255) NOT NULL,
-  mime_type     VARCHAR(100),
-  path          TEXT NOT NULL,
-  uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
-  id                      SERIAL PRIMARY KEY,
-  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
-  original_name           VARCHAR(255) NOT NULL,
-  filename                VARCHAR(255) NOT NULL,
-  mime_type               VARCHAR(100),
-  path                    TEXT NOT NULL,
-  uploaded_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_product_documents_product_id ON product_documents(product_id);
-CREATE INDEX IF NOT EXISTS idx_sp_rev_documents_sp_rev_id ON sub_product_revision_documents(sub_product_revision_id);
+-- Documents live further down, in the "Required Document Types" section: they
+-- hang off a product / sub-product REVISION and point at a `stored_files` row
+-- rather than owning their bytes (see migration 013). The old product-level
+-- `product_documents` and the flat `sub_product_revision_documents` that used
+-- to be defined here were dropped by that migration and are deliberately not
+-- recreated — defining them here would have every fresh database create two
+-- tables no code reads.
 
 -- ===========================================================================
 -- Product / Sub-product types (Settings page)
@@ -310,6 +288,93 @@ ALTER TABLE sub_products DROP CONSTRAINT IF EXISTS sub_products_type_fkey;
 ALTER TABLE sub_products
   ADD CONSTRAINT sub_products_type_fkey FOREIGN KEY (type)
     REFERENCES sub_product_types (name) ON UPDATE CASCADE;
+
+-- ===========================================================================
+-- Required Document Types (see migration 013)
+-- ---------------------------------------------------------------------------
+-- Document requirements are defined once per product / sub-product TYPE
+-- (template tables). Each physical file is recorded once in `stored_files`;
+-- thin per-revision rows point at a stored file + a document type, so a file
+-- can be shared across revisions by pointer without being copied on disk.
+-- Product docs are scoped per product REVISION (not per product). The tables
+-- these replaced were dropped by migration 013 (both were empty), so nothing
+-- legacy is defined here. All blocks are idempotent.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS product_document_types (
+  id                 SERIAL PRIMARY KEY,
+  product_type_id    INTEGER NOT NULL REFERENCES product_types(id) ON DELETE CASCADE,
+  name               VARCHAR(120) NOT NULL,
+  icon               VARCHAR(60)  NOT NULL,
+  allowed_extensions TEXT[] NOT NULL DEFAULT '{}',
+  required           BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order         INTEGER NOT NULL DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(product_type_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS sub_product_document_types (
+  id                  SERIAL PRIMARY KEY,
+  sub_product_type_id INTEGER NOT NULL REFERENCES sub_product_types(id) ON DELETE CASCADE,
+  name                VARCHAR(120) NOT NULL,
+  icon                VARCHAR(60)  NOT NULL,
+  allowed_extensions  TEXT[] NOT NULL DEFAULT '{}',
+  required            BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order          INTEGER NOT NULL DEFAULT 0,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(sub_product_type_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_document_types_type_id
+  ON product_document_types(product_type_id);
+CREATE INDEX IF NOT EXISTS idx_sub_product_document_types_type_id
+  ON sub_product_document_types(sub_product_type_id);
+
+CREATE TABLE IF NOT EXISTS stored_files (
+  id          SERIAL PRIMARY KEY,
+  storage_key TEXT     NOT NULL,   -- relative path within uploads/documents/
+  size_bytes  BIGINT   NOT NULL,
+  mime_type   VARCHAR(100),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- UNIQUE: one stored_files row per physical file is the invariant the sharing
+-- model (carry-forward / copy-on-write) rests on. See migration 013.
+DROP INDEX IF EXISTS idx_stored_files_storage_key;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_stored_files_storage_key
+  ON stored_files(storage_key);
+
+CREATE TABLE IF NOT EXISTS product_revision_documents (
+  id                  SERIAL PRIMARY KEY,
+  product_revision_id INTEGER NOT NULL REFERENCES product_revisions(id) ON DELETE CASCADE,
+  document_type_id    INTEGER REFERENCES product_document_types(id) ON DELETE SET NULL,
+  stored_file_id      INTEGER NOT NULL REFERENCES stored_files(id),
+  original_name       VARCHAR(255) NOT NULL,
+  uploaded_by         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_rev_id
+  ON product_revision_documents(product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_type_id
+  ON product_revision_documents(document_type_id);
+CREATE INDEX IF NOT EXISTS idx_prod_rev_docs_stored_file_id
+  ON product_revision_documents(stored_file_id);
+
+
+CREATE TABLE IF NOT EXISTS sub_product_revision_documents (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  document_type_id        INTEGER REFERENCES sub_product_document_types(id) ON DELETE SET NULL,
+  stored_file_id          INTEGER NOT NULL REFERENCES stored_files(id),
+  original_name           VARCHAR(255) NOT NULL,
+  uploaded_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_sp_rev_id
+  ON sub_product_revision_documents(sub_product_revision_id);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_type_id
+  ON sub_product_revision_documents(document_type_id);
+CREATE INDEX IF NOT EXISTS idx_sp_rev_docs_stored_file_id
+  ON sub_product_revision_documents(stored_file_id);
 
 -- Generic, append-only audit log (see migration 012). No FK on entity_id so a
 -- log row survives a hard-delete of the entity it describes.

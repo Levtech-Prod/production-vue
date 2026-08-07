@@ -22,6 +22,19 @@ export function formatPrice(value: number | string): string {
 }
 
 /**
+ * Display a byte count in the largest unit that keeps it readable,
+ * e.g. "812 B", "43.1 KB", "2.4 MB". Unit names are locale-independent.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exponent;
+  // Whole numbers for bytes, one decimal above that.
+  return `${exponent === 0 ? value : value.toFixed(1)} ${units[exponent]}`;
+}
+
+/**
  * Display a date string in locale short format (e.g. "Jan 5, 2025").
  * Returns '—' for missing or invalid values.
  */

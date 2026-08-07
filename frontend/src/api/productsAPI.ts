@@ -16,8 +16,11 @@ import type {
   RevisionStatus,
   ProductStatus,
   ProductDocument,
+  RevisionDocuments,
+  LinkableDocuments,
   BomSubProduct,
 } from '../types/products.ts';
+import type { PanelScope } from '../views/products/detail/types.ts';
 
 export const productsApi = {
   getAll() {
@@ -121,33 +124,78 @@ export const subProductsApi = {
   },
 };
 
-export const documentsApi = {
-  getProductDocuments(productId: number) {
-    return api.get<ProductDocument[]>(`/products/${productId}/documents`);
-  },
-  uploadProductDocument(productId: number, file: File, name?: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (name && name.trim()) formData.append('name', name.trim());
-    return api.post<ProductDocument>(`/products/${productId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
-  deleteProductDocument(productId: number, docId: number) {
-    return api.delete(`/products/${productId}/documents/${docId}`);
-  },
-  getSpRevisionDocuments(spId: number, revId: number) {
-    return api.get<ProductDocument[]>(`/sub-products/${spId}/revisions/${revId}/documents`);
-  },
-  uploadSpRevisionDocument(spId: number, revId: number, file: File, name?: string) {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (name && name.trim()) formData.append('name', name.trim());
-    return api.post<ProductDocument>(`/sub-products/${spId}/revisions/${revId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
-  deleteSpRevisionDocument(spId: number, revId: number, docId: number) {
-    return api.delete(`/sub-products/${spId}/revisions/${revId}/documents/${docId}`);
-  },
-};
+// Documents hang off a REVISION on both sides (document-system-plan.md §3.3),
+// and the two families are served by structurally identical routes that differ
+// only in their base path — so one factory covers both and `documentsApiFor`
+// picks the right one from a PanelScope.
+const multipart = { headers: { 'Content-Type': 'multipart/form-data' } };
+
+function uploadForm(file: File, name?: string, documentTypeId?: number | null): FormData {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (name && name.trim()) formData.append('name', name.trim());
+  // Omitted -> the server files it under "Other documents".
+  if (documentTypeId != null) formData.append('documentTypeId', String(documentTypeId));
+  return formData;
+}
+
+function buildDocumentsApi(basePath: (revId: number) => string) {
+  return {
+    /** Grouped panel payload: cards, the "other" bucket and the summary. */
+    getAll(revId: number) {
+      return api.get<RevisionDocuments>(`${basePath(revId)}/documents`);
+    },
+    upload(revId: number, file: File, name?: string, documentTypeId?: number | null) {
+      return api.post<ProductDocument>(
+        `${basePath(revId)}/documents`,
+        uploadForm(file, name, documentTypeId),
+        multipart,
+      );
+    },
+    /** Copy-on-write replace — only this revision's row is repointed. */
+    replace(
+      revId: number,
+      docId: number,
+      file: File,
+      name?: string,
+      documentTypeId?: number | null,
+    ) {
+      return api.put<ProductDocument>(
+        `${basePath(revId)}/documents/${docId}`,
+        uploadForm(file, name, documentTypeId),
+        multipart,
+      );
+    },
+    remove(revId: number, docId: number) {
+      return api.delete(`${basePath(revId)}/documents/${docId}`);
+    },
+    /** What this revision could borrow from the entity's other revisions. */
+    linkable(revId: number, documentTypeId?: number | null) {
+      return api.get<LinkableDocuments>(`${basePath(revId)}/documents/linkable`, {
+        params: documentTypeId != null ? { documentTypeId } : {},
+      });
+    },
+    /** Share a file a sibling revision holds. No bytes move. */
+    link(revId: number, sourceDocumentId: number, documentTypeId?: number | null) {
+      return api.post<ProductDocument>(`${basePath(revId)}/documents/link`, {
+        sourceDocumentId,
+        documentTypeId: documentTypeId ?? null,
+      });
+    },
+  };
+}
+
+const productRevisionDocumentsApi = buildDocumentsApi((revId) => `/product-revisions/${revId}`);
+
+/** Sub-product routes are nested under their sub-product, so the id is bound
+ *  in per call rather than baked into the base path. */
+function subProductDocumentsApi(spId: number) {
+  return buildDocumentsApi((revId) => `/sub-products/${spId}/revisions/${revId}`);
+}
+
+/** The right documents API for whatever the panel is currently showing. */
+export function documentsApiFor(scope: PanelScope) {
+  return scope.kind === 'product'
+    ? productRevisionDocumentsApi
+    : subProductDocumentsApi(scope.spId);
+}

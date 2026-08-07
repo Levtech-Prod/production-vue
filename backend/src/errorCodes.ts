@@ -58,6 +58,18 @@ export const ErrorCodes = {
   SUB_PRODUCT_TYPE_IN_USE: 'SUB_PRODUCT_TYPE_IN_USE',
   SUB_PRODUCT_TYPE_DELETE_FAILED: 'SUB_PRODUCT_TYPE_DELETE_FAILED',
 
+  // product document types (Settings > product type document requirements)
+  INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'INVALID_PRODUCT_DOCUMENT_TYPE_ID',
+  PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'PRODUCT_DOCUMENT_TYPE_NOT_FOUND',
+  PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS: 'PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS',
+  PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH: 'PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH',
+
+  // sub-product document types (Settings > sub-product type document requirements)
+  INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID',
+  SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND',
+  SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS: 'SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS',
+  SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH: 'SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH',
+
   // revisions
   INVALID_REVISION_ID: 'INVALID_REVISION_ID',
   REVISION_NOT_FOUND: 'REVISION_NOT_FOUND',
@@ -85,10 +97,27 @@ export const ErrorCodes = {
   // uploads
   INVALID_UPLOAD_TARGET: 'INVALID_UPLOAD_TARGET',
   NO_FILE_UPLOADED: 'NO_FILE_UPLOADED',
+  // The staged image referenced by a create/update is no longer in `_tmp` —
+  // a form left open past the 24h sweep, or a resubmit of a stale payload.
+  STAGED_IMAGE_MISSING: 'STAGED_IMAGE_MISSING',
 
   // documents
+  INVALID_DOCUMENT_ID: 'INVALID_DOCUMENT_ID',
   DOCUMENT_NOT_FOUND: 'DOCUMENT_NOT_FOUND',
   DOCUMENT_DELETE_FAILED: 'DOCUMENT_DELETE_FAILED',
+  DOCUMENT_FILE_MISSING: 'DOCUMENT_FILE_MISSING',
+  // Upload named a document type that isn't defined for this entity's type.
+  DOCUMENT_TYPE_MISMATCH: 'DOCUMENT_TYPE_MISMATCH',
+  // File extension outside the document type's allowed list, or outside the
+  // global upload allow-list.
+  DOCUMENT_EXTENSION_NOT_ALLOWED: 'DOCUMENT_EXTENSION_NOT_ALLOWED',
+  DOCUMENT_TOO_LARGE: 'DOCUMENT_TOO_LARGE',
+  // Linking an existing file into a revision: the source document is unknown,
+  // or belongs to another product / sub-product (or to the target revision
+  // itself, which would just duplicate a row).
+  DOCUMENT_LINK_SOURCE_NOT_FOUND: 'DOCUMENT_LINK_SOURCE_NOT_FOUND',
+  // That physical file is already on this card in this revision.
+  DOCUMENT_ALREADY_LINKED: 'DOCUMENT_ALREADY_LINKED',
 
   // generic / global error handler
   VALIDATION_FAILED: 'VALIDATION_FAILED',

@@ -245,8 +245,6 @@ const messages = {
     // Documents panel
     product_documents: 'Product Documents',
     sp_rev_documents: '{name} — {label} Documents',
-    no_product_documents: 'No documents uploaded for this product.',
-    no_sp_rev_documents: 'No documents uploaded for this revision.',
     upload_document: 'Upload document',
     document_name: 'File name',
     document_name_hint:
@@ -257,6 +255,54 @@ const messages = {
     document_deleted: 'Document deleted',
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
+
+    // Reusing a file another revision already holds
+    link_document: 'Use existing',
+    link_document_hint: 'Use a file from another revision of this item',
+    link_document_title: 'Use an existing file — {card}',
+    link_document_explainer:
+      'Pick a file from another revision. It is linked to this revision, not copied — the file is stored only once.',
+    link_document_empty: 'No other revision of this item has any files yet.',
+    link_document_use: 'Use',
+    link_document_already: 'Already added',
+    document_linked: 'File linked to this revision',
+    errors_load_linkable_failed: 'Failed to load files from the other revisions',
+    errors_link_document_failed: 'Failed to link the file',
+    errors_document_already_linked: 'That file is already on this card in this revision',
+
+    // New-revision source picker
+    copy_documents_from: 'Copy documents from',
+    copy_documents_from_none: 'Start with no documents',
+    copy_documents_from_hint:
+      'The selected revision\'s documents are linked to the new revision. Files are shared, not duplicated.',
+
+    // Document type cards
+    other_documents: 'Other documents',
+    n_files: '{n} file | {n} files',
+    no_uploaded_file: 'No file uploaded',
+    show_more_files: '+{n} more…',
+    manage_files: 'Show all files',
+    close: 'Close',
+    upload: 'Upload',
+    download: 'Download',
+    replace: 'Replace',
+    replace_document: 'Replace file',
+    document_replaced: 'File replaced',
+    allowed_extensions_hint: 'Allowed file types: {list}',
+    no_document_types_hint:
+      'No document requirements are defined for this type yet. Add them under Settings → Product types; files uploaded here go to "Other documents".',
+    total_types: 'Total types',
+    doc_status_complete: 'Uploaded',
+    doc_status_missing: 'Missing',
+    doc_status_optional: 'Optional',
+    // Shown as the status badge's tooltip on each card.
+    doc_status_complete_hint: 'At least one file uploaded',
+    doc_status_missing_hint: 'Required file(s) are missing',
+    doc_status_optional_hint: 'Not required for this item',
+    errors_document_extension_not_allowed: 'That file type is not allowed here',
+    errors_document_too_large: 'The file is too large (max 25 MB)',
+    errors_document_type_mismatch:
+      'That document type does not belong to this item',
 
     // BOM panel
     bom_title: 'Bill of Materials',
@@ -341,6 +387,17 @@ const messages = {
     no_sub_product_types_msg:
       'No sub-product types yet. Click "Add Sub-product Type" to create the first one.',
 
+    // Document types (Settings > Product/Sub-product Types > "Document types")
+    manage_document_types: 'Document Types',
+    add_document_type: 'Add Document Type',
+    delete_document_type: 'Delete Document Type',
+    no_document_types_msg:
+      'No document types yet. Click "Add Document Type" to create the first one.',
+    allowed_extensions: 'Allowed Extensions',
+    allowed_extensions_placeholder: 'e.g. .pdf, .zip',
+    any_extension: 'Any file type',
+    optional: 'Optional',
+
     errors: {
       // Mirror the `code` field returned by the backend (see
       // backend/src/errorCodes.ts) so a failed request can be translated
@@ -387,11 +444,13 @@ const messages = {
 
       // Stock management
       COMPANY_ALREADY_EXISTS: 'A company with this name already exists.',
-      COMPANY_DELETE_FAILED: 'This company cannot be deleted because it has stock entries.',
+      COMPANY_DELETE_FAILED:
+        'This company cannot be deleted because it has stock entries.',
       save_company_failed: 'The company could not be saved.',
       save_stock_entry_failed: 'The stock entry could not be saved.',
       fill_required_fields: 'Please fill in all required fields.',
-      INSUFFICIENT_STOCK: 'Not enough stock available to complete this removal.',
+      INSUFFICIENT_STOCK:
+        'Not enough stock available to complete this removal.',
       BNR_RATE_UNAVAILABLE:
         'Could not reach the BNR exchange rate service. Please try again shortly.',
       save_stock_removal_failed: 'The stock removal could not be saved.',
@@ -445,6 +504,24 @@ const messages = {
       save_sub_product_type_failed: 'The sub-product type could not be saved',
       delete_sub_product_type_failed:
         'The sub-product type could not be deleted',
+
+      // Document types module — backend codes
+      INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
+      PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'A document type with this name already exists for this product type.',
+      PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'The document type order could not be saved — please reload and try again.',
+      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
+      SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'A document type with this name already exists for this sub-product type.',
+      SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'The document type order could not be saved — please reload and try again.',
+      // Document types module — frontend-only fallbacks
+      save_document_type_failed: 'The document type could not be saved',
+      delete_document_type_failed: 'The document type could not be deleted',
+      reorder_document_types_failed: 'The new order could not be saved',
     },
 
     success: {
@@ -475,6 +552,12 @@ const messages = {
       save_sub_product_type: 'The sub-product type was saved successfully',
       update_sub_product_type: 'The sub-product type was updated successfully',
       delete_sub_product_type: 'The sub-product type was deleted successfully.',
+
+      save_document_type: 'The document type was saved successfully',
+      update_document_type: 'The document type was updated successfully',
+      delete_document_type: 'The document type was deleted successfully.',
+      delete_document_type_with_files:
+        'The document type was deleted. {count} file(s) were moved to "Other documents".',
     },
 
     validation: {
@@ -492,6 +575,8 @@ const messages = {
       delete_category_msg: 'Are you sure you want to delete this category',
       delete_part_msg: 'Are you sure you want to delete this part',
       delete_document_msg: 'Are you sure you want to delete this document',
+      replace_document_msg:
+        'Replace "{current}" with "{incoming}"?\nOnly this revision is affected — other revisions keep the current file.',
       archive_product_msg:
         'Are you sure you want to archive this product? It will become read-only until re-activated.',
       activate_product_msg:
@@ -508,6 +593,8 @@ const messages = {
         'Are you sure you want to delete this product type',
       delete_sub_product_type_msg:
         'Are you sure you want to delete this sub-product type',
+      delete_document_type_msg:
+        'Are you sure you want to delete this document type? Any files already uploaded under it will be moved to "Other documents" — they are not deleted',
     },
   },
   hu: {
@@ -745,8 +832,6 @@ const messages = {
     // Dokumentumok panel
     product_documents: 'Termék dokumentumok',
     sp_rev_documents: '{name} — {label} dokumentumok',
-    no_product_documents: 'Ehhez a termékhez nincs feltöltött dokumentum.',
-    no_sp_rev_documents: 'Ehhez a revízióhoz nincs feltöltött dokumentum.',
     upload_document: 'Dokumentum feltöltése',
     document_name: 'Fájlnév',
     document_name_hint:
@@ -757,6 +842,56 @@ const messages = {
     document_deleted: 'Dokumentum törölve',
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
+
+    // Másik revízió fájljának újrafelhasználása
+    link_document: 'Meglévő használata',
+    link_document_hint: 'Fájl használata ennek az elemnek egy másik revíziójából',
+    link_document_title: 'Meglévő fájl használata — {card}',
+    link_document_explainer:
+      'Válassz egy fájlt egy másik revízióból. A fájl ehhez a revízióhoz lesz csatolva, nem másolódik – csak egyszer tárolódik.',
+    link_document_empty: 'Ennek az elemnek egyetlen másik revíziójában sincs még fájl.',
+    link_document_use: 'Használom',
+    link_document_already: 'Már hozzáadva',
+    document_linked: 'Fájl csatolva ehhez a revízióhoz',
+    errors_load_linkable_failed: 'Nem sikerült betölteni a többi revízió fájljait',
+    errors_link_document_failed: 'Nem sikerült csatolni a fájlt',
+    errors_document_already_linked: 'Ez a fájl már szerepel ezen a kártyán ebben a revízióban',
+
+    // Új revízió forrásválasztó
+    copy_documents_from: 'Dokumentumok másolása innen',
+    copy_documents_from_none: 'Dokumentumok nélkül',
+    copy_documents_from_hint:
+      'A kiválasztott revízió dokumentumai az új revízióhoz lesznek csatolva. A fájlok megosztottak, nem duplikálódnak.',
+
+    // Dokumentumtípus kártyák
+    other_documents: 'Egyéb dokumentumok',
+    // Hungarian doesn't inflect the noun after a numeral, so one form covers all.
+    n_files: '{n} fájl',
+    no_uploaded_file: 'Nincs feltöltött fájl',
+    show_more_files: 'még {n}…',
+    manage_files: 'Összes fájl megjelenítése',
+    close: 'Bezárás',
+    upload: 'Feltöltés',
+    download: 'Letöltés',
+    replace: 'Csere',
+    replace_document: 'Fájl cseréje',
+    document_replaced: 'Fájl kicserélve',
+    allowed_extensions_hint: 'Engedélyezett fájltípusok: {list}',
+    no_document_types_hint:
+      'Ehhez a típushoz még nincsenek dokumentum-követelmények. A Beállítások → Terméktípusok alatt vehetők fel; az itt feltöltött fájlok az „Egyéb dokumentumok” közé kerülnek.',
+    total_types: 'Összes típus',
+    doc_status_complete: 'Feltöltve',
+    doc_status_missing: 'Hiányzik',
+    doc_status_optional: 'Opcionális',
+    // A kártyákon a státuszjelvény tooltipjeként jelenik meg.
+    doc_status_complete_hint: 'Legalább egy fájl feltöltve',
+    doc_status_missing_hint: 'Kötelező fájl(ok) hiányoznak',
+    doc_status_optional_hint: 'Ehhez az elemhez nem kötelező',
+    errors_document_extension_not_allowed:
+      'Ez a fájltípus itt nem engedélyezett',
+    errors_document_too_large: 'A fájl túl nagy (max. 25 MB)',
+    errors_document_type_mismatch:
+      'Ez a dokumentumtípus nem ehhez az elemhez tartozik',
 
     // Anyagjegyzék panel
     bom_title: 'Anyagjegyzék',
@@ -842,6 +977,17 @@ const messages = {
     no_sub_product_types_msg:
       'Még nincs altermék-típus. Kattints az „Altermék-típus hozzáadása" gombra az első létrehozásához.',
 
+    // Dokumentumtípusok (Beállítások > Termék-/altermék-típusok > "Dokumentumtípusok")
+    manage_document_types: 'Dokumentumtípusok',
+    add_document_type: 'Dokumentumtípus hozzáadása',
+    delete_document_type: 'Dokumentumtípus törlése',
+    no_document_types_msg:
+      'Még nincs dokumentumtípus. Kattints a „Dokumentumtípus hozzáadása" gombra az első létrehozásához.',
+    allowed_extensions: 'Engedélyezett kiterjesztések',
+    allowed_extensions_placeholder: 'pl. .pdf, .zip',
+    any_extension: 'Bármilyen fájltípus',
+    optional: 'Opcionális',
+
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
       INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
@@ -884,7 +1030,8 @@ const messages = {
 
       // Készletkezelés
       COMPANY_ALREADY_EXISTS: 'Ilyen nevű vállalat már létezik.',
-      COMPANY_DELETE_FAILED: 'A vállalat nem törölhető, mert bevételezések hivatkoznak rá.',
+      COMPANY_DELETE_FAILED:
+        'A vállalat nem törölhető, mert bevételezések hivatkoznak rá.',
       save_company_failed: 'A vállalat mentése nem sikerült.',
       save_stock_entry_failed: 'A bevételezés mentése nem sikerült.',
       fill_required_fields: 'Kérlek töltsd ki az összes kötelező mezőt.',
@@ -940,6 +1087,25 @@ const messages = {
       delete_product_type_failed: 'A terméktípus törlése nem sikerült',
       save_sub_product_type_failed: 'Az altermék-típus mentése nem sikerült',
       delete_sub_product_type_failed: 'Az altermék-típus törlése nem sikerült',
+
+      // Dokumentumtípusok modul — backend kódok
+      INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Érvénytelen dokumentumtípus-azonosító',
+      PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
+      PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'Már létezik ilyen nevű dokumentumtípus ennél a terméktípusnál.',
+      PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
+      INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID:
+        'Érvénytelen dokumentumtípus-azonosító',
+      SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
+      SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
+        'Már létezik ilyen nevű dokumentumtípus ennél az altermék-típusnál.',
+      SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
+        'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
+      // Dokumentumtípusok modul — frontend fallbackok
+      save_document_type_failed: 'A dokumentumtípus mentése nem sikerült',
+      delete_document_type_failed: 'A dokumentumtípus törlése nem sikerült',
+      reorder_document_types_failed: 'Az új sorrendet nem sikerült menteni',
     },
 
     success: {
@@ -971,6 +1137,12 @@ const messages = {
       update_sub_product_type:
         'Az altermék-típus módosítása sikeresen megtörtént',
       delete_sub_product_type: 'Az altermék-típus sikeresen törölve.',
+
+      save_document_type: 'A dokumentumtípus mentése sikeresen megtörtént',
+      update_document_type: 'A dokumentumtípus módosítása sikeresen megtörtént',
+      delete_document_type: 'A dokumentumtípus sikeresen törölve.',
+      delete_document_type_with_files:
+        'A dokumentumtípus törölve. {count} fájl átkerült az "Egyéb dokumentumok" közé.',
     },
 
     validation: {
@@ -988,6 +1160,8 @@ const messages = {
       delete_category_msg: 'Biztosan törölni szeretnéd ezt a kategóriát',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
+      replace_document_msg:
+        'Lecseréled a(z) „{current}” fájlt erre: „{incoming}”?\nCsak ez a revízió változik — a többi revízióban a jelenlegi fájl marad.',
       archive_product_msg:
         'Biztosan archiválni szeretnéd ezt a terméket? Csak olvasható lesz, amíg vissza nem állítod.',
       activate_product_msg:
@@ -1002,6 +1176,8 @@ const messages = {
       delete_product_type_msg: 'Biztosan törölni szeretnéd ezt a terméktípust',
       delete_sub_product_type_msg:
         'Biztosan törölni szeretnéd ezt az altermék-típust',
+      delete_document_type_msg:
+        'Biztosan törölni szeretnéd ezt a dokumentumtípust? Az alá már feltöltött fájlok az "Egyéb dokumentumok" közé kerülnek, nem törlődnek',
     },
   },
 };

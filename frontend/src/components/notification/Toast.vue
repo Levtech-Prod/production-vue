@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
 
 const notificationStore = useNotificationStore();
 
@@ -22,8 +23,9 @@ const toastClass = computed(() => {
   <Transition name="fade">
     <div
       v-if="notificationStore.toast.visible"
-      class="fixed right-6 top-6 z-[60] rounded-lg px-5 py-3 text-sm shadow-lg"
+      class="fixed right-6 top-6 rounded-lg px-5 py-3 text-sm shadow-lg"
       :class="toastClass"
+      :style="{ zIndex: OVERLAY_LAYERS.toast }"
     >
       {{ notificationStore.toast.message }}
     </div>

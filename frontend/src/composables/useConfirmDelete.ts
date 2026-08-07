@@ -1,12 +1,13 @@
 import { ref } from 'vue';
 
 /**
- * Shared "pick a target, confirm in a modal, run an async action" flow used
- * by every delete confirmation on the product detail page (revision,
- * sub-product, document). `action` should perform the API call, any local
- * cache updates and success/error toasts itself, then report whether the
- * modal should close (`true` on success, `false` to keep it open so the
- * user can retry).
+ * Shared "pick a target, confirm in a modal, run an async action" flow.
+ * Originally written for the product detail page's delete confirmations
+ * (revision, sub-product, document) and now reused by the document type
+ * manager (Settings) too, so it lives in the shared composables folder.
+ * `action` should perform the API call, any local cache updates and
+ * success/error toasts itself, then report whether the modal should close
+ * (`true` on success, `false` to keep it open so the user can retry).
  */
 export function useConfirmDelete<T>(action: (target: T) => Promise<boolean>) {
   const target = ref<T | null>(null);
