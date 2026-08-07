@@ -26,7 +26,7 @@ import {
 } from '../schemas/documents.schema.js';
 import {
   deleteDocument,
-  documentsDir,
+  resolveEntityDocumentsDir,
   fileExtension,
   findDocument,
   findDocumentTypeForRevision,
@@ -41,7 +41,6 @@ import {
   placeUpload,
   publicPath,
   repointDocument,
-  resolveEntityFolder,
   resolveStoredFilePath,
   safeUnlink,
   unlinkStoredFile,
@@ -50,15 +49,18 @@ import {
   type DocumentTypeTemplate,
   type LinkableDocumentRow,
 } from '../services/documentFiles.js';
+import { ensureTmpDir } from '../services/uploadPaths.js';
 
 const router = Router();
 
 // ── Upload handling ────────────────────────────────────────────────────────
 
-// Files first land in the base documents folder under a temporary name; the
-// handler moves them into the owning entity's folder once it is resolved.
+// Files land in `_tmp` under a temporary name; the handler moves them into the
+// owning entity's folder once it is resolved. Kept out of `products/` so a
+// half-written file can never be mistaken for a real document by the migration
+// or the resync script.
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, documentsDir),
+  destination: (_req, _file, cb) => cb(null, ensureTmpDir()),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `tmp-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
@@ -255,8 +257,7 @@ async function prepareIncomingFile(
     }
   }
 
-  const folder = resolveEntityFolder(scope, entity.id, entity.name, entity.sku);
-  return placeUpload(file, folder, body.name);
+  return placeUpload(file, resolveEntityDocumentsDir(entity), body.name);
 }
 
 /**

@@ -24,6 +24,17 @@
 import fs from 'fs';
 import path from 'path';
 import type { QueryResult, QueryResultRow } from 'pg';
+import {
+  documentsDirFor,
+  ensureProductDir,
+  ensureSubProductDir,
+  findEntityDir,
+  productsDir,
+  PUBLIC_PREFIX,
+  resolveUnderProducts,
+  sanitizeSegment,
+  type FolderEntity,
+} from './uploadPaths.js';
 
 /** Anything that can run a parameterized query — the pool or a tx client. */
 export interface Queryable {
@@ -53,8 +64,6 @@ interface ScopeConfig {
   documentTypeTable: string;
   /** The template table's FK column back to the type list. */
   documentTypeColumn: string;
-  /** Prefix of the entity's on-disk folder name (plan §3.2). */
-  folderPrefix: string;
 }
 
 // Table and column names are read only from this literal map — never from
@@ -70,7 +79,6 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     typeTable: 'product_types',
     documentTypeTable: 'product_document_types',
     documentTypeColumn: 'product_type_id',
-    folderPrefix: '',
   },
   subProduct: {
     table: 'sub_product_revision_documents',
@@ -81,62 +89,25 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     typeTable: 'sub_product_types',
     documentTypeTable: 'sub_product_document_types',
     documentTypeColumn: 'sub_product_type_id',
-    folderPrefix: 'sub-',
   },
 };
 
 // ── Filesystem ─────────────────────────────────────────────────────────────
 
-export const documentsDir = path.join(process.cwd(), 'uploads', 'documents');
-if (!fs.existsSync(documentsDir)) fs.mkdirSync(documentsDir, { recursive: true });
-
 /**
- * Make a string safe to use as a single path segment (folder or file name):
- * strip path separators / control chars and guard against traversal.
- */
-export function sanitizeSegment(input: string): string {
-  const cleaned = input
-    .replace(/[/\\]/g, '_') // path separators
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\x00-\x1f]/g, '') // control chars
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (cleaned === '' || cleaned === '.' || cleaned === '..') return '_';
-  return cleaned;
-}
-
-/**
- * The on-disk folder holding every file of one product / sub-product — across
- * ALL of its revisions, which is what lets revisions share a file without
- * duplicating it (plan §3.2).
+ * The `documents/` folder holding every document of one product / sub-product
+ * — across ALL of its revisions, which is what lets revisions share a file
+ * without duplicating it (plan §3.2). Returned relative to `productsDir`.
  *
- * Resolution matches on the immutable `{id}-` prefix ("4-", "sub-12-"), not the
- * full name: an existing folder is reused whatever its name suffix, so renaming
- * a product can never fragment it into two folders and existing `storage_key`s
- * never need rewriting. A folder is only created when no prefix match exists.
+ * Revision-independent by design: a revision folder would force a physical copy
+ * per revision and destroy the pointer model.
  */
-export function resolveEntityFolder(
-  scope: DocumentScope,
-  entityId: number,
-  name: string,
-  sku: string | null,
-): string {
-  const idPrefix = `${SCOPES[scope].folderPrefix}${entityId}-`;
-
-  const existing = fs
-    .readdirSync(documentsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith(idPrefix))
-    .map((entry) => entry.name)
-    .sort()[0];
-  if (existing) return existing;
-
-  // Spaces in the name become dashes so the folder is a single tidy token.
-  // Sub-products may have no SKU (migration 002) — then it is just "{id}-{name}".
-  const dashedName = name.replace(/\s+/g, '-');
-  const suffix = sku ? `-${sku}` : '';
-  const folder = sanitizeSegment(`${idPrefix}${dashedName}${suffix}`);
-  fs.mkdirSync(path.join(documentsDir, folder), { recursive: true });
-  return folder;
+export function resolveEntityDocumentsDir(entity: DocumentEntity): string {
+  const entityDir =
+    entity.product === null
+      ? ensureProductDir(entity)
+      : ensureSubProductDir(entity.product, entity);
+  return documentsDirFor(entityDir);
 }
 
 /** `original_name` is VARCHAR(255); appending an extension must not overflow it. */
@@ -207,7 +178,7 @@ export function resolveUniqueName(dirAbs: string, displayName: string): string {
 
 /** A file moved into place on disk, not yet recorded in the database. */
 export interface PlacedFile {
-  /** Path relative to `documentsDir` — becomes `stored_files.storage_key`.
+  /** Path relative to `productsDir` — becomes `stored_files.storage_key`.
    *  May carry a " (n)" suffix to avoid overwriting a neighbouring file. */
   storageKey: string;
   /** The name shown to users — becomes the document row's `original_name`.
@@ -227,7 +198,7 @@ export function placeUpload(
   folder: string,
   customName: string | undefined,
 ): PlacedFile {
-  const dirAbs = path.join(documentsDir, folder);
+  const dirAbs = path.join(productsDir, folder);
   if (!fs.existsSync(dirAbs)) fs.mkdirSync(dirAbs, { recursive: true });
 
   const displayName = resolveDisplayName(customName, file.originalname);
@@ -240,20 +211,12 @@ export function placeUpload(
 /** Public URL for a stored file, encoded per segment so spaces resolve. */
 export function publicPath(storageKey: string): string {
   const encoded = storageKey.split('/').map(encodeURIComponent).join('/');
-  return `/uploads/documents/${encoded}`;
+  return `${PUBLIC_PREFIX}/${encoded}`;
 }
 
-/**
- * Absolute path of a stored file, or null if the key would escape the
- * documents folder. Storage keys are written by this service rather than by
- * users, so this is belt-and-braces — but it is the one place a bad key could
- * turn into an arbitrary file read, so it is checked before every download.
- */
+/** Absolute path of a stored file, or null if the key would escape the tree. */
 export function resolveStoredFilePath(storageKey: string): string | null {
-  const absolute = path.resolve(documentsDir, storageKey);
-  const root = path.resolve(documentsDir);
-  if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
-  return absolute;
+  return resolveUnderProducts(storageKey);
 }
 
 /** The extension of a file name, lowercased and dot-prefixed ('.zip'). */
@@ -277,7 +240,26 @@ export function safeUnlink(absPath: string): void {
  */
 export function unlinkStoredFile(storageKey: string | null): void {
   if (!storageKey) return;
-  safeUnlink(path.join(documentsDir, storageKey));
+  safeUnlink(path.join(productsDir, storageKey));
+}
+
+/**
+ * Remove an entity's whole folder — its image, its documents, and for a product
+ * its sub-products' folders too. Call only AFTER the deleting transaction has
+ * committed, for the same reason `unlinkStoredFile` is post-commit: an `rm`
+ * cannot be rolled back.
+ */
+export function removeEntityFolder(entity: DocumentEntity): void {
+  // Deliberately the non-creating lookup: an entity that never had an upload
+  // has no folder, and `ensure*` would create it (and its parent) just to
+  // delete it again.
+  const entityDir =
+    entity.product === null
+      ? findEntityDir(entity)
+      : findEntityDir(entity.product, entity);
+  if (!entityDir) return;
+
+  fs.rmSync(path.join(productsDir, entityDir), { recursive: true, force: true });
 }
 
 // ── Stored files ───────────────────────────────────────────────────────────
@@ -354,12 +336,20 @@ export async function releaseStoredFile(
 
 // ── Entity / revision lookups ──────────────────────────────────────────────
 
-/** The product / sub-product a revision belongs to, with the fields the
- *  folder name is built from. */
-export interface DocumentEntity {
-  id: number;
-  name: string;
-  sku: string | null;
+/**
+ * The product / sub-product a revision belongs to, with the fields the folder
+ * name is built from. `product` is the owning main product for a sub-product,
+ * and null for a product — which is also what tells the path helpers which of
+ * the two levels of the tree to build.
+ */
+export interface DocumentEntity extends FolderEntity {
+  product: FolderEntity | null;
+}
+
+interface EntityRow extends FolderEntity {
+  product_id: number | null;
+  product_name: string | null;
+  product_sku: string | null;
 }
 
 /** Resolve a revision's owning entity, or null when the revision is unknown. */
@@ -369,14 +359,37 @@ export async function findEntityForRevision(
   revisionId: number,
 ): Promise<DocumentEntity | null> {
   const { revisionTable, entityTable, entityColumn } = SCOPES[scope];
-  const result = await db.query<DocumentEntity>(
-    `SELECT e.id, e.name, e.sku
+
+  // A sub-product's folder lives inside its owning product's, so the parent's
+  // name and SKU are needed to build the path — hence the extra join, which is
+  // a no-op for the product scope.
+  const parentJoin =
+    scope === 'subProduct'
+      ? `LEFT JOIN products p ON p.id = e.product_id`
+      : `LEFT JOIN products p ON FALSE`;
+
+  const result = await db.query<EntityRow>(
+    `SELECT e.id, e.name, e.sku,
+       p.id AS product_id, p.name AS product_name, p.sku AS product_sku
      FROM ${revisionTable} r
      JOIN ${entityTable} e ON e.id = r.${entityColumn}
+     ${parentJoin}
      WHERE r.id = $1`,
     [revisionId],
   );
-  return result.rows[0] ?? null;
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    name: row.name,
+    sku: row.sku,
+    product:
+      row.product_id === null
+        ? null
+        : { id: row.product_id, name: row.product_name ?? '', sku: row.product_sku },
+  };
 }
 
 // ── Document type templates ────────────────────────────────────────────────

@@ -17,9 +17,27 @@ import {
   type AuditEvent,
   type AuditScope,
 } from '../services/audit.js';
-import { carryForwardOnNewRevision } from '../services/documentFiles.js';
+import {
+  carryForwardOnNewRevision,
+  removeEntityFolder,
+  type Queryable,
+} from '../services/documentFiles.js';
+import { fileStagedImage, removeImageFile } from '../services/entityImages.js';
+import type { FolderEntity } from '../services/uploadPaths.js';
 
 const router = Router();
+
+/** The owning product's folder identity, or null when it is unknown. */
+async function findFolderProduct(
+  db: Queryable,
+  productId: number,
+): Promise<FolderEntity | null> {
+  const result = await db.query<FolderEntity>(
+    `SELECT id, name, sku FROM products WHERE id = $1`,
+    [productId],
+  );
+  return result.rows[0] ?? null;
+}
 
 // Compact descriptor of a BOM line's fields (quantity, unit, notes) for the
 // product log. The part name is carried separately as the event label, so it
@@ -216,6 +234,7 @@ router.get('/', requireAuth, async (_req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   const data = createSubProductSchema.parse(req.body);
   const client = await pool.connect();
+  let filedImage: string | null = null;
   try {
     await client.query('BEGIN');
 
@@ -234,6 +253,27 @@ router.post('/', requireAuth, async (req, res) => {
       ],
     );
     const subProduct = spResult.rows[0];
+
+    // A sub-product's folder lives inside its product's, so the parent has to
+    // be resolved before the staged image can be filed.
+    const parent = await findFolderProduct(client, data.productId);
+    if (!parent) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+    const placed = fileStagedImage(subProduct.image, subProduct, parent);
+    if (placed === null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
+    }
+    if (placed !== subProduct.image) {
+      filedImage = placed;
+      await client.query(`UPDATE sub_products SET image = $1 WHERE id = $2`, [
+        placed,
+        subProduct.id,
+      ]);
+      subProduct.image = placed;
+    }
 
     const revResult = await client.query(
       `INSERT INTO sub_product_revisions (sub_product_id, revision_number, label, status)
@@ -256,6 +296,7 @@ router.post('/', requireAuth, async (req, res) => {
     res.json({ ...subProduct, revisions: [rev1] });
   } catch (err: any) {
     await client.query('ROLLBACK');
+    removeImageFile(filedImage);
     if (err?.code === '23505') {
       return res
         .status(409)
@@ -278,15 +319,23 @@ router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
   const data = subProductPayloadSchema.parse(req.body);
+  const client = await pool.connect();
+  let filedImage: string | null = null;
 
   try {
-    const result = await query(
+    await client.query('BEGIN');
+    const result = await client.query(
       `UPDATE sub_products
        SET name = $1, sku = $2, type = $3, description = $4, image = $5,
            updated_at = NOW()
-       WHERE id = $6
-       RETURNING id, name, sku, type, description, image,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+       FROM (SELECT image, product_id FROM sub_products WHERE id = $6) old
+       WHERE sub_products.id = $6
+       RETURNING sub_products.id, sub_products.name, sub_products.sku,
+         sub_products.type, sub_products.description, sub_products.image,
+         sub_products.created_at AS "createdAt",
+         sub_products.updated_at AS "updatedAt",
+         old.image      AS "oldImage",
+         old.product_id AS "productId"`,
       [
         data.name,
         data.sku || null,
@@ -297,10 +346,39 @@ router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
       ],
     );
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
     }
-    res.json(result.rows[0]);
+
+    const row = result.rows[0];
+    const parent = await findFolderProduct(client, row.productId);
+    if (!parent) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    }
+
+    const placed = fileStagedImage(row.image, row, parent);
+    if (placed === null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
+    }
+    if (placed !== row.image) {
+      filedImage = placed;
+      await client.query(`UPDATE sub_products SET image = $1 WHERE id = $2`, [
+        placed,
+        spId,
+      ]);
+      row.image = placed;
+    }
+
+    await client.query('COMMIT');
+    if (row.oldImage !== row.image) removeImageFile(row.oldImage);
+
+    const { oldImage: _oi, productId: _pid, ...subProductOut } = row;
+    res.json(subProductOut);
   } catch (err: any) {
+    await client.query('ROLLBACK');
+    removeImageFile(filedImage);
     if (err?.code === '23505') {
       return res
         .status(409)
@@ -322,6 +400,25 @@ router.delete('/:spId', requireAuth, async (req, res) => {
   if (!spId || Number.isNaN(spId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
   }
+  // Read the folder identity before the row is gone — afterwards there is
+  // nothing left to derive the path from.
+  const existing = await query<{
+    id: number;
+    name: string;
+    sku: string | null;
+    productId: number | null;
+  }>(
+    `SELECT id, name, sku, product_id AS "productId" FROM sub_products WHERE id = $1`,
+    [spId],
+  );
+  const subProduct = existing.rows[0];
+  if (!subProduct) {
+    return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
+  }
+
+  const parent =
+    subProduct.productId === null ? null : await findFolderProduct(pool, subProduct.productId);
+
   const result = await query(
     `DELETE FROM sub_products WHERE id = $1 RETURNING id`,
     [spId],
@@ -329,6 +426,11 @@ router.delete('/:spId', requireAuth, async (req, res) => {
   if (result.rowCount === 0) {
     return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
   }
+
+  // Post-delete: the cascade has removed every row pointing into this folder,
+  // so the whole thing goes. Previously these files were left behind on disk.
+  if (parent) removeEntityFolder({ ...subProduct, product: parent });
+
   res.json({ id: spId, deleted: true });
 });
 

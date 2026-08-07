@@ -97,6 +97,9 @@ export const ErrorCodes = {
   // uploads
   INVALID_UPLOAD_TARGET: 'INVALID_UPLOAD_TARGET',
   NO_FILE_UPLOADED: 'NO_FILE_UPLOADED',
+  // The staged image referenced by a create/update is no longer in `_tmp` —
+  // a form left open past the 24h sweep, or a resubmit of a stale payload.
+  STAGED_IMAGE_MISSING: 'STAGED_IMAGE_MISSING',
 
   // documents
   INVALID_DOCUMENT_ID: 'INVALID_DOCUMENT_ID',

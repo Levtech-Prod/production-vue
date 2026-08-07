@@ -19,6 +19,7 @@ import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
 import { ErrorCodes } from './errorCodes.js';
+import { startTmpSweeper } from './services/tmpSweeper.js';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
@@ -84,4 +85,7 @@ app.use(
 );
 
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () => console.log(`API running on http://localhost:${port}`));
+app.listen(port, () => {
+  console.log(`API running on http://localhost:${port}`);
+  startTmpSweeper();
+});
