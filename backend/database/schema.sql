@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS products (
   sku         VARCHAR(100) NOT NULL,
   -- Required (see migration 003).
   type        VARCHAR(100) NOT NULL,
-  -- Optional (see migration 016).
+  -- Optional (see migration 015).
   image       TEXT,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -293,45 +293,81 @@ ALTER TABLE sub_products
     REFERENCES sub_product_types (name) ON UPDATE CASCADE;
 
 -- ===========================================================================
--- Required Document Types (see migration 013)
+-- Required Document Types (see migrations 013 and 016)
 -- ---------------------------------------------------------------------------
--- Document requirements are defined once per product / sub-product TYPE
--- (template tables). Each physical file is recorded once in `stored_files`;
--- thin per-revision rows point at a stored file + a document type, so a file
--- can be shared across revisions by pointer without being copied on disk.
--- Product docs are scoped per product REVISION (not per product). The tables
--- these replaced were dropped by migration 013 (both were empty), so nothing
--- legacy is defined here. All blocks are idempotent.
+-- Document requirements live in the template tables below. Each physical file
+-- is recorded once in `stored_files`; thin per-revision rows point at a stored
+-- file + a document type, so a file can be shared across revisions by pointer
+-- without being copied on disk. Product docs are scoped per product REVISION
+-- (not per product). The tables these replaced were dropped by migration 013
+-- (both were empty), so nothing legacy is defined here. All blocks are
+-- idempotent.
+--
+-- A template is scoped EITHER to a type or to a single entity (migration 016):
+--
+--   product_type_id set -> applies to every product of that type
+--   product_id      set -> applies to that one product only
+--
+-- Exactly one of the two, per the CHECK. The type FK is nullable rather than
+-- being filled in as well: templates are reached through
+-- `product_types.name = products.type`, so a product-scoped row carrying a type
+-- id would vanish from its own panel if the product's `type` were changed.
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS product_document_types (
   id                 SERIAL PRIMARY KEY,
-  product_type_id    INTEGER NOT NULL REFERENCES product_types(id) ON DELETE CASCADE,
+  product_type_id    INTEGER REFERENCES product_types(id) ON DELETE CASCADE,
+  product_id         INTEGER REFERENCES products(id) ON DELETE CASCADE,
   name               VARCHAR(120) NOT NULL,
   icon               VARCHAR(60)  NOT NULL,
   allowed_extensions TEXT[] NOT NULL DEFAULT '{}',
   required           BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order         INTEGER NOT NULL DEFAULT 0,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(product_type_id, name)
+  CONSTRAINT product_document_types_scope_chk
+    CHECK ((product_type_id IS NULL) <> (product_id IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS sub_product_document_types (
   id                  SERIAL PRIMARY KEY,
-  sub_product_type_id INTEGER NOT NULL REFERENCES sub_product_types(id) ON DELETE CASCADE,
+  sub_product_type_id INTEGER REFERENCES sub_product_types(id) ON DELETE CASCADE,
+  sub_product_id      INTEGER REFERENCES sub_products(id) ON DELETE CASCADE,
   name                VARCHAR(120) NOT NULL,
   icon                VARCHAR(60)  NOT NULL,
   allowed_extensions  TEXT[] NOT NULL DEFAULT '{}',
   required            BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order          INTEGER NOT NULL DEFAULT 0,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(sub_product_type_id, name)
+  CONSTRAINT sub_product_document_types_scope_chk
+    CHECK ((sub_product_type_id IS NULL) <> (sub_product_id IS NULL))
 );
+
+-- One partial unique index per scope rather than a table-level UNIQUE: the
+-- unused FK is NULL, and every NULL is distinct in Postgres, so a plain
+-- UNIQUE(product_type_id, name) would not constrain product-scoped rows at all.
+-- Collisions BETWEEN the scopes are rejected by the API (routes/documentTypes.ts)
+-- — the type is reached through a join, so no constraint can express it.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_document_types_type_name
+  ON product_document_types(product_type_id, name)
+  WHERE product_type_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_document_types_product_name
+  ON product_document_types(product_id, name)
+  WHERE product_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sub_product_document_types_type_name
+  ON sub_product_document_types(sub_product_type_id, name)
+  WHERE sub_product_type_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sub_product_document_types_sp_name
+  ON sub_product_document_types(sub_product_id, name)
+  WHERE sub_product_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_product_document_types_type_id
   ON product_document_types(product_type_id);
+CREATE INDEX IF NOT EXISTS idx_product_document_types_product_id
+  ON product_document_types(product_id);
 CREATE INDEX IF NOT EXISTS idx_sub_product_document_types_type_id
   ON sub_product_document_types(sub_product_type_id);
+CREATE INDEX IF NOT EXISTS idx_sub_product_document_types_sub_product_id
+  ON sub_product_document_types(sub_product_id);
 
 CREATE TABLE IF NOT EXISTS stored_files (
   id          SERIAL PRIMARY KEY,
