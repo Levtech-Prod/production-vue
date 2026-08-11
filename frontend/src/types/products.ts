@@ -10,6 +10,8 @@ export interface ProductRevision {
   status: RevisionStatus;
   changeNotes?: string | null;
   createdAt?: string;
+  /** null on revisions created before created_by started being written. */
+  createdByName?: string | null;
 }
 
 // Row in the products list (revisions are a compact summary).

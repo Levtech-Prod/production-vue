@@ -5,7 +5,8 @@ import type {
   ProductDetail,
   SubProductRevision,
 } from '../../../../types/products.ts';
-import type { ComposeSelection, Selection } from '../types.ts';
+import { linkedRevOf as resolveLinkedRev } from '../revisionHelpers.ts';
+import type { ComposeSelection, RevPanelView, Selection } from '../types.ts';
 
 /**
  * Owns everything related to "what's currently active/selected" on the
@@ -18,6 +19,9 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
   const activeProductRevId = ref<number | null>(null);
   const selection = ref<Selection>({ type: 'product' });
   const revisionsMode = ref(false);
+  // Which of Revisions mode's two views is showing. Ignored while
+  // `revisionsMode` is off — normal mode has a single view.
+  const revPanelView = ref<RevPanelView>('changelog');
   // True while the user is actively building a new product revision
   // composition (started via "Add new revision" on the left tree). Gates
   // whether the compose checkboxes are interactive and whether the "Save as
@@ -43,14 +47,7 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     sp: DetailSubProduct,
     productRevId: number | null,
   ): SubProductRevision | null {
-    if (productRevId == null) return null;
-    const set = membershipMap.value.get(productRevId);
-    if (!set) return null;
-    // Defensive: if several revisions of one sub-product are linked to the
-    // same product revision (legacy data), use the highest revision number.
-    const matches = sp.revisions.filter((r) => set.has(r.id));
-    if (matches.length === 0) return null;
-    return matches.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a));
+    return resolveLinkedRev(sp, membershipMap.value, productRevId);
   }
 
   function revisionLabel(revId: number | null | undefined): string {
@@ -83,6 +80,9 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
 
   function toggleRevisionsMode() {
     revisionsMode.value = !revisionsMode.value;
+    // Revisions mode is about history first — always land on the changelog,
+    // never on whichever view was left open last time.
+    if (revisionsMode.value) revPanelView.value = 'changelog';
     composingRevision.value = false;
     composeSelection.value = {};
   }
@@ -99,6 +99,9 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     composeSelection.value = {};
     activeProductRevId.value = null;
     if (selection.value.type === 'subProduct') selection.value = { type: 'product' };
+    // Composing happens in the composition view — that's where the checkboxes
+    // and the per-sub-product revision list live.
+    revPanelView.value = 'composition';
     composingRevision.value = true;
   }
 
@@ -108,6 +111,7 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     composingRevision.value = false;
     composeSelection.value = {};
     activeProductRevId.value = preComposeRevId.value;
+    revPanelView.value = 'changelog';
   }
 
   function toggleCompose(spId: number, revId: number) {
@@ -142,8 +146,12 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     if (!d) return;
     // Nothing to browse yet (no sub-products, so no revision can exist
     // either) — switch straight to Revisions mode so "New sub-product" is
-    // immediately visible instead of making the user find the toggle.
-    if (d.subProducts.length === 0) revisionsMode.value = true;
+    // immediately visible instead of making the user find the toggle. The
+    // changelog would be empty in that state, so open the composition view.
+    if (d.subProducts.length === 0) {
+      revisionsMode.value = true;
+      revPanelView.value = 'composition';
+    }
     if (d.revisions.length === 0) return;
     const latest = d.revisions.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a));
     const initial =
@@ -159,6 +167,7 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     activeProductRevId.value = null;
     selection.value = { type: 'product' };
     revisionsMode.value = false;
+    revPanelView.value = 'changelog';
     composingRevision.value = false;
     composeSelection.value = {};
   }
@@ -167,6 +176,7 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     activeProductRevId,
     selection,
     revisionsMode,
+    revPanelView,
     composingRevision,
     composeSelection,
     membershipMap,

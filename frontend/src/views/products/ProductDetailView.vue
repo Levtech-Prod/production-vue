@@ -32,12 +32,15 @@
           :active-product-rev-id="activeProductRevId"
           :selection="selection"
           :revisions-mode="revisionsMode"
+          :rev-panel-view="revPanelView"
+          :membership-map="membershipMap"
           :composing-revision="composingRevision"
           :compose-selection="composeSelection"
           :is-archived="isArchived"
           :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
+          @update:rev-panel-view="revPanelView = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
@@ -78,8 +81,21 @@
             </div>
           </div>
 
+          <RevisionOverviewPanel
+            v-if="activeTab === 'overview'"
+            :detail="detail"
+            :active-product-rev-id="activeProductRevId"
+            :selection="selection"
+            :membership-map="membershipMap"
+            :docs-summary="docs.summary"
+            :is-archived="isArchived"
+            @select="onSelect"
+            @edit-product-rev="openEditProductRevision"
+            @edit-sp-revision="openEditSpRevision"
+          />
+
           <DocumentsPanel
-            v-if="activeTab === 'documents' && panelScope"
+            v-else-if="activeTab === 'documents' && panelScope"
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
@@ -263,12 +279,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, FileText, List, GitCompare } from 'lucide-vue-next';
+import { ChevronLeft, FileText, Info, List, GitCompare } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ProductTree from './detail/ProductTree.vue';
+import RevisionOverviewPanel from './detail/RevisionOverviewPanel.vue';
 import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
 import BomPanel from './detail/bom/BomPanel.vue';
 import ComparePanel from './detail/compare/ComparePanel.vue';
@@ -322,6 +339,7 @@ const {
   activeProductRevId,
   selection,
   revisionsMode,
+  revPanelView,
   composingRevision,
   composeSelection,
   membershipMap,
@@ -341,10 +359,15 @@ const {
 
 const treeCollapsed = ref(false);
 
-type RightPanelTab = 'documents' | 'bom' | 'compare';
+type RightPanelTab = 'overview' | 'documents' | 'bom' | 'compare';
 const activeTab = ref<RightPanelTab>('documents');
 
+// Overview describes the selected revision, so it only earns a tab while the
+// left panel is showing revisions. Normal mode keeps the three tabs it had.
 const tabs = computed(() => [
+  ...(revisionsMode.value
+    ? [{ key: 'overview' as RightPanelTab, labelKey: 'tab_overview', icon: Info }]
+    : []),
   {
     key: 'documents' as RightPanelTab,
     labelKey: 'tab_documents',
@@ -409,6 +432,13 @@ const {
   clearBomCache,
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
+
+// Leaving Revisions mode takes the Overview tab with it — without this the
+// active tab would point at a tab that is no longer rendered, leaving the
+// panel blank.
+watch(revisionsMode, (on) => {
+  if (!on && activeTab.value === 'overview') activeTab.value = 'documents';
+});
 
 // Load BOM/parts whenever their scope changes (needs a real revision).
 watch(panelScope, (scope) => {
