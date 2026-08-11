@@ -208,13 +208,16 @@ router.get('/:productId', requireAuth, async (req, res) => {
   }
   const product = productResult.rows[0];
 
-  // Product revisions (for the pills UI)
+  // Product revisions (pills + the changelog timeline). `createdByName` is
+  // null for revisions created before created_by started being written.
   const revisionsResult = await query(
-    `SELECT id, revision_number AS "revisionNumber", label, status,
-       change_notes AS "changeNotes", created_at AS "createdAt"
-     FROM product_revisions
-     WHERE product_id = $1
-     ORDER BY revision_number`,
+    `SELECT pr.id, pr.revision_number AS "revisionNumber", pr.label, pr.status,
+       pr.change_notes AS "changeNotes", pr.created_at AS "createdAt",
+       u.username AS "createdByName"
+     FROM product_revisions pr
+     LEFT JOIN users u ON u.id = pr.created_by
+     WHERE pr.product_id = $1
+     ORDER BY pr.revision_number`,
     [productId],
   );
 
@@ -325,16 +328,17 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
     }
 
     const newRevResult = await client.query(
-      `INSERT INTO product_revisions (product_id, revision_number, label, status, change_notes)
+      `INSERT INTO product_revisions
+         (product_id, revision_number, label, status, change_notes, created_by)
        VALUES (
          $1,
          (SELECT COALESCE(MAX(revision_number), 0) + 1
             FROM product_revisions WHERE product_id = $1),
-         $2, 'draft', $3
+         $2, 'draft', $3, $4
        )
        RETURNING id, revision_number AS "revisionNumber", label, status,
          change_notes AS "changeNotes", created_at AS "createdAt"`,
-      [productId, data.label, data.changeNotes || null],
+      [productId, data.label, data.changeNotes || null, req.user?.id ?? null],
     );
     const newRevision = newRevResult.rows[0];
 

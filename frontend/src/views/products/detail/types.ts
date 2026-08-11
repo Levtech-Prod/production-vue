@@ -17,6 +17,10 @@ export type PanelScope =
  *  sub-product revision per sub-product (spId -> spRevId). */
 export type ComposeSelection = Record<number, number>;
 
+/** Which of Revisions mode's two views the left panel shows. Only meaningful
+ *  while `revisionsMode` is on; normal mode has a single view. */
+export type RevPanelView = 'changelog' | 'composition';
+
 /** Payload for editing an existing (product or sub-product) revision. */
 export interface EditRevisionPayload {
   label: string;

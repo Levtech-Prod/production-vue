@@ -106,11 +106,11 @@
           </span>
         </button>
 
-        <!-- Product revision chips (revisions mode only): switch the active
+        <!-- Product revision chips (composition view only): switch the active
              revision to inspect its composition, edit it, or make it the
-             default — all editing lives here, not in the top info bar. -->
+             default. The changelog view has the timeline for this instead. -->
         <div
-          v-if="revisionsMode"
+          v-if="showCompositionTools"
           class="ml-2 mt-1.5 flex flex-wrap items-center gap-1.5"
         >
           <button
@@ -151,9 +151,10 @@
           </button>
         </div>
 
-        <!-- Revisions-mode actions: both filled, side by side -->
+        <!-- Composition-view actions: both filled, side by side. The changelog
+             view has its own "Add new revision" in the timeline footer. -->
         <div
-          v-if="!isArchived && revisionsMode"
+          v-if="!isArchived && showCompositionTools"
           class="ml-2 mt-1.5 flex items-center gap-1.5"
         >
           <button
@@ -207,231 +208,267 @@
         </div>
       </div>
 
-      <!-- ── Sub-products section label (fixed) ──────────────────────────── -->
+      <!-- ── Revisions mode: pick which of its two views to show ─────────── -->
       <div
-        class="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-1.5"
+        v-if="revisionsMode"
+        class="shrink-0 border-b border-slate-100 px-2 py-1.5"
       >
-        <h3
-          class="text-[11px] font-semibold uppercase tracking-wide text-slate-400"
-        >
-          {{ t('sub_products') }}
-          <span v-if="detail.subProducts.length"></span>
-        </h3>
+        <div class="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
+          <button
+            v-for="view in revViews"
+            :key="view.key"
+            type="button"
+            class="flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+            :class="
+              revPanelView === view.key
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            "
+            @click="emit('update:revPanelView', view.key)"
+          >
+            <component :is="view.icon" class="h-3.5 w-3.5" />
+            {{ t(view.labelKey) }}
+          </button>
+        </div>
       </div>
 
-      <!-- ── Sub-products list (this is the part that scrolls) ───────────── -->
-      <div class="flex-1 overflow-y-auto">
+      <!-- ── Changelog: the revision history itself ──────────────────────── -->
+      <RevisionTimeline
+        v-if="revisionsMode && revPanelView === 'changelog'"
+        :detail="detail"
+        :active-product-rev-id="activeProductRevId"
+        :is-archived="isArchived"
+        @set-active-rev="onTimelineRevision"
+        @start-new-revision="emit('start-new-revision')"
+      />
+
+      <template v-else>
+        <!-- ── Sub-products section label (fixed) ──────────────────────────── -->
         <div
-          v-if="detail.subProducts.length === 0"
-          class="py-10 text-center text-sm text-slate-400"
+          class="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-1.5"
         >
-          {{ t('no_sub_products_in_product') }}
+          <h3
+            class="text-[11px] font-semibold uppercase tracking-wide text-slate-400"
+          >
+            {{ t('sub_products') }}
+            <span v-if="detail.subProducts.length"></span>
+          </h3>
         </div>
 
-        <!-- Normal mode: only sub-products linked to the active product revision -->
-        <template v-else-if="!revisionsMode">
+        <!-- ── Sub-products list (this is the part that scrolls) ───────────── -->
+        <div class="flex-1 overflow-y-auto">
           <div
-            v-if="normalRows.length === 0"
+            v-if="detail.subProducts.length === 0"
             class="py-10 text-center text-sm text-slate-400"
           >
-            {{ t('no_linked_sub_products') }}
+            {{ t('no_sub_products_in_product') }}
           </div>
-          <ul v-else class="divide-y divide-slate-100">
-            <li
-              v-for="row in normalRows"
-              :key="row.sp.id"
-              class="flex items-center gap-1 px-2 py-1.5"
+
+          <!-- Normal mode: only sub-products linked to the active product revision -->
+          <template v-else-if="!revisionsMode">
+            <div
+              v-if="normalRows.length === 0"
+              class="py-10 text-center text-sm text-slate-400"
             >
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-l-2 px-2 py-2 text-left transition-colors"
-                :class="
-                  selection.type === 'subProduct' &&
-                  selection.spId === row.sp.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-transparent hover:bg-slate-50'
-                "
-                @click="
-                  emit('select', {
-                    type: 'subProduct',
-                    spId: row.sp.id,
-                    spRevId: row.rev.id,
-                  })
-                "
-              >
-                <img
-                  v-if="row.sp.image"
-                  :src="row.sp.image"
-                  class="h-9 w-9 shrink-0 rounded-lg border border-slate-200 object-cover"
-                  :alt="row.sp.name"
-                />
-                <div
-                  v-else
-                  class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
-                >
-                  ▣
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-semibold text-slate-800">
-                    {{ row.sp.name }}
-                  </div>
-                  <div class="truncate font-mono text-xs text-slate-400">
-                    {{ row.sp.sku || '—' }}
-                  </div>
-                </div>
-                <span
-                  class="flex shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500"
-                  :title="t('linked_revision')"
-                >
-                  <span
-                    class="h-1.5 w-1.5 rounded-full"
-                    :class="statusDot(row.rev.status)"
-                  />
-                  {{ row.rev.label }}
-                </span>
-              </button>
-            </li>
-          </ul>
-        </template>
-
-        <!-- Revisions mode: all sub-products with all revisions, compose checkboxes -->
-        <ul v-else class="divide-y divide-slate-100">
-          <li v-for="sp in detail.subProducts" :key="sp.id" class="px-2 py-1.5">
-            <div class="flex items-center gap-1">
-              <div class="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5">
-                <img
-                  v-if="sp.image"
-                  :src="sp.image"
-                  class="h-8 w-8 shrink-0 rounded-lg border border-slate-200 object-cover"
-                  :alt="sp.name"
-                />
-                <div
-                  v-else
-                  class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
-                >
-                  ▣
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-semibold text-slate-800">
-                    {{ sp.name }}
-                  </div>
-                  <div class="truncate font-mono text-xs text-slate-400">
-                    {{ sp.sku || '—' }}
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
-                :title="t('new_revision')"
-                @click="emit('new-sp-revision', sp)"
-              >
-                <Plus class="h-4 w-4" />
-              </button>
-              <button
-                v-if="isAdmin"
-                type="button"
-                class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
-                :title="t('edit_sub_product')"
-                @click="emit('edit-sub-product', sp)"
-              >
-                <Pencil class="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                :title="t('delete_sub_product')"
-                @click="emit('delete-sub-product', sp)"
-              >
-                <Trash2 class="h-4 w-4" />
-              </button>
+              {{ t('no_linked_sub_products') }}
             </div>
-
-            <!-- Revision rows -->
-            <div class="mb-1 ml-3 mt-0.5 flex flex-col gap-0.5">
-              <div
-                v-for="rev in sp.revisions"
-                :key="rev.id"
-                class="group flex items-center gap-1.5 rounded-r-md border-l-2 py-1 pl-2 pr-1 transition-colors"
-                :class="spRevRowClass(sp.id, rev.id)"
+            <ul v-else class="divide-y divide-slate-100">
+              <li
+                v-for="row in normalRows"
+                :key="row.sp.id"
+                class="flex items-center gap-1 px-2 py-1.5"
               >
-                <!-- Compose checkbox: while not composing, shows (read-only)
-                   whether this revision belongs to the selected product
-                   revision; only interactive once "Add new revision" has
-                   been clicked (see button above). -->
                 <button
                   type="button"
-                  class="grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors"
-                  :class="[
-                    isChecked(sp.id, rev.id)
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-slate-300 bg-white text-transparent hover:border-blue-400',
-                    !composingRevision &&
-                      'cursor-not-allowed opacity-70 hover:border-slate-300',
-                  ]"
-                  :disabled="!composingRevision"
-                  :title="
-                    composingRevision
-                      ? t('compose_check_hint')
-                      : t('compose_disabled_hint')
+                  class="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border-l-2 px-2 py-2 text-left transition-colors"
+                  :class="
+                    selection.type === 'subProduct' &&
+                    selection.spId === row.sp.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-transparent hover:bg-slate-50'
                   "
-                  @click="emit('toggle-compose', sp.id, rev.id)"
-                >
-                  <Check class="h-3 w-3" />
-                </button>
-
-                <!-- Row: select for viewing docs/BOM -->
-                <button
-                  type="button"
-                  class="flex min-w-0 flex-1 items-center justify-between gap-2 py-0.5 text-left text-sm"
                   @click="
                     emit('select', {
                       type: 'subProduct',
-                      spId: sp.id,
-                      spRevId: rev.id,
+                      spId: row.sp.id,
+                      spRevId: row.rev.id,
                     })
                   "
                 >
-                  <span class="flex min-w-0 items-center gap-2">
+                  <img
+                    v-if="row.sp.image"
+                    :src="row.sp.image"
+                    class="h-9 w-9 shrink-0 rounded-lg border border-slate-200 object-cover"
+                    :alt="row.sp.name"
+                  />
+                  <div
+                    v-else
+                    class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
+                  >
+                    ▣
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-semibold text-slate-800">
+                      {{ row.sp.name }}
+                    </div>
+                    <div class="truncate font-mono text-xs text-slate-400">
+                      {{ row.sp.sku || '—' }}
+                    </div>
+                  </div>
+                  <span
+                    class="flex shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+                    :title="t('linked_revision')"
+                  >
                     <span
-                      class="h-1.5 w-1.5 shrink-0 rounded-full"
-                      :class="statusDot(rev.status)"
-                      :title="rev.status"
+                      class="h-1.5 w-1.5 rounded-full"
+                      :class="statusDot(row.rev.status)"
                     />
-                    <span class="truncate">{{ rev.label }}</span>
-                    <span
-                      v-if="activeSet.has(rev.id)"
-                      class="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500"
-                      :title="t('linked_revision')"
-                    >
-                      {{ activeRevLabel }}
-                    </span>
+                    {{ row.rev.label }}
                   </span>
                 </button>
+              </li>
+            </ul>
+          </template>
 
-                <!-- Edit revision -->
+          <!-- Revisions mode: all sub-products with all revisions, compose checkboxes -->
+          <ul v-else class="divide-y divide-slate-100">
+            <li v-for="sp in detail.subProducts" :key="sp.id" class="px-2 py-1.5">
+              <div class="flex items-center gap-1">
+                <div class="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5">
+                  <img
+                    v-if="sp.image"
+                    :src="sp.image"
+                    class="h-8 w-8 shrink-0 rounded-lg border border-slate-200 object-cover"
+                    :alt="sp.name"
+                  />
+                  <div
+                    v-else
+                    class="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
+                  >
+                    ▣
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm font-semibold text-slate-800">
+                      {{ sp.name }}
+                    </div>
+                    <div class="truncate font-mono text-xs text-slate-400">
+                      {{ sp.sku || '—' }}
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  class="shrink-0 rounded p-1 text-slate-300 hover:bg-white hover:text-blue-600 group-hover:text-slate-400"
-                  :title="t('edit_revision')"
-                  @click="emit('edit-sp-revision', sp, rev)"
+                  class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                  :title="t('new_revision')"
+                  @click="emit('new-sp-revision', sp)"
                 >
-                  <Pencil class="h-3.5 w-3.5" />
+                  <Plus class="h-4 w-4" />
                 </button>
-                <!-- Delete revision -->
+                <button
+                  v-if="isAdmin"
+                  type="button"
+                  class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                  :title="t('edit_sub_product')"
+                  @click="emit('edit-sub-product', sp)"
+                >
+                  <Pencil class="h-4 w-4" />
+                </button>
                 <button
                   type="button"
-                  class="shrink-0 rounded p-1 text-slate-300 hover:bg-white hover:text-red-600 group-hover:text-slate-400"
-                  :title="t('delete_revision')"
-                  @click="emit('delete-sp-revision', sp, rev)"
+                  class="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  :title="t('delete_sub_product')"
+                  @click="emit('delete-sub-product', sp)"
                 >
-                  <Trash2 class="h-3.5 w-3.5" />
+                  <Trash2 class="h-4 w-4" />
                 </button>
               </div>
-            </div>
-          </li>
-        </ul>
-      </div>
+
+              <!-- Revision rows -->
+              <div class="mb-1 ml-3 mt-0.5 flex flex-col gap-0.5">
+                <div
+                  v-for="rev in sp.revisions"
+                  :key="rev.id"
+                  class="group flex items-center gap-1.5 rounded-r-md border-l-2 py-1 pl-2 pr-1 transition-colors"
+                  :class="spRevRowClass(sp.id, rev.id)"
+                >
+                  <!-- Compose checkbox: while not composing, shows (read-only)
+                     whether this revision belongs to the selected product
+                     revision; only interactive once "Add new revision" has
+                     been clicked (see button above). -->
+                  <button
+                    type="button"
+                    class="grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors"
+                    :class="[
+                      isChecked(sp.id, rev.id)
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-slate-300 bg-white text-transparent hover:border-blue-400',
+                      !composingRevision &&
+                        'cursor-not-allowed opacity-70 hover:border-slate-300',
+                    ]"
+                    :disabled="!composingRevision"
+                    :title="
+                      composingRevision
+                        ? t('compose_check_hint')
+                        : t('compose_disabled_hint')
+                    "
+                    @click="emit('toggle-compose', sp.id, rev.id)"
+                  >
+                    <Check class="h-3 w-3" />
+                  </button>
+
+                  <!-- Row: select for viewing docs/BOM -->
+                  <button
+                    type="button"
+                    class="flex min-w-0 flex-1 items-center justify-between gap-2 py-0.5 text-left text-sm"
+                    @click="
+                      emit('select', {
+                        type: 'subProduct',
+                        spId: sp.id,
+                        spRevId: rev.id,
+                      })
+                    "
+                  >
+                    <span class="flex min-w-0 items-center gap-2">
+                      <span
+                        class="h-1.5 w-1.5 shrink-0 rounded-full"
+                        :class="statusDot(rev.status)"
+                        :title="rev.status"
+                      />
+                      <span class="truncate">{{ rev.label }}</span>
+                      <span
+                        v-if="activeSet.has(rev.id)"
+                        class="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500"
+                        :title="t('linked_revision')"
+                      >
+                        {{ activeRevLabel }}
+                      </span>
+                    </span>
+                  </button>
+
+                  <!-- Edit revision -->
+                  <button
+                    type="button"
+                    class="shrink-0 rounded p-1 text-slate-300 hover:bg-white hover:text-blue-600 group-hover:text-slate-400"
+                    :title="t('edit_revision')"
+                    @click="emit('edit-sp-revision', sp, rev)"
+                  >
+                    <Pencil class="h-3.5 w-3.5" />
+                  </button>
+                  <!-- Delete revision -->
+                  <button
+                    type="button"
+                    class="shrink-0 rounded p-1 text-slate-300 hover:bg-white hover:text-red-600 group-hover:text-slate-400"
+                    :title="t('delete_revision')"
+                    @click="emit('delete-sp-revision', sp, rev)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </template>
     </template>
   </div>
 </template>
@@ -441,6 +478,8 @@ import { computed } from 'vue';
 import {
   Check,
   GitBranch,
+  History,
+  Layers,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -451,20 +490,25 @@ import {
   X,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
+import RevisionTimeline from './revisions/RevisionTimeline.vue';
+import { linkedRevOf, statusDot } from './revisionHelpers.ts';
 import type {
   ProductDetail,
   ProductRevision,
   DetailSubProduct,
   SubProductRevision,
-  RevisionStatus,
 } from '../../../types/products.ts';
-import type { Selection, ComposeSelection } from './types.ts';
+import type { Selection, ComposeSelection, RevPanelView } from './types.ts';
 
 const props = defineProps<{
   detail: ProductDetail;
   activeProductRevId: number | null;
   selection: Selection;
   revisionsMode: boolean;
+  /** Which of Revisions mode's two views to show. Ignored in normal mode. */
+  revPanelView: RevPanelView;
+  /** productRevisionId -> Set<subProductRevisionId>, derived once by the page. */
+  membershipMap: Map<number, Set<number>>;
   /** True while the user is actively building a new product revision. */
   composingRevision: boolean;
   composeSelection: ComposeSelection;
@@ -476,6 +520,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:collapsed', v: boolean): void;
+  (e: 'update:revPanelView', v: RevPanelView): void;
   (e: 'select', sel: Selection): void;
   (e: 'toggle-revisions-mode'): void;
   (e: 'toggle-compose', spId: number, revId: number): void;
@@ -499,25 +544,31 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-// ── Membership lookups ───────────────────────────────────────────────────────
+const revViews = [
+  { key: 'changelog' as RevPanelView, labelKey: 'changelog', icon: History },
+  { key: 'composition' as RevPanelView, labelKey: 'composition', icon: Layers },
+];
 
-// productRevisionId -> Set<subProductRevisionId>
-const membershipMap = computed<Map<number, Set<number>>>(() => {
-  const map = new Map<number, Set<number>>();
-  for (const m of props.detail.membership) {
-    let set = map.get(m.productRevisionId);
-    if (!set) {
-      set = new Set();
-      map.set(m.productRevisionId, set);
-    }
-    set.add(m.subProductRevisionId);
-  }
-  return map;
-});
+// Revision chips and the sub-product CRUD toolbar belong to the composition
+// view; the changelog has the timeline and its own footer button instead.
+const showCompositionTools = computed(
+  () => props.revisionsMode && props.revPanelView === 'composition',
+);
+
+// Picking a revision in the timeline scopes the right panel to that revision.
+// Without resetting the selection, a sub-product chosen under the previous
+// revision would stay selected and the panels would show a revision the
+// timeline is no longer pointing at.
+function onTimelineRevision(revId: number) {
+  emit('set-active-rev', revId);
+  emit('select', { type: 'product' });
+}
+
+// ── Membership lookups ───────────────────────────────────────────────────────
 
 const activeSet = computed<Set<number>>(() =>
   props.activeProductRevId != null
-    ? (membershipMap.value.get(props.activeProductRevId) ?? new Set())
+    ? (props.membershipMap.get(props.activeProductRevId) ?? new Set())
     : new Set(),
 );
 
@@ -553,17 +604,10 @@ const hasSubProducts = computed(() => props.detail.subProducts.length > 0);
 
 const normalRows = computed(() =>
   props.detail.subProducts
-    .map((sp) => {
-      // Defensive: if several revisions of one sub-product are linked to the
-      // same product revision (legacy data), show the highest one.
-      const matches = sp.revisions.filter((r) => activeSet.value.has(r.id));
-      const rev = matches.length
-        ? matches.reduce((a, b) =>
-            b.revisionNumber > a.revisionNumber ? b : a,
-          )
-        : null;
-      return { sp, rev };
-    })
+    .map((sp) => ({
+      sp,
+      rev: linkedRevOf(sp, props.membershipMap, props.activeProductRevId),
+    }))
     .filter(
       (row): row is { sp: DetailSubProduct; rev: SubProductRevision } =>
         row.rev != null,
@@ -578,15 +622,5 @@ function spRevRowClass(spId: number, revId: number): string {
     return 'border-blue-500 bg-blue-50 text-blue-700';
   }
   return 'border-transparent text-slate-600 hover:bg-slate-50';
-}
-
-function statusDot(status: RevisionStatus): string {
-  return (
-    {
-      draft: 'bg-slate-400',
-      active: 'bg-emerald-500',
-      deprecated: 'bg-amber-500',
-    }[status] ?? 'bg-slate-400'
-  );
 }
 </script>
