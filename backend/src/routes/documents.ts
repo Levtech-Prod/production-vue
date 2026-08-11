@@ -50,6 +50,7 @@ import {
   type LinkableDocumentRow,
 } from '../services/documentFiles.js';
 import { ensureTmpDir } from '../services/uploadPaths.js';
+import { parseId } from './routeParams.js';
 
 const router = Router();
 
@@ -150,11 +151,12 @@ function docResponse(scope: DocumentScope, row: DocumentRow) {
 }
 
 /**
- * The panel payload: one entry per document type defined for this entity's
- * type (in `sort_order`), each carrying its files and status, plus the ad-hoc
- * "Other documents" bucket and a summary. Status is per plan §2 — a type with
- * at least one file is `complete`; with none it is `missing` when required and
- * `optional` when not.
+ * The panel payload: one entry per document type that applies to this entity
+ * (inherited from its type first, then the entity's own — see
+ * `listDocumentTypesForRevision`), each carrying its files and status, plus the
+ * ad-hoc "Other documents" bucket and a summary. Status is per plan §2 — a
+ * type with at least one file is `complete`; with none it is `missing` when
+ * required and `optional` when not.
  */
 function groupDocuments(
   scope: DocumentScope,
@@ -187,6 +189,9 @@ function groupDocuments(
       icon: template.icon,
       allowedExtensions: template.allowed_extensions ?? [],
       required: template.required,
+      // Defined on this entity alone, so the panel may edit or delete it in
+      // place; an inherited one belongs to the type and to the settings page.
+      custom: template.custom,
       status,
       files: files.map((row) => docResponse(scope, row)),
     };
@@ -454,13 +459,6 @@ async function handleDelete(
 }
 
 // ── Parameter parsing ──────────────────────────────────────────────────────
-
-/** Parse a positive integer route param, or null when it isn't one. */
-function parseId(raw: string | string[] | undefined): number | null {
-  if (typeof raw !== 'string') return null;
-  const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : null;
-}
 
 /**
  * Validate the multipart text fields. Multer has already written the file to

@@ -14,7 +14,8 @@
 
     <div
       v-if="open"
-      class="absolute left-0 z-20 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+      class="absolute left-0 z-20 mt-2 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+      :class="wide ? 'w-[34rem]' : 'w-72'"
     >
       <input
         v-model="search"
@@ -24,7 +25,12 @@
         @keydown.escape="open = false"
       />
 
-      <div class="grid max-h-56 grid-cols-6 gap-1 overflow-y-auto">
+      <!-- `max-h` is a safety net, not the normal case: at 12 columns the whole
+           curated set is five rows and fits, so `wide` never scrolls. -->
+      <div
+        class="grid max-h-56 gap-1 overflow-y-auto"
+        :class="wide ? 'grid-cols-12' : 'grid-cols-6'"
+      >
         <button
           v-for="icon in filteredIcons"
           :key="icon"
@@ -41,7 +47,10 @@
           <component :is="resolveIcon(icon)" class="h-5 w-5" />
         </button>
 
-        <p v-if="filteredIcons.length === 0" class="col-span-6 py-4 text-center text-sm text-slate-400">
+        <p
+          v-if="filteredIcons.length === 0"
+          class="col-span-full py-4 text-center text-sm text-slate-400"
+        >
           {{ t('no_search_results') }}
         </p>
       </div>
@@ -53,6 +62,16 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { DOCUMENT_TYPE_ICONS, resolveIcon } from '../utils/documentTypeIcons.ts';
+
+withDefaults(
+  defineProps<{
+    /** Lay the grid out in 12 columns instead of 6, so the whole set is
+     *  visible at once. For callers with the horizontal room — a dialog, not
+     *  the settings table cell. */
+    wide?: boolean;
+  }>(),
+  { wide: false },
+);
 
 const modelValue = defineModel<string>({ required: true });
 

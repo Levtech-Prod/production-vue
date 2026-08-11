@@ -249,7 +249,7 @@ router.post('/', requireAuth, async (req, res) => {
         data.sku || null,
         data.type,
         data.description || null,
-        data.image,
+        data.image || null,
       ],
     );
     const subProduct = spResult.rows[0];
@@ -261,8 +261,11 @@ router.post('/', requireAuth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
     }
-    const placed = fileStagedImage(subProduct.image, subProduct, parent);
-    if (placed === null) {
+    // Image is optional now — only a present value needs filing.
+    const placed: string | null = subProduct.image
+      ? fileStagedImage(subProduct.image, subProduct, parent)
+      : null;
+    if (placed === null && subProduct.image) {
       await client.query('ROLLBACK');
       return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
     }
@@ -341,7 +344,7 @@ router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
         data.sku || null,
         data.type,
         data.description || null,
-        data.image,
+        data.image || null,
         spId,
       ],
     );
@@ -357,8 +360,11 @@ router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
     }
 
-    const placed = fileStagedImage(row.image, row, parent);
-    if (placed === null) {
+    // Image is optional now — only a present value needs filing.
+    const placed: string | null = row.image
+      ? fileStagedImage(row.image, row, parent)
+      : null;
+    if (placed === null && row.image) {
       await client.query('ROLLBACK');
       return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
     }

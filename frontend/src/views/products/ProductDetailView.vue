@@ -32,12 +32,15 @@
           :active-product-rev-id="activeProductRevId"
           :selection="selection"
           :revisions-mode="revisionsMode"
+          :rev-panel-view="revPanelView"
+          :membership-map="membershipMap"
           :composing-revision="composingRevision"
           :compose-selection="composeSelection"
           :is-archived="isArchived"
           :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
+          @update:rev-panel-view="revPanelView = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
@@ -78,16 +81,33 @@
             </div>
           </div>
 
+          <RevisionOverviewPanel
+            v-if="activeTab === 'overview'"
+            :detail="detail"
+            :active-product-rev-id="activeProductRevId"
+            :selection="selection"
+            :membership-map="membershipMap"
+            :docs-summary="docs.summary"
+            :is-archived="isArchived"
+            @select="onSelect"
+            @edit-product-rev="openEditProductRevision"
+            @edit-sp-revision="openEditSpRevision"
+          />
+
           <DocumentsPanel
-            v-if="activeTab === 'documents' && panelScope"
+            v-else-if="activeTab === 'documents' && panelScope"
             :title="docsTitle"
             :docs="docs"
             :loading="docsLoading"
             :can-edit="!isArchived"
+            :can-manage-types="isAdmin"
             @upload-file="onUploadFile"
             @replace-file="openDocReplaceConfirm"
             @delete-doc="openDocDeleteConfirm"
             @link-doc="openDocLinkModal"
+            @add-type="openDocTypeModal(null)"
+            @edit-type="openDocTypeModal"
+            @delete-type="openDocTypeDeleteConfirm"
           />
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
@@ -257,18 +277,41 @@
       @confirm="confirmDocDelete"
       @cancel="cancelDocDelete"
     />
+
+    <!-- Add / edit a document type belonging to this product alone -->
+    <DocumentTypeFormModal
+      v-model="docTypeModalOpen"
+      v-model:draft="docTypeDraft"
+      :saving="docTypeSaving"
+      :save-error="docTypeSaveError"
+      @confirm="confirmDocTypeSave"
+    />
+
+    <!-- Delete document type confirmation — its files move to "Other
+         documents", they are never deleted. -->
+    <ConfirmModal
+      :visible="docTypeDeleteVisible"
+      :title="t('delete_document_type')"
+      :message="`${t('confirmations.delete_document_type_msg')}${docTypeToDelete ? `: ${docTypeToDelete.group.name}` : ''}`"
+      :confirm-text="t('delete')"
+      :cancel-text="t('cancel')"
+      :loading="docTypeDeleting"
+      @confirm="confirmDocTypeDelete"
+      @cancel="cancelDocTypeDelete"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, FileText, List, GitCompare } from 'lucide-vue-next';
+import { ChevronLeft, FileText, Info, List, GitCompare } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ProductTree from './detail/ProductTree.vue';
+import RevisionOverviewPanel from './detail/RevisionOverviewPanel.vue';
 import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
 import BomPanel from './detail/bom/BomPanel.vue';
 import ComparePanel from './detail/compare/ComparePanel.vue';
@@ -279,9 +322,11 @@ import ProductOverviewCard from './detail/ProductOverviewCard.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
 import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
 import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
+import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
+import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
@@ -322,6 +367,7 @@ const {
   activeProductRevId,
   selection,
   revisionsMode,
+  revPanelView,
   composingRevision,
   composeSelection,
   membershipMap,
@@ -341,10 +387,15 @@ const {
 
 const treeCollapsed = ref(false);
 
-type RightPanelTab = 'documents' | 'bom' | 'compare';
+type RightPanelTab = 'overview' | 'documents' | 'bom' | 'compare';
 const activeTab = ref<RightPanelTab>('documents');
 
+// Overview describes the selected revision, so it only earns a tab while the
+// left panel is showing revisions. Normal mode keeps the three tabs it had.
 const tabs = computed(() => [
+  ...(revisionsMode.value
+    ? [{ key: 'overview' as RightPanelTab, labelKey: 'tab_overview', icon: Info }]
+    : []),
   {
     key: 'documents' as RightPanelTab,
     labelKey: 'tab_documents',
@@ -360,7 +411,14 @@ const tabs = computed(() => [
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
 
-const { panelScope, docsKeyFor } = usePanelScope(selection, activeProductRevId);
+// The entity id comes from the loaded product, not the route param: it is
+// null until the detail arrives, which is exactly when the panels have
+// nothing to scope to anyway.
+const { panelScope, docsKeyFor } = usePanelScope(
+  selection,
+  activeProductRevId,
+  computed(() => detail.value?.id ?? null),
+);
 
 const {
   docs,
@@ -394,7 +452,26 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
+  invalidateAndRefresh: refreshAllDocScopes,
 } = useDocuments(panelScope, docsKeyFor, spRevInfo);
+
+// Requirements rather than files: separate endpoints and admin-only, so it
+// lives beside useDocuments rather than inside it. A change here invalidates
+// every revision's cached panel, not just the one on screen.
+const {
+  modalOpen: docTypeModalOpen,
+  draft: docTypeDraft,
+  saving: docTypeSaving,
+  saveError: docTypeSaveError,
+  openModal: openDocTypeModal,
+  confirmSave: confirmDocTypeSave,
+  deleteVisible: docTypeDeleteVisible,
+  deleteTarget: docTypeToDelete,
+  deleteBusy: docTypeDeleting,
+  openDeleteConfirm: openDocTypeDeleteConfirm,
+  confirmDelete: confirmDocTypeDelete,
+  cancelDelete: cancelDocTypeDelete,
+} = useDocumentTypes(panelScope, refreshAllDocScopes);
 
 const {
   bom,
@@ -409,6 +486,13 @@ const {
   clearBomCache,
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
+
+// Leaving Revisions mode takes the Overview tab with it — without this the
+// active tab would point at a tab that is no longer rendered, leaving the
+// panel blank.
+watch(revisionsMode, (on) => {
+  if (!on && activeTab.value === 'overview') activeTab.value = 'documents';
+});
 
 // Load BOM/parts whenever their scope changes (needs a real revision).
 watch(panelScope, (scope) => {

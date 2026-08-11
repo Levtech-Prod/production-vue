@@ -1,11 +1,11 @@
 // ===========================================================================
 // Product / sub-product images: staging, filing and cleanup.
 //
-// The form uploads the image before the entity exists — `products.image` is
-// NOT NULL, so there is no row and no id to file it under yet. So the upload
-// lands in `_tmp` and the create/update handler calls `fileStagedImage` once
-// the id is known, which moves it into the entity's folder and returns the
-// final public path to store.
+// The form uploads the image before the entity exists, so there is no row
+// and no id to file it under yet. The upload lands in `_tmp` and the
+// create/update handler calls `fileStagedImage` once the id is known, which
+// moves it into the entity's folder and returns the final public path to
+// store.
 //
 // Same two-phase shape `documents.ts` already uses for its `tmp-` files.
 // ===========================================================================

@@ -10,6 +10,8 @@ export interface ProductRevision {
   status: RevisionStatus;
   changeNotes?: string | null;
   createdAt?: string;
+  /** null on revisions created before created_by started being written. */
+  createdByName?: string | null;
 }
 
 // Row in the products list (revisions are a compact summary).
@@ -18,7 +20,7 @@ export interface ProductSummary {
   name: string;
   sku: string;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;
@@ -43,7 +45,7 @@ export interface SubProductSummary {
   name: string;
   sku: string | null;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   revisions: SubProductRevision[];
 }
@@ -63,7 +65,7 @@ export interface DetailSubProduct {
   name: string;
   sku: string | null;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   revisions: SubProductRevision[];
 }
@@ -73,7 +75,7 @@ export interface ProductDetail {
   name: string;
   sku: string;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;
@@ -186,6 +188,9 @@ export interface DocumentTypeGroup {
   icon: string;
   allowedExtensions: string[];
   required: boolean;
+  /** Defined on this product / sub-product alone rather than inherited from
+   *  its type — the only kind the panel can edit or delete in place. */
+  custom: boolean;
   status: DocumentTypeStatus;
   files: ProductDocument[];
 }

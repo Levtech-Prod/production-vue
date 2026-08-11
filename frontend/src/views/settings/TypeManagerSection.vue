@@ -17,11 +17,11 @@
     <!-- No overflow-hidden here (unlike a plain card) — the expanded slot's
          content (DocumentTypesSection.vue) needs to render an IconPicker
          popover that can escape this box. -->
-    <table class="w-full text-left text-sm">
+    <table class="w-full table-fixed text-left text-sm">
       <thead class="bg-blue-50 text-xs uppercase text-black">
         <tr>
-          <th class="rounded-tl-2xl p-4">{{ t('name') }}</th>
-          <th class="rounded-tr-2xl p-4">{{ t('actions') }}</th>
+          <th class="w-auto rounded-tl-2xl p-4">{{ t('name') }}</th>
+          <th class="w-40 rounded-tr-2xl p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
       <tbody>

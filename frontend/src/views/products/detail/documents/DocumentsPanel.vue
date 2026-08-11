@@ -47,12 +47,16 @@
             :files="group.files"
             :allowed-extensions="group.allowedExtensions"
             :can-edit="canEdit"
+            :custom="group.custom"
+            :can-manage-type="canManageTypes"
             :color-seed="index"
             @upload-file="(file) => emit('upload-file', file, group.id)"
             @replace-file="(doc, file) => emit('replace-file', doc, file)"
             @delete-file="(doc) => emit('delete-doc', doc)"
             @link-file="emit('link-doc', group.id, group.name)"
             @show-all="openGroupId = group.id"
+            @edit-type="emit('edit-type', group)"
+            @delete-type="emit('delete-type', group)"
           />
 
           <!-- Catch-all bucket: anything uploaded without a document type. -->
@@ -69,6 +73,23 @@
             @link-file="emit('link-doc', null, t('other_documents'))"
             @show-all="openGroupId = OTHER_GROUP"
           />
+
+          <!-- Define a requirement for this product alone. Deliberately WITHOUT
+               the cards' `self-start`: left to stretch, it takes its grid row's
+               height and stays matched to the cards for free. `min-h` only
+               covers the one-column case, where it has the row to itself. -->
+          <button
+            v-if="canManageTypes && canEdit"
+            type="button"
+            class="flex min-h-[10rem] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 px-4 text-slate-400 transition-colors hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-600"
+            @click="emit('add-type')"
+          >
+            <Plus class="h-6 w-6" />
+            <span class="text-sm font-medium">{{ t('add_document_type') }}</span>
+            <span class="text-center text-xs text-slate-400">
+              {{ t('document_type_scope_hint') }}
+            </span>
+          </button>
         </div>
       </template>
     </div>
@@ -88,15 +109,22 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { Plus } from 'lucide-vue-next';
 import DocumentTypeCard from './DocumentTypeCard.vue';
 import DocumentFilesModal, { type DocumentFilesGroup } from './DocumentFilesModal.vue';
-import type { ProductDocument, RevisionDocuments } from '../../../../types/products.ts';
+import type {
+  DocumentTypeGroup,
+  ProductDocument,
+  RevisionDocuments,
+} from '../../../../types/products.ts';
 
 const props = defineProps<{
   title: string;
   docs: RevisionDocuments;
   loading: boolean;
   canEdit: boolean;
+  /** May the viewer define document types for this product (admin)? */
+  canManageTypes: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -106,6 +134,10 @@ const emit = defineEmits<{
   (e: 'delete-doc', doc: ProductDocument): void;
   /** `documentTypeId` null = "Other documents"; the name titles the modal. */
   (e: 'link-doc', documentTypeId: number | null, cardName: string): void;
+  /** Document types belonging to this product alone. */
+  (e: 'add-type'): void;
+  (e: 'edit-type', group: DocumentTypeGroup): void;
+  (e: 'delete-type', group: DocumentTypeGroup): void;
 }>();
 
 const { t } = useI18n();
