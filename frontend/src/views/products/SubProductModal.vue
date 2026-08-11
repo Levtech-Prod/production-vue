@@ -74,8 +74,6 @@
         :label="t('image')"
         target="temp"
         :preview-alt="form.name"
-        required
-        :error="fieldErrors.image"
       />
 
       <PartsPicker v-if="!subProduct" ref="partsPickerRef" v-model="selectedParts" />
@@ -184,7 +182,6 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(
   () => [
     { key: 'name', label: t('name'), missing: !form.name.trim() },
     { key: 'type', label: t('type'), missing: !form.type.trim() },
-    { key: 'image', label: t('image'), missing: !form.image },
   ],
 );
 

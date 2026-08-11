@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS products (
   sku         VARCHAR(100) NOT NULL,
   -- Required (see migration 003).
   type        VARCHAR(100) NOT NULL,
-  image       TEXT NOT NULL,
+  -- Optional (see migration 016).
+  image       TEXT,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -135,7 +136,9 @@ CREATE TABLE IF NOT EXISTS sub_products (
   sku         VARCHAR(100) UNIQUE,
   -- Required (see migration 003).
   type        VARCHAR(100) NOT NULL,
-  image       TEXT NOT NULL,
+  -- Optional (see migration 015): unlike products.image, a sub-product may
+  -- have none.
+  image       TEXT,
   description TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()

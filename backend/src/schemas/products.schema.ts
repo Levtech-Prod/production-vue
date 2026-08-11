@@ -9,7 +9,8 @@ export const productPayloadSchema = z.object({
   sku: z.string().min(1),
   type: z.string().min(1),
   description: z.string().optional().nullable(),
-  image: z.string().min(1),
+  // No .min(1): the client sends '' (not null/undefined) when the image is cleared.
+  image: z.string().optional().nullable(),
 });
 export type ProductPayload = z.input<typeof productPayloadSchema>;
 
