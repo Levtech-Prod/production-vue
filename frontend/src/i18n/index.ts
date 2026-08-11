@@ -290,7 +290,15 @@ const messages = {
     document_replaced: 'File replaced',
     allowed_extensions_hint: 'Allowed file types: {list}',
     no_document_types_hint:
-      'No document requirements are defined for this type yet. Add them under Settings → Product types; files uploaded here go to "Other documents".',
+      'No document requirements are defined yet. An admin can add one for this item here, or define them for the whole type under Settings → Product types. Files uploaded without one go to "Other documents".',
+    custom_document_type: 'Own',
+    custom_document_type_hint:
+      'Defined for this item only — not for every product of its type.',
+    edit_document_type: 'Edit Document Type',
+    document_type_actions: 'Document type actions',
+    document_type_scope_hint: 'Applies to this item only, not to its whole type.',
+    allowed_extensions_any_hint: 'Leave empty to accept any file type.',
+    required_document_hint: 'Required — count it as missing until a file is uploaded',
     total_types: 'Total types',
     doc_status_complete: 'Uploaded',
     doc_status_missing: 'Missing',
@@ -523,14 +531,16 @@ const messages = {
       // Document types module — backend codes
       INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
       PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      // Raised by the settings list (name taken within the type) and by a
+      // product's own panel (taken by one of its cards, inherited or not).
       PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
-        'A document type with this name already exists for this product type.',
+        'A document type with this name already exists here.',
       PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'The document type order could not be saved — please reload and try again.',
       INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID: 'Invalid document type id',
       SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
       SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
-        'A document type with this name already exists for this sub-product type.',
+        'A document type with this name already exists here.',
       SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'The document type order could not be saved — please reload and try again.',
       // Document types module — frontend-only fallbacks
@@ -893,7 +903,15 @@ const messages = {
     document_replaced: 'Fájl kicserélve',
     allowed_extensions_hint: 'Engedélyezett fájltípusok: {list}',
     no_document_types_hint:
-      'Ehhez a típushoz még nincsenek dokumentum-követelmények. A Beállítások → Terméktípusok alatt vehetők fel; az itt feltöltött fájlok az „Egyéb dokumentumok” közé kerülnek.',
+      'Még nincsenek dokumentum-követelmények. Adminisztrátor felvehet egyet csak ehhez a tételhez itt, vagy a teljes típushoz a Beállítások → Terméktípusok alatt. A követelmény nélkül feltöltött fájlok az „Egyéb dokumentumok” közé kerülnek.',
+    custom_document_type: 'Saját',
+    custom_document_type_hint:
+      'Csak ehhez a tételhez tartozik — nem a típus összes termékéhez.',
+    edit_document_type: 'Dokumentumtípus szerkesztése',
+    document_type_actions: 'Dokumentumtípus műveletei',
+    document_type_scope_hint: 'Csak erre a tételre vonatkozik, nem a teljes típusra.',
+    allowed_extensions_any_hint: 'Hagyja üresen, ha bármilyen fájltípus megengedett.',
+    required_document_hint: 'Kötelező — hiányzóként számít, amíg nincs feltöltve fájl',
     total_types: 'Összes típus',
     doc_status_complete: 'Feltöltve',
     doc_status_missing: 'Hiányzik',
@@ -1122,14 +1140,14 @@ const messages = {
       INVALID_PRODUCT_DOCUMENT_TYPE_ID: 'Érvénytelen dokumentumtípus-azonosító',
       PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
       PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
-        'Már létezik ilyen nevű dokumentumtípus ennél a terméktípusnál.',
+        'Már létezik ilyen nevű dokumentumtípus.',
       PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
       INVALID_SUB_PRODUCT_DOCUMENT_TYPE_ID:
         'Érvénytelen dokumentumtípus-azonosító',
       SUB_PRODUCT_DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
       SUB_PRODUCT_DOCUMENT_TYPE_ALREADY_EXISTS:
-        'Már létezik ilyen nevű dokumentumtípus ennél az altermék-típusnál.',
+        'Már létezik ilyen nevű dokumentumtípus.',
       SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
       // Dokumentumtípusok modul — frontend fallbackok

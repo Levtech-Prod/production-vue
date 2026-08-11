@@ -188,6 +188,9 @@ export interface DocumentTypeGroup {
   icon: string;
   allowedExtensions: string[];
   required: boolean;
+  /** Defined on this product / sub-product alone rather than inherited from
+   *  its type — the only kind the panel can edit or delete in place. */
+  custom: boolean;
   status: DocumentTypeStatus;
   files: ProductDocument[];
 }

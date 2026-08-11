@@ -60,10 +60,12 @@ interface ScopeConfig {
   entityTable: string;
   /** Managed type list the entity's `type` column names. */
   typeTable: string;
-  /** Per-type document requirement templates. */
+  /** Document requirement templates. */
   documentTypeTable: string;
   /** The template table's FK column back to the type list. */
   documentTypeColumn: string;
+  /** The template table's FK column back to a single entity (migration 016). */
+  documentTypeEntityColumn: string;
 }
 
 // Table and column names are read only from this literal map — never from
@@ -79,6 +81,7 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     typeTable: 'product_types',
     documentTypeTable: 'product_document_types',
     documentTypeColumn: 'product_type_id',
+    documentTypeEntityColumn: 'product_id',
   },
   subProduct: {
     table: 'sub_product_revision_documents',
@@ -89,6 +92,7 @@ const SCOPES: Record<DocumentScope, ScopeConfig> = {
     typeTable: 'sub_product_types',
     documentTypeTable: 'sub_product_document_types',
     documentTypeColumn: 'sub_product_type_id',
+    documentTypeEntityColumn: 'sub_product_id',
   },
 };
 
@@ -394,32 +398,51 @@ export async function findEntityForRevision(
 
 // ── Document type templates ────────────────────────────────────────────────
 
-/** One per-type document requirement, as the panel renders it. */
+/** One document requirement, as the panel renders it. */
 export interface DocumentTypeTemplate {
   id: number;
   name: string;
   icon: string;
   allowed_extensions: string[];
   required: boolean;
+  /** Defined on this entity alone rather than inherited from its type — the
+   *  only kind the panel lets an admin edit or delete in place. */
+  custom: boolean;
 }
 
-// Requirements are defined per TYPE, and an entity names its type by string
-// (`products.type` -> `product_types.name`), so reaching a revision's templates
-// means revision -> entity -> type list -> templates.
+// A revision's requirements are the union of two scopes (migration 016): those
+// its entity inherits from its TYPE — named by string, `products.type` ->
+// `product_types.name`, hence the join through the type list — and those
+// defined on the entity itself. Exactly one of the two FKs is set per row, so
+// the OR can never match a template twice.
+//
+// The type join is LEFT: an entity whose `type` no longer names a row in the
+// managed list still has to show its own document types.
 function documentTypesQuery(scope: DocumentScope, extraFilter = ''): string {
-  const { revisionTable, entityTable, entityColumn, typeTable, documentTypeTable, documentTypeColumn } =
-    SCOPES[scope];
+  const {
+    revisionTable,
+    entityTable,
+    entityColumn,
+    typeTable,
+    documentTypeTable,
+    documentTypeColumn,
+    documentTypeEntityColumn,
+  } = SCOPES[scope];
   return `
-    SELECT dt.id, dt.name, dt.icon, dt.allowed_extensions, dt.required
+    SELECT dt.id, dt.name, dt.icon, dt.allowed_extensions, dt.required,
+      dt.${documentTypeEntityColumn} IS NOT NULL AS custom
     FROM ${revisionTable} r
     JOIN ${entityTable} e ON e.id = r.${entityColumn}
-    JOIN ${typeTable} t ON t.name = e.type
-    JOIN ${documentTypeTable} dt ON dt.${documentTypeColumn} = t.id
+    LEFT JOIN ${typeTable} t ON t.name = e.type
+    JOIN ${documentTypeTable} dt
+      ON dt.${documentTypeColumn} = t.id
+      OR dt.${documentTypeEntityColumn} = e.id
     WHERE r.id = $1 ${extraFilter}
-    ORDER BY dt.sort_order ASC, dt.name ASC`;
+    ORDER BY custom ASC, dt.sort_order ASC, dt.name ASC`;
 }
 
-/** Every document type defined for the type of this revision's entity. */
+/** Every document type that applies to this revision's entity — inherited from
+ *  its type, plus any defined on the entity itself. */
 export async function listDocumentTypesForRevision(
   db: Queryable,
   scope: DocumentScope,
@@ -430,9 +453,10 @@ export async function listDocumentTypesForRevision(
 }
 
 /**
- * One document type, but only if it belongs to this revision's entity type —
- * so an upload naming a template from some other type is rejected rather than
- * silently filed under it. Null means "not a valid card for this revision".
+ * One document type, but only if it applies to this revision's entity — so an
+ * upload naming a template from another type, or from another product, is
+ * rejected rather than silently filed under it. Null means "not a valid card
+ * for this revision".
  */
 export async function findDocumentTypeForRevision(
   db: Queryable,

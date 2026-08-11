@@ -100,10 +100,14 @@
             :docs="docs"
             :loading="docsLoading"
             :can-edit="!isArchived"
+            :can-manage-types="isAdmin"
             @upload-file="onUploadFile"
             @replace-file="openDocReplaceConfirm"
             @delete-doc="openDocDeleteConfirm"
             @link-doc="openDocLinkModal"
+            @add-type="openDocTypeModal(null)"
+            @edit-type="openDocTypeModal"
+            @delete-type="openDocTypeDeleteConfirm"
           />
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
@@ -273,6 +277,28 @@
       @confirm="confirmDocDelete"
       @cancel="cancelDocDelete"
     />
+
+    <!-- Add / edit a document type belonging to this product alone -->
+    <DocumentTypeFormModal
+      v-model="docTypeModalOpen"
+      v-model:draft="docTypeDraft"
+      :saving="docTypeSaving"
+      :save-error="docTypeSaveError"
+      @confirm="confirmDocTypeSave"
+    />
+
+    <!-- Delete document type confirmation — its files move to "Other
+         documents", they are never deleted. -->
+    <ConfirmModal
+      :visible="docTypeDeleteVisible"
+      :title="t('delete_document_type')"
+      :message="`${t('confirmations.delete_document_type_msg')}${docTypeToDelete ? `: ${docTypeToDelete.group.name}` : ''}`"
+      :confirm-text="t('delete')"
+      :cancel-text="t('cancel')"
+      :loading="docTypeDeleting"
+      @confirm="confirmDocTypeDelete"
+      @cancel="cancelDocTypeDelete"
+    />
   </div>
 </template>
 
@@ -296,9 +322,11 @@ import ProductOverviewCard from './detail/ProductOverviewCard.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
 import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
 import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
+import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
+import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
@@ -383,7 +411,14 @@ const tabs = computed(() => [
 
 // ── Documents / BOM / parts (scoped to the current selection) ────────────────
 
-const { panelScope, docsKeyFor } = usePanelScope(selection, activeProductRevId);
+// The entity id comes from the loaded product, not the route param: it is
+// null until the detail arrives, which is exactly when the panels have
+// nothing to scope to anyway.
+const { panelScope, docsKeyFor } = usePanelScope(
+  selection,
+  activeProductRevId,
+  computed(() => detail.value?.id ?? null),
+);
 
 const {
   docs,
@@ -417,7 +452,26 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
+  invalidateAndRefresh: refreshAllDocScopes,
 } = useDocuments(panelScope, docsKeyFor, spRevInfo);
+
+// Requirements rather than files: separate endpoints and admin-only, so it
+// lives beside useDocuments rather than inside it. A change here invalidates
+// every revision's cached panel, not just the one on screen.
+const {
+  modalOpen: docTypeModalOpen,
+  draft: docTypeDraft,
+  saving: docTypeSaving,
+  saveError: docTypeSaveError,
+  openModal: openDocTypeModal,
+  confirmSave: confirmDocTypeSave,
+  deleteVisible: docTypeDeleteVisible,
+  deleteTarget: docTypeToDelete,
+  deleteBusy: docTypeDeleting,
+  openDeleteConfirm: openDocTypeDeleteConfirm,
+  confirmDelete: confirmDocTypeDelete,
+  cancelDelete: cancelDocTypeDelete,
+} = useDocumentTypes(panelScope, refreshAllDocScopes);
 
 const {
   bom,

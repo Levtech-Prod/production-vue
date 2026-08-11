@@ -118,6 +118,21 @@ export function useDocuments(
     if (fresh && isCurrent(scope)) docs.value = fresh;
   }
 
+  /**
+   * Drop every cached scope and re-read the one on screen. For changes that
+   * are not confined to a single revision — a document type belongs to the
+   * ENTITY, so adding, renaming or deleting one changes the panel of every
+   * revision, including the ones already cached.
+   *
+   * Clearing the lot over-invalidates a little (a product-level change also
+   * drops cached sub-product scopes), which costs one refetch on the next
+   * visit and is the only version of this that cannot go stale.
+   */
+  async function invalidateAndRefresh(scope: PanelScope) {
+    docsCache.clear();
+    await refresh(scope);
+  }
+
   /** Forget everything and show nothing — used when switching product. */
   function clearCache() {
     docsCache.clear();
@@ -298,6 +313,9 @@ export function useDocuments(
     loadDocs,
     clearCache,
     dropCacheKey,
+    // For changes made outside this composable that invalidate more than the
+    // revision on screen — see useDocumentTypes.
+    invalidateAndRefresh,
 
     docNameModalOpen,
     pendingDocFile,

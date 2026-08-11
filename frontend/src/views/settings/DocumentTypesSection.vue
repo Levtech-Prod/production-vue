@@ -221,12 +221,17 @@ import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import { extractZodIssues, localizeZodIssues } from '../../utils/zodErrors.ts';
 import { resolveIcon } from '../../utils/documentTypeIcons.ts';
+import {
+  documentTypeDraftFrom,
+  documentTypeNameError,
+  documentTypePayloadFrom,
+  emptyDocumentTypeDraft,
+} from '../../utils/documentTypeDraft.ts';
 import { documentTypesApiFor } from '../../api/documentTypesAPI.ts';
 import type {
   DocumentType,
   DocumentTypeDraft,
   DocumentTypeFamily,
-  DocumentTypePayload,
 } from '../../types/documentTypes.ts';
 
 const props = defineProps<{
@@ -258,7 +263,6 @@ async function load() {
 onMounted(load);
 
 // ── Inline add / edit — one row editable at a time ──────────────────────
-const DEFAULT_ICON = 'file';
 
 const draft = ref<DocumentTypeDraft | null>(null);
 const nameError = ref<string | null>(null);
@@ -266,25 +270,13 @@ const saveError = ref<string | null>(null);
 const saving = ref(false);
 
 function startAdd() {
-  draft.value = {
-    id: null,
-    name: '',
-    icon: DEFAULT_ICON,
-    allowedExtensions: [],
-    required: true,
-  };
+  draft.value = emptyDocumentTypeDraft();
   nameError.value = null;
   saveError.value = null;
 }
 
 function startEdit(item: DocumentType) {
-  draft.value = {
-    id: item.id,
-    name: item.name,
-    icon: item.icon,
-    allowedExtensions: [...item.allowedExtensions],
-    required: item.required,
-  };
+  draft.value = documentTypeDraftFrom(item);
   nameError.value = null;
   saveError.value = null;
 }
@@ -298,20 +290,11 @@ function cancelDraft() {
 async function saveDraft() {
   if (!draft.value) return;
 
-  const name = draft.value.name.trim();
-  if (!name) {
-    nameError.value = `${t('name')}: ${t('validation.required')}`;
-    return;
-  }
-  nameError.value = null;
+  nameError.value = documentTypeNameError(draft.value, t);
+  if (nameError.value) return;
   saveError.value = null;
 
-  const payload: DocumentTypePayload = {
-    name,
-    icon: draft.value.icon,
-    allowedExtensions: draft.value.allowedExtensions,
-    required: draft.value.required,
-  };
+  const payload = documentTypePayloadFrom(draft.value);
 
   saving.value = true;
   try {
