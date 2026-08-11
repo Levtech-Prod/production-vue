@@ -50,6 +50,7 @@ import {
   type LinkableDocumentRow,
 } from '../services/documentFiles.js';
 import { ensureTmpDir } from '../services/uploadPaths.js';
+import { parseId } from './routeParams.js';
 
 const router = Router();
 
@@ -458,13 +459,6 @@ async function handleDelete(
 }
 
 // ── Parameter parsing ──────────────────────────────────────────────────────
-
-/** Parse a positive integer route param, or null when it isn't one. */
-function parseId(raw: string | string[] | undefined): number | null {
-  if (typeof raw !== 'string') return null;
-  const value = Number(raw);
-  return Number.isInteger(value) && value > 0 ? value : null;
-}
 
 /**
  * Validate the multipart text fields. Multer has already written the file to

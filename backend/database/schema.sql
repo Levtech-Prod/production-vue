@@ -345,19 +345,24 @@ CREATE TABLE IF NOT EXISTS sub_product_document_types (
 -- One partial unique index per scope rather than a table-level UNIQUE: the
 -- unused FK is NULL, and every NULL is distinct in Postgres, so a plain
 -- UNIQUE(product_type_id, name) would not constrain product-scoped rows at all.
+--
+-- Keyed on LOWER(name): these are card labels, so "Datasheet" beside
+-- "datasheet" is a duplicate to anyone reading the panel, and the API's own
+-- cross-scope check compares case-insensitively too.
+--
 -- Collisions BETWEEN the scopes are rejected by the API (routes/documentTypes.ts)
 -- — the type is reached through a join, so no constraint can express it.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_product_document_types_type_name
-  ON product_document_types(product_type_id, name)
+  ON product_document_types(product_type_id, LOWER(name))
   WHERE product_type_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_product_document_types_product_name
-  ON product_document_types(product_id, name)
+  ON product_document_types(product_id, LOWER(name))
   WHERE product_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_sub_product_document_types_type_name
-  ON sub_product_document_types(sub_product_type_id, name)
+  ON sub_product_document_types(sub_product_type_id, LOWER(name))
   WHERE sub_product_type_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_sub_product_document_types_sp_name
-  ON sub_product_document_types(sub_product_id, name)
+  ON sub_product_document_types(sub_product_id, LOWER(name))
   WHERE sub_product_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_product_document_types_type_id

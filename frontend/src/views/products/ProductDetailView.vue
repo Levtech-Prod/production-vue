@@ -326,6 +326,7 @@ import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue'
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
+import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
@@ -451,19 +452,26 @@ const {
   openDeleteConfirm: openDocDeleteConfirm,
   confirmDelete: confirmDocDelete,
   cancelDelete: cancelDocDelete,
-  typeModalOpen: docTypeModalOpen,
-  typeDraft: docTypeDraft,
-  typeSaving: docTypeSaving,
-  typeSaveError: docTypeSaveError,
-  openTypeModal: openDocTypeModal,
-  confirmTypeSave: confirmDocTypeSave,
-  typeDeleteVisible: docTypeDeleteVisible,
-  typeDeleteTarget: docTypeToDelete,
-  typeDeleteBusy: docTypeDeleting,
-  openTypeDeleteConfirm: openDocTypeDeleteConfirm,
-  confirmTypeDelete: confirmDocTypeDelete,
-  cancelTypeDelete: cancelDocTypeDelete,
+  invalidateAndRefresh: refreshAllDocScopes,
 } = useDocuments(panelScope, docsKeyFor, spRevInfo);
+
+// Requirements rather than files: separate endpoints and admin-only, so it
+// lives beside useDocuments rather than inside it. A change here invalidates
+// every revision's cached panel, not just the one on screen.
+const {
+  modalOpen: docTypeModalOpen,
+  draft: docTypeDraft,
+  saving: docTypeSaving,
+  saveError: docTypeSaveError,
+  openModal: openDocTypeModal,
+  confirmSave: confirmDocTypeSave,
+  deleteVisible: docTypeDeleteVisible,
+  deleteTarget: docTypeToDelete,
+  deleteBusy: docTypeDeleting,
+  openDeleteConfirm: openDocTypeDeleteConfirm,
+  confirmDelete: confirmDocTypeDelete,
+  cancelDelete: cancelDocTypeDelete,
+} = useDocumentTypes(panelScope, refreshAllDocScopes);
 
 const {
   bom,

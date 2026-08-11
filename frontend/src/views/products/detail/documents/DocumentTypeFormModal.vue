@@ -89,6 +89,7 @@ import { TriangleAlert } from 'lucide-vue-next';
 import BaseModal from '../../../../components/modal/BaseModal.vue';
 import IconPicker from '../../../../components/IconPicker.vue';
 import ExtensionChipsInput from '../../../../components/ExtensionChipsInput.vue';
+import { documentTypeNameError } from '../../../../utils/documentTypeDraft.ts';
 import type { DocumentTypeDraft } from '../../../../types/documentTypes.ts';
 
 const props = defineProps<{
@@ -119,11 +120,8 @@ function submit() {
   // extension and clicking Save without pressing Enter must not drop it.
   extensionsInput.value?.commit();
 
-  if (!draft.value.name.trim()) {
-    nameError.value = `${t('name')}: ${t('validation.required')}`;
-    return;
-  }
-  nameError.value = null;
+  nameError.value = documentTypeNameError(draft.value, t);
+  if (nameError.value) return;
   emit('confirm');
 }
 </script>

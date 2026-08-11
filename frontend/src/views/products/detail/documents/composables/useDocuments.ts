@@ -2,18 +2,14 @@ import { computed, ref } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { documentsApiFor } from '../../../../../api/productsAPI.ts';
-import { documentTypesApiFor } from '../../../../../api/documentTypesAPI.ts';
 import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
 import type {
-  DocumentTypeGroup,
   LinkableRevision,
   ProductDocument,
   RevisionDocuments,
 } from '../../../../../types/products.ts';
-import type { DocumentTypeDraft } from '../../../../../types/documentTypes.ts';
 import type { PanelScope } from '../../types.ts';
 import { useConfirmDelete } from '../../../../../composables/useConfirmDelete.ts';
-import { translateApiError } from '../../../../../utils/apiError.ts';
 
 interface SpRevLookup {
   (spId: number, revId: number): { sp?: { name: string }; rev?: { label: string } };
@@ -49,7 +45,7 @@ export function useDocuments(
   docsKeyFor: (scope: PanelScope) => string,
   spRevInfo: SpRevLookup,
 ) {
-  const { t, te } = useI18n();
+  const { t } = useI18n();
   const notify = useNotificationStore();
 
   const docsCache = new Map<string, RevisionDocuments>();
@@ -123,21 +119,23 @@ export function useDocuments(
   }
 
   /**
-   * Forget every cached scope while leaving what is on screen alone.
+   * Drop every cached scope and re-read the one on screen. For changes that
+   * are not confined to a single revision — a document type belongs to the
+   * ENTITY, so adding, renaming or deleting one changes the panel of every
+   * revision, including the ones already cached.
    *
-   * A document type belongs to the ENTITY, not to a revision, so adding,
-   * renaming or deleting one changes the panel of every revision — including
-   * ones already cached. Clearing the lot over-invalidates a little (a product
-   * change also drops cached sub-product scopes), which costs one refetch on
-   * the next visit and is the only version of this that cannot go stale.
+   * Clearing the lot over-invalidates a little (a product-level change also
+   * drops cached sub-product scopes), which costs one refetch on the next
+   * visit and is the only version of this that cannot go stale.
    */
-  function invalidateScopes() {
+  async function invalidateAndRefresh(scope: PanelScope) {
     docsCache.clear();
+    await refresh(scope);
   }
 
   /** Forget everything and show nothing — used when switching product. */
   function clearCache() {
-    invalidateScopes();
+    docsCache.clear();
     docs.value = EMPTY;
   }
 
@@ -288,120 +286,6 @@ export function useDocuments(
     }
   }
 
-  // ── Document types owned by this product / sub-product ────────────────────
-  //
-  // Admin-only, and only for the entity's OWN cards: ones inherited from its
-  // type belong to the settings page, which is where every product sharing
-  // that type would see the change.
-
-  const DEFAULT_TYPE_ICON = 'file';
-
-  const typeModalOpen = ref(false);
-  const typeDraft = ref<DocumentTypeDraft>(emptyTypeDraft());
-  const typeScope = ref<PanelScope | null>(null);
-  const typeSaving = ref(false);
-  const typeSaveError = ref<string | null>(null);
-
-  function emptyTypeDraft(): DocumentTypeDraft {
-    return { id: null, name: '', icon: DEFAULT_TYPE_ICON, allowedExtensions: [], required: true };
-  }
-
-  /** Which family and entity the current scope's document types belong to. */
-  function typeTargetFor(scope: PanelScope) {
-    return scope.kind === 'product'
-      ? { api: documentTypesApiFor('product'), entityId: scope.productId }
-      : { api: documentTypesApiFor('sub-product'), entityId: scope.spId };
-  }
-
-  /** `group` null opens the add form; otherwise it edits that card. */
-  function openTypeModal(group: DocumentTypeGroup | null) {
-    const scope = panelScope.value;
-    if (!scope) return;
-    typeScope.value = scope;
-    typeDraft.value = group
-      ? {
-          id: group.id,
-          name: group.name,
-          icon: group.icon,
-          allowedExtensions: [...group.allowedExtensions],
-          required: group.required,
-        }
-      : emptyTypeDraft();
-    typeSaveError.value = null;
-    typeModalOpen.value = true;
-  }
-
-  async function confirmTypeSave() {
-    const scope = typeScope.value;
-    const draft = typeDraft.value;
-    if (!scope || typeSaving.value) return;
-
-    const { api, entityId } = typeTargetFor(scope);
-    typeSaving.value = true;
-    typeSaveError.value = null;
-    try {
-      const payload = {
-        name: draft.name.trim(),
-        icon: draft.icon,
-        allowedExtensions: draft.allowedExtensions,
-        required: draft.required,
-      };
-      if (draft.id == null) {
-        await api.createForEntity(entityId, payload);
-      } else {
-        await api.update(draft.id, payload);
-      }
-      // A new or renamed card shifts the summary too, so re-derive rather than
-      // patching the tree — same rule as every other mutation here. The other
-      // revisions' cached panels changed as well; see invalidateScopes.
-      invalidateScopes();
-      await refresh(scope);
-      notify.showToast(
-        t(draft.id == null ? 'success.save_document_type' : 'success.update_document_type'),
-        'success',
-      );
-      typeModalOpen.value = false;
-    } catch (err) {
-      typeSaveError.value = translateApiError(err, { t, te }, 'errors.save_document_type_failed');
-    } finally {
-      typeSaving.value = false;
-    }
-  }
-
-  /** A card being deleted, held while its confirmation modal is open. */
-  interface PendingType {
-    group: DocumentTypeGroup;
-    scope: PanelScope;
-  }
-
-  const typeDeleteConfirm = useConfirmDelete<PendingType>(async ({ group, scope }) => {
-    try {
-      const { api } = typeTargetFor(scope);
-      const res = await api.remove(group.id);
-      invalidateScopes();
-      await refresh(scope);
-      // Files are never destroyed — the FK demotes them to "Other documents".
-      notify.showToast(
-        res.data.filesMovedToOther > 0
-          ? t('success.delete_document_type_with_files', { count: res.data.filesMovedToOther })
-          : t('success.delete_document_type'),
-        'success',
-      );
-      return true;
-    } catch (err) {
-      notify.showToast(
-        translateApiError(err, { t, te }, 'errors.delete_document_type_failed'),
-        'error',
-      );
-      return false;
-    }
-  });
-
-  function openTypeDeleteConfirm(group: DocumentTypeGroup) {
-    if (!panelScope.value) return;
-    typeDeleteConfirm.open({ group, scope: panelScope.value });
-  }
-
   // ── Delete (with confirmation) ────────────────────────────────────────────
 
   const deleteConfirm = useConfirmDelete<PendingDoc>(async ({ doc, scope }) => {
@@ -429,6 +313,9 @@ export function useDocuments(
     loadDocs,
     clearCache,
     dropCacheKey,
+    // For changes made outside this composable that invalidate more than the
+    // revision on screen — see useDocumentTypes.
+    invalidateAndRefresh,
 
     docNameModalOpen,
     pendingDocFile,
@@ -458,19 +345,5 @@ export function useDocuments(
     openDeleteConfirm,
     confirmDelete: deleteConfirm.confirm,
     cancelDelete: deleteConfirm.cancel,
-
-    typeModalOpen,
-    typeDraft,
-    typeSaving,
-    typeSaveError,
-    openTypeModal,
-    confirmTypeSave,
-
-    typeDeleteVisible: computed(() => typeDeleteConfirm.target.value != null),
-    typeDeleteTarget: computed(() => typeDeleteConfirm.target.value),
-    typeDeleteBusy: typeDeleteConfirm.busy,
-    openTypeDeleteConfirm,
-    confirmTypeDelete: typeDeleteConfirm.confirm,
-    cancelTypeDelete: typeDeleteConfirm.cancel,
   };
 }
