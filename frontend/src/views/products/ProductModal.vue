@@ -51,8 +51,6 @@
         :label="t('image')"
         target="temp"
         :preview-alt="form.name"
-        required
-        :error="fieldErrors.image"
       />
     </form>
 
@@ -107,7 +105,6 @@ const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(()
   { key: 'name', label: t('name'), missing: !form.name.trim() },
   { key: 'sku', label: t('sku'), missing: !form.sku.trim() },
   { key: 'type', label: t('type'), missing: !form.type.trim() },
-  { key: 'image', label: t('image'), missing: !form.image },
 ]);
 
 // Reset the form whenever the modal opens (populate for edit, blank for new).

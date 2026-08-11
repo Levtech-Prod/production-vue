@@ -20,7 +20,7 @@ export interface ProductSummary {
   name: string;
   sku: string;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;
@@ -45,7 +45,7 @@ export interface SubProductSummary {
   name: string;
   sku: string | null;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   revisions: SubProductRevision[];
 }
@@ -65,7 +65,7 @@ export interface DetailSubProduct {
   name: string;
   sku: string | null;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   revisions: SubProductRevision[];
 }
@@ -75,7 +75,7 @@ export interface ProductDetail {
   name: string;
   sku: string;
   type: string;
-  image: string;
+  image: string | null;
   description?: string | null;
   status: ProductStatus;
   defaultRevisionId?: number | null;

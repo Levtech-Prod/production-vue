@@ -142,15 +142,18 @@ router.post('/', requireAuth, async (req, res) => {
         data.sku,
         data.type,
         data.description || null,
-        data.image,
+        data.image || null,
       ],
     );
     const product = productResult.rows[0];
 
     // The image was uploaded to `_tmp` before this row existed. Now that it has
     // an id, move it into the product's own folder and store the final path.
-    const placed = fileStagedImage(product.image, product, null);
-    if (placed === null) {
+    // Image is optional — only a present value needs filing.
+    const placed: string | null = product.image
+      ? fileStagedImage(product.image, product, null)
+      : null;
+    if (placed === null && product.image) {
       await client.query('ROLLBACK');
       return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
     }
@@ -567,7 +570,7 @@ router.patch('/:productId', requireAuth, async (req, res) => {
         data.sku,
         data.type,
         data.description || null,
-        data.image,
+        data.image || null,
         productId,
       ],
     );
@@ -578,8 +581,11 @@ router.patch('/:productId', requireAuth, async (req, res) => {
 
     const row = result.rows[0];
 
-    const placed = fileStagedImage(row.image, row, null);
-    if (placed === null) {
+    // Image is optional — only a present value needs filing.
+    const placed: string | null = row.image
+      ? fileStagedImage(row.image, row, null)
+      : null;
+    if (placed === null && row.image) {
       await client.query('ROLLBACK');
       return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
     }
