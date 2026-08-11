@@ -3,14 +3,19 @@
 export type DocumentTypeFamily = 'product' | 'sub-product';
 
 export interface DocumentType {
+  /** The product / sub-product TYPE this belongs to; null when the type is
+   *  scoped to a single product instead (`custom`). */
+  typeId: number | null;
   id: number;
-  typeId: number;
   name: string;
   icon: string;
   allowedExtensions: string[];
   required: boolean;
   sortOrder: number;
   createdAt?: string;
+  /** Defined on one product / sub-product rather than inherited from its type
+   *  — added from that entity's Documents panel, and only editable there. */
+  custom: boolean;
 }
 
 /** Create and update use the same shape. */

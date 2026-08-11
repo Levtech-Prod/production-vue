@@ -18,32 +18,7 @@
   </td>
 
   <td class="border-r border-slate-300 px-2 py-1">
-    <div class="flex flex-wrap items-center gap-1">
-      <span
-        v-for="(ext, i) in draft.allowedExtensions"
-        :key="ext"
-        class="badge inline-flex items-center gap-1 bg-slate-100 text-slate-700"
-      >
-        {{ ext }}
-        <button
-          type="button"
-          class="rounded-full p-0.5 hover:bg-slate-200"
-          :aria-label="t('delete')"
-          @click="draft.allowedExtensions.splice(i, 1)"
-        >
-          <X class="h-3 w-3" />
-        </button>
-      </span>
-
-      <input
-        v-model="extensionInput"
-        class="input-sm min-w-[6rem] flex-1"
-        :placeholder="draft.allowedExtensions.length === 0 ? t('allowed_extensions_placeholder') : ''"
-        @keydown.enter.prevent="commitExtension"
-        @keydown="onExtensionKeydown"
-        @blur="commitExtension"
-      />
-    </div>
+    <ExtensionChipsInput ref="extensionsInput" v-model="draft.allowedExtensions" />
   </td>
 
   <td class="border-r border-slate-300 px-2 py-1 text-center">
@@ -79,6 +54,7 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Check, X } from 'lucide-vue-next';
 import IconPicker from '../../components/IconPicker.vue';
+import ExtensionChipsInput from '../../components/ExtensionChipsInput.vue';
 import type { DocumentTypeDraft } from '../../types/documentTypes.ts';
 
 defineProps<{
@@ -94,37 +70,13 @@ const emit = defineEmits<{
 const draft = defineModel<DocumentTypeDraft>({ required: true });
 
 const { t } = useI18n();
-const extensionInput = ref('');
-
-// Extensions are also normalised server-side (documentTypes.schema.ts), but
-// doing it here too means the chip the admin sees matches what's saved.
-function normalizeExtension(raw: string): string {
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return '';
-  return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
-}
-
-function commitExtension() {
-  const value = normalizeExtension(extensionInput.value);
-  extensionInput.value = '';
-  if (!value || value === '.') return;
-  if (!draft.value.allowedExtensions.includes(value)) draft.value.allowedExtensions.push(value);
-}
-
-// Comma also commits a chip (in addition to Enter/blur), matching common
-// tag-input UX — the comma itself is never inserted into the input.
-function onExtensionKeydown(event: KeyboardEvent) {
-  if (event.key === ',') {
-    event.preventDefault();
-    commitExtension();
-  }
-}
+const extensionsInput = ref<InstanceType<typeof ExtensionChipsInput> | null>(null);
 
 // Flush any not-yet-committed extension text before saving, so typing an
 // extension and immediately clicking Save (without pressing Enter) doesn't
 // silently drop it.
 function save() {
-  commitExtension();
+  extensionsInput.value?.commit();
   emit('save');
 }
 </script>
