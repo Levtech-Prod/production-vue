@@ -35,15 +35,20 @@
 
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
-            {{ t('name') }} <span class="text-red-500">*</span>
+            {{ t('name') }}
+            <span v-if="!isGeneratedName" class="text-red-500">*</span>
           </label>
           <input
             v-model="form.name"
             class="input"
-            :placeholder="t('name')"
-            required
+            :placeholder="isGeneratedName ? t('name_optional') : t('name')"
+            :required="!isGeneratedName"
           />
           <p v-if="fieldErrors.name" class="text-xs text-red-500">{{ fieldErrors.name }}</p>
+          <p v-if="isGeneratedName" class="text-xs text-slate-500">
+            {{ t('generated_name') }}:
+            <span class="font-medium text-slate-700">{{ generatedName }}</span>
+          </p>
         </div>
 
         <div class="flex flex-col gap-1">
@@ -138,6 +143,9 @@ import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
 import PriceInput from '../../components/PriceInput.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
+// Shared with the backend so the preview below and the name actually stored
+// can't drift apart.
+import { resolvePartName } from '../../../../backend/src/services/partName.ts';
 import type { PartCategory } from '../../types/partCategories.ts';
 import type { Part, CreatePartPayload, EntryCurrency } from '../../types/parts.ts';
 import { useI18n } from 'vue-i18n';
@@ -179,11 +187,34 @@ const parameterListRef = ref<InstanceType<typeof PartParameterValueList> | null>
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'categoryId', label: t('category'), missing: !form.categoryId },
   { key: 'code', label: t('code'), missing: !form.code.trim() },
-  { key: 'name', label: t('name'), missing: !form.name.trim() },
+  {
+    key: 'name',
+    label: t('name'),
+    missing: !isGeneratedName.value && !form.name.trim(),
+  },
 ]);
 
 const selectedCategory = computed(() =>
   props.categories.find((c) => c.id === form.categoryId),
+);
+
+function generatesName(categoryId: number): boolean {
+  return (
+    props.categories.find((c) => c.id === categoryId)?.partNameMode ===
+    'parameters'
+  );
+}
+
+const isGeneratedName = computed(() => generatesName(form.categoryId));
+
+const generatedName = computed(() =>
+  resolvePartName(
+    'parameters',
+    form.name,
+    selectedCategory.value?.name ?? '',
+    selectedCategory.value?.parameters ?? [],
+    parameterValues.value,
+  ),
 );
 
 // Populate form when the modal opens or the part prop changes
@@ -195,7 +226,12 @@ watch(
     parameterListRef.value?.resetValidation();
     if (part) {
       form.categoryId = part.categoryId;
-      form.name = part.name;
+      // A generated name is rebuilt from the prefix, so the field edits the
+      // prefix. A custom one — including a name generated before the category
+      // was switched to Custom — is the name itself, editable as plain text.
+      form.name = generatesName(part.categoryId)
+        ? (part.namePrefix ?? part.name)
+        : part.name;
       form.code = part.code;
       // Show what was originally entered so editing preserves the currency.
       form.priceAmount =

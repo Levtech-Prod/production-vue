@@ -47,6 +47,16 @@
             </span>
           </div>
         </template>
+        <template #position="{ part }">
+          <input
+            type="text"
+            class="input !w-32 !py-1 text-sm"
+            :value="revisionPartOf(part.id)?.mountPosition ?? ''"
+            :disabled="!canEdit || saving"
+            :title="t('mount_position')"
+            @change="onPositionChange(part.id, $event)"
+          />
+        </template>
         <template #actions="{ part }">
           <div class="flex items-center justify-center gap-1.5">
             <button
@@ -224,6 +234,7 @@ function toInputs(parts: RevisionPart[]): RevisionPartInput[] {
     quantity: Number(p.quantity) || 0,
     unit: p.unit || null,
     notes: p.notes || null,
+    mountPosition: p.mountPosition || null,
   }));
 }
 
@@ -240,6 +251,17 @@ function onQtyChange(partId: number, e: Event) {
     'update',
     toInputs(props.parts).map((p) =>
       p.partId === partId ? { ...p, quantity: qty } : p,
+    ),
+  );
+}
+
+function onPositionChange(partId: number, e: Event) {
+  if (!revisionPartOf(partId)) return;
+  const value = (e.target as HTMLInputElement).value.trim();
+  emit(
+    'update',
+    toInputs(props.parts).map((p) =>
+      p.partId === partId ? { ...p, mountPosition: value || null } : p,
     ),
   );
 }
@@ -267,7 +289,13 @@ function confirmAdd(part: Part) {
   if (!(addQty.value > 0)) return;
   emit('update', [
     ...toInputs(props.parts),
-    { partId: part.id, quantity: addQty.value, unit: null, notes: null },
+    {
+      partId: part.id,
+      quantity: addQty.value,
+      unit: null,
+      notes: null,
+      mountPosition: null,
+    },
   ]);
   addingPartId.value = null;
 }

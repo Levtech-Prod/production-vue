@@ -39,7 +39,12 @@ export function useRevisionPartRows(parts: Ref<RevisionPart[]> | ComputedRef<Rev
         code: rp.code,
         pricePerPiece: rp.pricePerPiece,
         image: rp.image ?? null,
-        category: { id: rp.categoryId, name: '—', description: '' },
+        category: {
+          id: rp.categoryId,
+          name: '—',
+          description: '',
+          partNameMode: 'custom',
+        },
         parameters: [],
       };
     }),

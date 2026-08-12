@@ -6,6 +6,11 @@
           <th class="p-4">{{ t('image') }}</th>
           <th class="p-4">{{ t('code') }}</th>
           <th class="p-4">{{ t('name') }}</th>
+          <th class="p-4">{{ t('category') }}</th>
+          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
+          <th class="p-4">{{ t('total_quantity') }}</th>
+          <th v-if="hasQty" class="p-4">{{ t('quantity') }}</th>
+          <th v-if="hasPosition" class="p-4">{{ t('mount_position') }}</th>
           <th
             v-for="cp in columnParameters"
             :key="cp.id"
@@ -28,18 +33,15 @@
               <ChevronsUpDown v-else class="h-3.5 w-3.5 text-slate-300" />
             </span>
           </th>
-          <th class="p-4">{{ t('category') }}</th>
-          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
-          <th class="p-4">{{ t('total_quantity') }}</th>
-          <th class="p-4">{{ t('location') }}</th>
           <th class="p-4">{{ t('other_parameters') }}</th>
+          <th class="p-4">{{ t('location') }}</th>
           <th v-if="hasActions" class="p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="parts.length === 0">
           <td
-            :colspan="(hasActions ? 8 : 7) + columnParameters.length"
+            :colspan="columnCount"
             class="py-12 text-center text-sm text-slate-400"
           >
             {{ emptyText || t('no_parts_msg') }}
@@ -81,13 +83,6 @@
             {{ part.code }}
           </td>
           <td class="p-4 font-semibold">{{ part.name }}</td>
-          <td
-            v-for="cp in columnParameters"
-            :key="cp.id"
-            class="p-4 text-slate-600"
-          >
-            {{ columnValue(part, cp) }}
-          </td>
           <td class="p-4 text-slate-500">{{ part.category.name }}</td>
           <td class="p-4">
             {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
@@ -95,7 +90,19 @@
           <td class="p-4 text-slate-700">
             {{ Math.round(Number(part.totalQuantity ?? 0)) }}
           </td>
-          <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
+          <td v-if="hasQty" class="p-4" @click.stop>
+            <slot name="qty" :part="part" />
+          </td>
+          <td v-if="hasPosition" class="p-4" @click.stop>
+            <slot name="position" :part="part" />
+          </td>
+          <td
+            v-for="cp in columnParameters"
+            :key="cp.id"
+            class="p-4 text-slate-600"
+          >
+            {{ columnValue(part, cp) }}
+          </td>
           <td class="p-4">
             <div class="flex flex-col gap-1">
               <span
@@ -110,6 +117,7 @@
               >
             </div>
           </td>
+          <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
           <td v-if="hasActions" class="p-4" @click.stop>
             <slot name="actions" :part="part" />
           </td>
@@ -233,8 +241,27 @@ const sortedParts = computed<Part[]>(() => {
   });
 });
 
-// The actions column only renders when the consumer provides content for it.
+// Optional columns: each renders only when the consumer fills its slot.
+// `qty` and `position` carry BOM-line data — how many of the part a
+// sub-product revision uses, and where it sits on that sub-product — which a
+// plain stock listing has no notion of.
+const hasQty = computed(() => !!slots.qty);
+const hasPosition = computed(() => !!slots.position);
 const hasActions = computed(() => !!slots.actions);
+
+// Fixed columns: image, code, name, category, price, stock, other
+// parameters, location. Drives the empty row's colspan, so it has to track
+// the header.
+const FIXED_COLUMNS = 8;
+
+const columnCount = computed(
+  () =>
+    FIXED_COLUMNS +
+    props.columnParameters.length +
+    (hasQty.value ? 1 : 0) +
+    (hasPosition.value ? 1 : 0) +
+    (hasActions.value ? 1 : 0),
+);
 
 const imagePreviewOpen = ref(false);
 const previewPart = ref<Part | null>(null);

@@ -134,6 +134,7 @@ async function onCopyFromChange() {
       quantity: Number(p.quantity),
       unit: p.unit ?? '',
       notes: p.notes ?? '',
+      mountPosition: p.mountPosition ?? '',
     }));
   } catch (err: any) {
     notify.showToast(
@@ -174,6 +175,7 @@ function submit() {
       quantity: Number(p.quantity),
       unit: p.unit.trim() || null,
       notes: p.notes.trim() || null,
+      mountPosition: p.mountPosition.trim() || null,
     })),
   });
 }

@@ -99,6 +99,9 @@ export interface RevisionPart {
   quantity: number | string;
   unit?: string | null;
   notes?: string | null;
+  /** Where the part sits on this sub-product — stored per BOM line, so the
+   *  same part can sit differently in another product. */
+  mountPosition?: string | null;
 }
 
 // ---- Compare --------------------------------------------------------------
@@ -133,6 +136,7 @@ export interface ComparePartSide {
   quantity: number;
   unit?: string | null;
   notes?: string | null;
+  mountPosition?: string | null;
 }
 
 export interface ComparePartParameter {
@@ -231,6 +235,7 @@ export interface BomPart {
   quantity: number;
   unit?: string | null;
   notes?: string | null;
+  mountPosition?: string | null;
 }
 
 export interface BomSubProduct {
@@ -274,4 +279,5 @@ export interface SelectedPart {
   quantity: number;
   unit: string;
   notes: string;
+  mountPosition: string;
 }

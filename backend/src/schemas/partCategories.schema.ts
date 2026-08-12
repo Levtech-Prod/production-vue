@@ -3,10 +3,17 @@ import { z } from 'zod';
 export const partParameterTypeSchema = z.enum(['text', 'number', 'boolean', 'dropdown']);
 export type PartParameterType = z.infer<typeof partParameterTypeSchema>;
 
+export const partNameModeSchema = z.enum(['custom', 'parameters']);
+export type PartNameMode = z.infer<typeof partNameModeSchema>;
+
 export const partCategoryPayloadSchema = z.object({
   name: z.string().min(2),
   description: z.string().min(1),
   image: z.string().optional().nullable(),
+  // How this category's parts are named — see services/partName.ts. Defaulted
+  // rather than required so older clients keep working, which means every
+  // caller of PUT must send it back or it silently reverts to 'custom'.
+  partNameMode: partNameModeSchema.default('custom'),
   parameters: z
     .array(
       z.object({

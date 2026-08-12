@@ -28,6 +28,8 @@ export const ErrorCodes = {
   INVALID_PART_ID: 'INVALID_PART_ID',
   PART_NOT_FOUND: 'PART_NOT_FOUND',
   PART_UPDATE_FAILED: 'PART_UPDATE_FAILED',
+  // Category names its parts manually ('custom' mode) but no name was given.
+  PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
   PART_DELETE_FAILED: 'PART_DELETE_FAILED',
 
   // products

@@ -235,6 +235,7 @@ function submit() {
             quantity: Number(p.quantity),
             unit: p.unit.trim() || null,
             notes: p.notes.trim() || null,
+            mountPosition: p.mountPosition.trim() || null,
           })),
     },
     isEdit ? null : addToProduct.value ? targetRevisionId.value : null,

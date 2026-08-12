@@ -45,6 +45,7 @@
           <th class="px-4 py-2">{{ t('name') }}</th>
           <th class="w-28 px-4 py-2">{{ t('quantity') }} <span class="text-red-500">*</span></th>
           <th class="w-28 px-4 py-2">{{ t('unit') }}</th>
+          <th class="w-32 px-4 py-2">{{ t('mount_position') }}</th>
           <th class="px-4 py-2">{{ t('notes') }}</th>
           <th class="w-10 px-4 py-2"></th>
         </tr>
@@ -74,6 +75,9 @@
           </td>
           <td class="px-4 py-2">
             <input v-model="row.unit" class="input !py-1" placeholder="pcs" />
+          </td>
+          <td class="px-4 py-2">
+            <input v-model="row.mountPosition" class="input !py-1" />
           </td>
           <td class="px-4 py-2">
             <input v-model="row.notes" class="input !py-1" />
@@ -143,6 +147,7 @@ function addPart() {
     quantity: 1,
     unit: '',
     notes: '',
+    mountPosition: '',
   });
   partToAdd.value = 0;
 }

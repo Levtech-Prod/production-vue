@@ -95,6 +95,23 @@ END $$;
 -- Part image (uploaded file URL, stored in uploads/parts)
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
 
+-- How a category names its parts: 'custom' (the user types the name) or
+-- 'parameters' (generated from the category name + its show_as_column
+-- parameter values, prefixed by any text the user typed).
+ALTER TABLE part_categories
+  ADD COLUMN IF NOT EXISTS part_name_mode VARCHAR(20) NOT NULL DEFAULT 'custom';
+ALTER TABLE part_categories
+  DROP CONSTRAINT IF EXISTS part_categories_part_name_mode_check;
+ALTER TABLE part_categories
+  ADD CONSTRAINT part_categories_part_name_mode_check
+  CHECK (part_name_mode IN ('custom', 'parameters'));
+
+-- The raw text the user typed for a part's name. `name` holds the resolved
+-- display string; this keeps the prefix so a generated name can be rebuilt
+-- when its category is renamed or its column parameters change.
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS name_prefix VARCHAR(180);
+UPDATE parts SET name_prefix = name WHERE name_prefix IS NULL;
+
 -- ===========================================================================
 -- Product Management & Revisioning module
 -- ---------------------------------------------------------------------------
@@ -205,6 +222,13 @@ CREATE INDEX IF NOT EXISTS idx_prsp_product_revision_id ON product_revision_sub_
 CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_sub_products(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_id);
+
+-- Where the part sits on the sub-product, e.g. "left side", "R12" (see
+-- migration 018). Per BOM line rather than per part: `parts.location` is the
+-- warehouse spot, this is the spot on the assembly, and the same part sits
+-- differently in different products.
+ALTER TABLE sub_product_revision_parts
+  ADD COLUMN IF NOT EXISTS mount_position VARCHAR(120);
 
 -- Optional pointer to a product's default (canonical) revision. Added here,
 -- after product_revisions exists, so the FK target is available. On revision
