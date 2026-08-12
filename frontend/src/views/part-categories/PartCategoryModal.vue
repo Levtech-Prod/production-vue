@@ -38,6 +38,26 @@
           <p v-if="fieldErrors.description" class="text-xs text-red-500">{{ fieldErrors.description }}</p>
         </div>
 
+        <div class="flex flex-col gap-1">
+          <label
+            class="text-xs font-medium text-slate-500 uppercase tracking-wide"
+            >{{ t('part_name_mode') }}</label
+          >
+          <select v-model="form.partNameMode" class="input">
+            <option value="custom">{{ t('part_name_mode_custom') }}</option>
+            <option value="parameters">
+              {{ t('part_name_mode_parameters') }}
+            </option>
+          </select>
+          <p class="text-xs text-slate-400">
+            {{
+              form.partNameMode === 'parameters'
+                ? t('part_name_mode_parameters_hint')
+                : t('part_name_mode_custom_hint')
+            }}
+          </p>
+        </div>
+
         <div class="md:col-span-2">
           <ImageUploadField
             v-model="form.image"
@@ -89,7 +109,10 @@ import { reactive, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
-import type { PartCategory } from '../../types/partCategories.ts';
+import type {
+  PartCategory,
+  PartNameMode,
+} from '../../types/partCategories.ts';
 
 import { useI18n } from 'vue-i18n';
 
@@ -110,6 +133,7 @@ const emit = defineEmits<{
       name: string;
       description: string;
       image: string | null;
+      partNameMode: PartNameMode;
     },
   ];
   clearError: [];
@@ -122,6 +146,7 @@ const form = reactive({
   name: '',
   description: '',
   image: '',
+  partNameMode: 'custom' as PartNameMode,
 });
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'name', label: t('name'), missing: !form.name.trim() },
@@ -138,6 +163,7 @@ watch(
       form.name = category.name;
       form.description = category.description ?? '';
       form.image = category.image ?? '';
+      form.partNameMode = category.partNameMode;
     } else {
       resetForm();
     }
@@ -149,6 +175,7 @@ function resetForm() {
   form.name = '';
   form.description = '';
   form.image = '';
+  form.partNameMode = 'custom';
 }
 
 function save() {
@@ -160,6 +187,7 @@ function save() {
     name: form.name,
     description: form.description,
     image: form.image || null,
+    partNameMode: form.partNameMode,
   });
 }
 </script>

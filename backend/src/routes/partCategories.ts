@@ -6,6 +6,7 @@ import {
   partCategoryPayloadSchema,
   partCategoryParameterColumnPatchSchema,
 } from '../schemas/partCategories.schema.js';
+import { regenerateCategoryPartNames } from '../services/partName.js';
 import {
   logAudit,
   resolveActor,
@@ -54,6 +55,7 @@ router.get('/', requireAuth, async (_req, res) => {
       pc.name,
       pc.description,
       pc.image,
+      pc.part_name_mode AS "partNameMode",
       pc.created_at AS "createdAt",
       COALESCE(
         json_agg(
@@ -86,10 +88,11 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
     const categoryResult = await client.query(
-      `INSERT INTO part_categories (name, description, image)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, description, image, created_at AS "createdAt"`,
-      [data.name, data.description, data.image || null],
+      `INSERT INTO part_categories (name, description, image, part_name_mode)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, description, image,
+         part_name_mode AS "partNameMode", created_at AS "createdAt"`,
+      [data.name, data.description, data.image || null, data.partNameMode],
     );
     const category = categoryResult.rows[0];
     const parameters = [];
@@ -153,16 +156,25 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const categoryResult = await client.query(
       `
       UPDATE part_categories
-      SET name = $1, image = $2, description = $3
-      FROM (SELECT * FROM part_categories WHERE id = $4) old
+      SET name = $1, image = $2, description = $3, part_name_mode = $4
+      FROM (SELECT * FROM part_categories WHERE id = $5) old
       WHERE part_categories.id = old.id
       RETURNING part_categories.id, part_categories.name, part_categories.image,
-        part_categories.description, part_categories.created_at AS "createdAt",
-        old.name        AS "oldName",
-        old.description AS "oldDescription",
-        old.image       AS "oldImage"
+        part_categories.description,
+        part_categories.part_name_mode AS "partNameMode",
+        part_categories.created_at AS "createdAt",
+        old.name           AS "oldName",
+        old.description    AS "oldDescription",
+        old.image          AS "oldImage",
+        old.part_name_mode AS "oldPartNameMode"
       `,
-      [data.name, data.image || null, data.description, categoryId],
+      [
+        data.name,
+        data.image || null,
+        data.description,
+        data.partNameMode,
+        categoryId,
+      ],
     );
 
     if (categoryResult.rowCount === 0) {
@@ -317,12 +329,24 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [categoryId],
     );
 
+    // The category name, its mode and its column parameters all feed generated
+    // part names, so any of these edits can leave existing parts stale.
+    const regeneratedParts = await regenerateCategoryPartNames(client, categoryId);
+
     // ── Audit: diff scalar fields + parameters, log only if something changed ──
     const row = categoryResult.rows[0];
     const fields = diffFields(
-      { name: row.oldName, description: row.oldDescription },
-      { name: row.name, description: row.description },
-      ['name', 'description'],
+      {
+        name: row.oldName,
+        description: row.oldDescription,
+        part_name_mode: row.oldPartNameMode,
+      },
+      {
+        name: row.name,
+        description: row.description,
+        part_name_mode: row.partNameMode,
+      },
+      ['name', 'description', 'part_name_mode'],
     ) as Record<string, { from: unknown; to: unknown }>;
 
     if (!valuesEqual(row.oldImage, row.image)) {
@@ -335,6 +359,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const changes: Record<string, unknown> = {};
     if (Object.keys(fields).length > 0) changes.fields = fields;
     if (paramEvents.length > 0) changes.events = paramEvents;
+    // Logged once on the category — a rename can rewrite hundreds of part
+    // names, and one audit row each would drown the log.
+    if (regeneratedParts > 0) changes.regeneratedPartNames = regeneratedParts;
 
     if (Object.keys(changes).length > 0) {
       const actor = await resolveActor(client, userId);
@@ -344,7 +371,13 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     await client.query('COMMIT');
 
     // Drop the old* snapshot columns — audit-only.
-    const { oldName: _on, oldDescription: _od, oldImage: _oi, ...categoryOut } = row;
+    const {
+      oldName: _on,
+      oldDescription: _od,
+      oldImage: _oi,
+      oldPartNameMode: _om,
+      ...categoryOut
+    } = row;
 
     res.json({
       ...categoryOut,
@@ -385,8 +418,15 @@ router.patch(
     // handler and is returned as structured, localizable validation issues.
     const data = partCategoryParameterColumnPatchSchema.parse(req.body);
 
+    // Transactional because the column flag also decides which parameters feed
+    // generated part names: the toggle and the rename of every affected part
+    // have to land together.
+    const client = await pool.connect();
+
     try {
-      const result = await query(
+      await client.query('BEGIN');
+
+      const result = await client.query(
         `UPDATE part_category_parameters
          SET show_as_column = $1
          WHERE id = $2 AND category_id = $3
@@ -398,13 +438,20 @@ router.patch(
       );
 
       if (result.rowCount === 0) {
+        await client.query('ROLLBACK');
         return res.status(404).json({ code: ErrorCodes.PARAMETER_NOT_FOUND });
       }
 
+      await regenerateCategoryPartNames(client, categoryId);
+      await client.query('COMMIT');
+
       res.json(result.rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error(error);
       res.status(500).json({ code: ErrorCodes.PARAMETER_UPDATE_FAILED });
+    } finally {
+      client.release();
     }
   },
 );

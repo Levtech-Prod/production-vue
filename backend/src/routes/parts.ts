@@ -4,6 +4,7 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { partPayloadSchema } from '../schemas/parts.schema.js';
 import { convertToEur } from '../services/exchangeRates.js';
+import { resolvePartNameForCategory } from '../services/partName.js';
 import {
   logAudit,
   resolveActor,
@@ -14,6 +15,13 @@ import {
 } from '../services/audit.js';
 
 const router = Router();
+
+/** Submitted parameter values keyed by parameter id, as part naming expects. */
+function valuesByParameterId(
+  parameters: { parameterId: number; value: string }[],
+): Record<number, string> {
+  return Object.fromEntries(parameters.map((p) => [p.parameterId, p.value]));
+}
 
 // Columns exposing the stored EUR price plus how it was entered (amount +
 // currency the user typed, and the BNR rate/date applied for RON entries).
@@ -30,6 +38,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.id,
       p.category_id AS "categoryId",
       p.name,
+      p.name_prefix AS "namePrefix",
       p.code,
       ${PART_PRICE_COLUMNS},
       p.location,
@@ -96,17 +105,38 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    const name = await resolvePartNameForCategory(
+      client,
+      data.categoryId,
+      data.name,
+      valuesByParameterId(data.parameters),
+    );
+
+    if (name === null) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
+    }
+
+    // Only reachable in 'custom' mode — a generated name always carries at
+    // least the category name.
+    if (!name) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({ code: ErrorCodes.PART_NAME_REQUIRED });
+    }
+
     const partResult = await client.query(
       `INSERT INTO parts
-         (category_id, name, code, price_per_piece, price_entered_amount,
+         (category_id, name, name_prefix, code, price_per_piece, price_entered_amount,
           price_entered_currency, price_rate_used, price_rate_date,
           location, description, image)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id, category_id AS "categoryId", name, code,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, category_id AS "categoryId", name, name_prefix AS "namePrefix", code,
          ${PART_PRICE_COLUMNS.replace(/\bp\./g, '')},
          location, description, image, created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         data.categoryId,
+        name,
         data.name,
         data.code,
         price.priceEur,
@@ -139,7 +169,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     const actor = await resolveActor(client, userId);
     await logAudit(client, 'part', part.id, 'created', {
       snapshot: {
-        name: data.name,
+        name,
         code: data.code,
         category: categoryResult.rows[0]?.name ?? null,
         price: {
@@ -186,19 +216,37 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    const name = await resolvePartNameForCategory(
+      client,
+      data.categoryId,
+      data.name,
+      valuesByParameterId(data.parameters),
+    );
+
+    if (name === null) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
+    }
+
+    if (!name) {
+      await client.query('ROLLBACK');
+      return res.status(422).json({ code: ErrorCodes.PART_NAME_REQUIRED });
+    }
+
     // Snapshot the pre-update row inside the same UPDATE (FROM subquery is
     // evaluated first), so we get old + new values in one statement — no extra
     // round trip and no read-then-write race. `old.*` fields feed the audit diff.
     const partResult = await client.query(
       `
       UPDATE parts
-      SET category_id = $1, name = $2, code = $3, price_per_piece = $4,
-          price_entered_amount = $5, price_entered_currency = $6,
-          price_rate_used = $7, price_rate_date = $8,
-          location = $9, description = $10, image = $11, updated_at = NOW()
-      FROM (SELECT * FROM parts WHERE id = $12) old
+      SET category_id = $1, name = $2, name_prefix = $3, code = $4, price_per_piece = $5,
+          price_entered_amount = $6, price_entered_currency = $7,
+          price_rate_used = $8, price_rate_date = $9,
+          location = $10, description = $11, image = $12, updated_at = NOW()
+      FROM (SELECT * FROM parts WHERE id = $13) old
       WHERE parts.id = old.id
-      RETURNING parts.id, parts.category_id AS "categoryId", parts.name, parts.code,
+      RETURNING parts.id, parts.category_id AS "categoryId", parts.name,
+        parts.name_prefix AS "namePrefix", parts.code,
         ${PART_PRICE_COLUMNS.replace(/\bp\./g, 'parts.')},
         parts.location, parts.description, parts.image,
         parts.created_at AS "createdAt", parts.updated_at AS "updatedAt",
@@ -213,6 +261,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       `,
       [
         data.categoryId,
+        name,
         data.name,
         data.code,
         price.priceEur,

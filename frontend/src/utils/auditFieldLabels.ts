@@ -14,6 +14,7 @@ export const PART_FIELD_LABEL_KEYS: Record<string, string> = {
 
 export const PART_CATEGORY_FIELD_LABEL_KEYS: Record<string, string> = {
   name: 'field_name',
+  part_name_mode: 'field_part_name_mode',
   description: 'field_description',
   image: 'field_image',
 };

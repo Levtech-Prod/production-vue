@@ -95,6 +95,23 @@ END $$;
 -- Part image (uploaded file URL, stored in uploads/parts)
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS image TEXT;
 
+-- How a category names its parts: 'custom' (the user types the name) or
+-- 'parameters' (generated from the category name + its show_as_column
+-- parameter values, prefixed by any text the user typed).
+ALTER TABLE part_categories
+  ADD COLUMN IF NOT EXISTS part_name_mode VARCHAR(20) NOT NULL DEFAULT 'custom';
+ALTER TABLE part_categories
+  DROP CONSTRAINT IF EXISTS part_categories_part_name_mode_check;
+ALTER TABLE part_categories
+  ADD CONSTRAINT part_categories_part_name_mode_check
+  CHECK (part_name_mode IN ('custom', 'parameters'));
+
+-- The raw text the user typed for a part's name. `name` holds the resolved
+-- display string; this keeps the prefix so a generated name can be rebuilt
+-- when its category is renamed or its column parameters change.
+ALTER TABLE parts ADD COLUMN IF NOT EXISTS name_prefix VARCHAR(180);
+UPDATE parts SET name_prefix = name WHERE name_prefix IS NULL;
+
 -- ===========================================================================
 -- Product Management & Revisioning module
 -- ---------------------------------------------------------------------------
