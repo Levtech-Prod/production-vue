@@ -127,6 +127,17 @@
     />
 
     <ConfirmModal
+      :visible="pendingRename !== null"
+      :title="t('regenerate_part_names')"
+      :message="t('confirmations.regenerate_part_names_msg')"
+      :confirm-text="t('confirm')"
+      :cancel-text="t('cancel')"
+      :loading="renameBusy"
+      @confirm="confirmRename"
+      @cancel="cancelRename"
+    />
+
+    <ConfirmModal
       :visible="isDeleteConfirmVisible"
       :title="t('delete_part')"
       :message="`${t('confirmations.delete_part_msg')}: ${partToDelete?.name}?`"
@@ -155,6 +166,7 @@ import { usePartCategoryStore } from '../../stores/partCategoriesStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { useAuthStore } from '../../stores/auth.ts';
 import { useCompaniesStore } from '../../stores/companiesStore.ts';
+import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
@@ -162,7 +174,10 @@ import type {
   CreatePartPayload,
   ParameterFilters,
 } from '../../types/parts.ts';
-import type { PartCategoryParameter } from '../../types/partCategories.ts';
+import type {
+  PartCategory,
+  PartCategoryParameter,
+} from '../../types/partCategories.ts';
 
 const { t, te } = useI18n();
 
@@ -252,16 +267,50 @@ const canManageColumns = computed(
   () => authStore.isAdmin && !!selectedCategory.value?.parameters?.length,
 );
 
+// Same confirm-then-run helper the categories page uses for its two
+// rename-triggering saves.
+const {
+  target: pendingRename,
+  busy: renameBusy,
+  open: askRenameConfirm,
+  cancel: cancelRename,
+  confirm: confirmRename,
+} = useConfirmDelete<{ run: () => Promise<void> }>(async ({ run }) => {
+  await run();
+  return true;
+});
+
 async function onToggleColumn(parameterId: number, showAsColumn: boolean) {
   const category = selectedCategory.value;
   const parameter = category?.parameters?.find((p) => p.id === parameterId);
   if (!category || !parameter) return;
 
+  // Column parameters feed generated part names, so this toggle renames every
+  // part in the category.
+  if (category.partNameMode === 'parameters') {
+    askRenameConfirm({ run: () => applyColumnToggle(category, parameter, showAsColumn) });
+    return;
+  }
+
+  await applyColumnToggle(category, parameter, showAsColumn);
+}
+
+async function applyColumnToggle(
+  category: PartCategory,
+  parameter: PartCategoryParameter,
+  showAsColumn: boolean,
+) {
   const previous = parameter.showAsColumn ?? false;
   parameter.showAsColumn = showAsColumn;
 
   try {
-    await partCategoryStore.setParameterColumn(category.id, parameterId, showAsColumn);
+    await partCategoryStore.setParameterColumn(category.id, parameter.id!, showAsColumn);
+
+    // The server just rebuilt every part name in this category — the cached
+    // rows are stale.
+    if (category.partNameMode === 'parameters') {
+      await partsStore.loadParts();
+    }
   } catch (err) {
     parameter.showAsColumn = previous;
     notificationStore.showToast(

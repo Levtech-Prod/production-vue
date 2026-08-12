@@ -1,7 +1,8 @@
 # Build context for this image is the repository root (see docker-compose.yml),
-# because frontend/src/types/*.ts imports type-only definitions from
-# ../../../backend/src/schemas/*.ts. That relative path has to resolve
-# during `vue-tsc -b`, and those schema files import "zod", so a working
+# because the frontend imports from backend/src: type-only definitions in
+# frontend/src/types/*.ts, plus the part-name resolver (a real runtime import,
+# see PartModal.vue). Those relative paths have to resolve during `vue-tsc -b`
+# and `vite build`, and the schema files import "zod", so a working
 # backend/node_modules/zod also needs to be present at build time.
 FROM node:22-alpine AS build
 WORKDIR /repo

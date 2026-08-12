@@ -27,7 +27,11 @@ export interface PartParameterValue {
 export interface Part {
   id: number;
   categoryId: number;
+  // Resolved display name. In a 'parameters' category it is generated, and
+  // `namePrefix` holds the text the user actually typed — edit forms bind to
+  // the prefix, never to `name`.
   name: string;
+  namePrefix?: string | null;
   code: string;
   // Canonical price in EUR. `priceEntered*` record how it was entered.
   pricePerPiece: number | string;

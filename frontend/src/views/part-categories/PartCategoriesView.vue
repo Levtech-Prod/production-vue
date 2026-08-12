@@ -193,6 +193,17 @@
     />
 
     <ConfirmModal
+      :visible="pendingRename !== null"
+      :title="t('regenerate_part_names')"
+      :message="t('confirmations.regenerate_part_names_msg')"
+      :confirm-text="t('confirm')"
+      :cancel-text="t('cancel')"
+      :loading="renameBusy"
+      @confirm="confirmRename"
+      @cancel="cancelRename"
+    />
+
+    <ConfirmModal
       :visible="isDeleteConfirmVisible"
       :title="t('delete_part_category')"
       :message="`${t('confirmations.delete_category_msg')}: ${categoryToDelete?.name}?`"
@@ -236,6 +247,7 @@ import { Pencil, Trash2, Plus, Search, ClipboardList, Clock } from 'lucide-vue-n
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
+import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import {
   localizeZodIssues,
   extractZodIssues,
@@ -303,7 +315,40 @@ function openEdit(category: PartCategory) {
   modalOpen.value = true;
 }
 
+// Generic confirm-then-run (the composable is already used for non-delete
+// flows, e.g. replacing a document): every action that rebuilds part names in
+// bulk routes through this one dialog.
+const {
+  target: pendingRename,
+  busy: renameBusy,
+  open: askRenameConfirm,
+  cancel: cancelRename,
+  confirm: confirmRename,
+} = useConfirmDelete<{ run: () => Promise<void> }>(async ({ run }) => {
+  await run();
+  return true;
+});
+
+/**
+ * Whether saving `payload` rewrites the names of this category's existing
+ * parts. Switching *to* Custom doesn't — the backend deliberately leaves those
+ * names alone rather than collapsing them to a prefix.
+ */
+function renamesParts(payload: CreatePartCategoryPayload): boolean {
+  const current = editingCategory.value;
+  if (!current || payload.partNameMode !== 'parameters') return false;
+  return payload.name !== current.name || current.partNameMode !== 'parameters';
+}
+
 async function onSaved(payload: CreatePartCategoryPayload) {
+  if (renamesParts(payload)) {
+    askRenameConfirm({ run: () => persistCategory(payload) });
+    return;
+  }
+  await persistCategory(payload);
+}
+
+async function persistCategory(payload: CreatePartCategoryPayload) {
   categorySaving.value = true;
   clearCategorySaveError();
 
@@ -499,6 +544,15 @@ function toggleExpand(category: PartCategory) {
   nextTick(() => paramListRefs.get(category.id)?.resetValidation());
 }
 
+// What a generated part name draws from: which parameters are columns, their
+// order, and — for booleans, which contribute their own name — the name itself.
+function columnSignature(parameters: PartCategoryParameter[]): string {
+  return parameters
+    .filter((p) => p.showAsColumn)
+    .map((p) => `${p.id ?? 'new'}:${p.type}:${p.name}`)
+    .join('|');
+}
+
 async function saveParams(category: PartCategory) {
   const state = editStates.value[category.id];
   if (!state) return;
@@ -508,6 +562,19 @@ async function saveParams(category: PartCategory) {
 
   if (!(paramListRefs.get(category.id)?.validate() ?? true)) return;
 
+  const savedParams = JSON.parse(state.snapshot) as PartCategoryParameter[];
+  if (
+    category.partNameMode === 'parameters' &&
+    columnSignature(state.params) !== columnSignature(savedParams)
+  ) {
+    askRenameConfirm({ run: () => persistParams(category, state) });
+    return;
+  }
+
+  await persistParams(category, state);
+}
+
+async function persistParams(category: PartCategory, state: RowEditState) {
   state.saving = true;
 
   try {
@@ -515,6 +582,7 @@ async function saveParams(category: PartCategory) {
       name: category.name,
       description: category.description,
       image: category.image ?? null,
+      partNameMode: category.partNameMode,
       parameters: state.params
         .filter((p) => p.name.trim() !== '')
         .map((p) => ({
