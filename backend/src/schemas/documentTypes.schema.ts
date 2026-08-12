@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ALLOWED_UPLOAD_EXTENSIONS } from '../services/documentFiles.js';
 
 // Curated `lucide-vue-next` icon names admins may pick for a document type
 // card (Story 4's IconPicker + the panel's card icons both resolve against
@@ -40,12 +41,23 @@ function normalizeExtension(raw: string): string {
   return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
 }
 
+// Rejected here rather than left to fail silently at upload time: an
+// extension the multer filter (`ALLOWED_UPLOAD_EXTENSIONS`) will never admit
+// would otherwise save onto a card, show as "allowed" in the panel, and reject
+// every matching file a user tries to upload against it.
 const allowedExtensionsSchema = z
   .array(z.string().trim().min(1).max(20))
   .default([])
   .transform((exts) => {
     const normalized = exts.map(normalizeExtension).filter((e) => e !== '.');
     return Array.from(new Set(normalized));
+  })
+  .superRefine((exts, ctx) => {
+    for (const ext of exts) {
+      if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+        ctx.addIssue(`"${ext}" is not an accepted upload extension`);
+      }
+    }
   });
 
 /** Create and update use the same shape. */
