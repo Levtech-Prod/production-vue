@@ -228,6 +228,38 @@ export function fileExtension(fileName: string): string {
   return path.extname(fileName).toLowerCase();
 }
 
+// The upload gate is the file EXTENSION, not the MIME type (plan §7.4):
+// engineering formats mostly have no registered MIME, so browsers send them as
+// application/octet-stream and a MIME allow-list would either reject every
+// .step file or have to admit octet-stream and stop meaning anything.
+//
+// Single source of truth, shared by the multer filter in routes/documents.ts
+// (what an upload may actually be) and the `allowedExtensions` validation in
+// schemas/documentTypes.schema.ts (what an admin may configure a card to
+// accept) — a document type's own list only narrows this, so a card can never
+// be configured to accept an extension the upload endpoint would reject.
+export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
+  // Documents and data
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.txt', '.md', '.csv', '.json', '.xml', '.log',
+  // Images (no .svg — it is scriptable and we serve uploads statically)
+  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
+  // Archives
+  '.zip', '.rar', '.7z', '.gz', '.tar',
+  // Mechanical CAD / CAM
+  '.step', '.stp', '.iges', '.igs', '.stl', '.dxf', '.dwg',
+  '.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.3mf', '.obj',
+  '.nc', '.tap', '.gcode', '.cnc',
+  // Electronics CAD / fabrication
+  '.gbr', '.gbl', '.gtl', '.gbs', '.gts', '.gbo', '.gto', '.gko', '.gtd',
+  '.drl', '.xln', '.gerber',
+  '.pcbdoc', '.schdoc', '.prjpcb', '.sch', '.brd', '.kicad_pcb', '.kicad_sch',
+  // Firmware
+  '.hex', '.elf', '.bin', '.map', '.s19', '.srec', '.uf2', '.dfu',
+  // Vector graphics / packaging design
+  '.cdr', '.art',
+]);
+
 /** Delete a file if it is still there; a missing file is not an error. */
 export function safeUnlink(absPath: string): void {
   if (!fs.existsSync(absPath)) return;

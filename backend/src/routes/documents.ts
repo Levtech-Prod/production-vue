@@ -25,6 +25,7 @@ import {
   type DocumentUploadPayload,
 } from '../schemas/documents.schema.js';
 import {
+  ALLOWED_UPLOAD_EXTENSIONS,
   deleteDocument,
   resolveEntityDocumentsDir,
   fileExtension,
@@ -68,31 +69,6 @@ const storage = multer.diskStorage({
   },
 });
 
-// The gate is the file EXTENSION, not the MIME type (plan §7.4): engineering
-// formats mostly have no registered MIME, so browsers send them as
-// application/octet-stream and a MIME allow-list would either reject every
-// .step file or have to admit octet-stream and stop meaning anything. A
-// document type's own `allowedExtensions` narrows this further, per card.
-const ALLOWED_UPLOAD_EXTENSIONS = new Set([
-  // Documents and data
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.txt', '.md', '.csv', '.json', '.xml', '.log',
-  // Images (no .svg — it is scriptable and we serve uploads statically)
-  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
-  // Archives
-  '.zip', '.rar', '.7z', '.gz', '.tar',
-  // Mechanical CAD / CAM
-  '.step', '.stp', '.iges', '.igs', '.stl', '.dxf', '.dwg',
-  '.sldprt', '.sldasm', '.ipt', '.iam', '.f3d', '.3mf', '.obj',
-  '.nc', '.tap', '.gcode', '.cnc',
-  // Electronics CAD / fabrication
-  '.gbr', '.gbl', '.gtl', '.gbs', '.gts', '.gbo', '.gto', '.gko',
-  '.drl', '.xln', '.gerber',
-  '.pcbdoc', '.schdoc', '.prjpcb', '.sch', '.brd', '.kicad_pcb', '.kicad_sch',
-  // Firmware
-  '.hex', '.elf', '.bin', '.map', '.s19', '.srec', '.uf2', '.dfu',
-]);
-
 /** Marker so the wrapper below can tell a filter rejection from a real fault. */
 class UnsupportedFileTypeError extends Error {}
 
@@ -100,6 +76,10 @@ const upload = multer({
   storage,
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
+    // Gated on EXTENSION, not MIME type — see `ALLOWED_UPLOAD_EXTENSIONS` in
+    // services/documentFiles.ts for why, and why it's the single source of
+    // truth shared with the document-type schema. A document type's own
+    // `allowedExtensions` narrows this further, per card.
     if (!ALLOWED_UPLOAD_EXTENSIONS.has(fileExtension(file.originalname))) {
       return cb(new UnsupportedFileTypeError(file.originalname));
     }
