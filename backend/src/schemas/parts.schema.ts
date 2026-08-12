@@ -15,7 +15,10 @@ export type RevisionPartInput = z.input<typeof revisionPartInputSchema>;
 /** Stock part create/update payload — both endpoints use the same shape. */
 export const partPayloadSchema = z.object({
   categoryId: z.number(),
-  name: z.string().min(2),
+  // The text the user typed, not the final name: a 'parameters' category
+  // generates the name and accepts an empty one, so the emptiness check lives
+  // in the route where the category (and its mode) is known.
+  name: z.string().default(''),
   code: z.string().min(1),
   // Manual fallback price, entered in EUR or RON. Converted to canonical EUR
   // at the boundary (see the parts route) before it hits the database.
