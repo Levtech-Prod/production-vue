@@ -46,8 +46,11 @@
           <thead class="bg-blue-50 text-xs uppercase text-black">
             <tr>
               <th class="w-px px-4 py-2"></th>
-              <th class="w-48 px-3 py-2">{{ t('name') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
+              <th class="w-48 px-3 py-2">{{ t('name') }}</th>
+              <th class="w-px whitespace-nowrap px-3 py-2">
+                {{ t('price_per_piece') }}
+              </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('quantity') }}
               </th>
@@ -56,9 +59,6 @@
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('location') }}
-              </th>
-              <th class="w-px whitespace-nowrap px-3 py-2">
-                {{ t('price_per_piece') }}
               </th>
               <th class="px-3 py-2"></th>
             </tr>
@@ -84,13 +84,16 @@
                   ▣
                 </div>
               </td>
-              <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
-                {{ part.name }}
-              </td>
               <td
                 class="w-px whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500"
               >
                 {{ part.code }}
+              </td>
+              <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
+                {{ part.name }}
+              </td>
+              <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
+                {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
               </td>
               <td class="w-px whitespace-nowrap px-3 py-2">
                 <span class="font-semibold">{{ part.quantity }}</span>
@@ -101,9 +104,6 @@
               </td>
               <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                 {{ catalogById.get(part.id)?.location || '—' }}
-              </td>
-              <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
-                {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
               </td>
               <td class="px-3 py-2"></td>
             </tr>

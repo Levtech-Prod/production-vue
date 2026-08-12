@@ -6,6 +6,9 @@
           <th class="p-4">{{ t('image') }}</th>
           <th class="p-4">{{ t('code') }}</th>
           <th class="p-4">{{ t('name') }}</th>
+          <th class="p-4">{{ t('category') }}</th>
+          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
+          <th class="p-4">{{ t('total_quantity') }}</th>
           <th v-if="hasQty" class="p-4">{{ t('quantity') }}</th>
           <th v-if="hasPosition" class="p-4">{{ t('mount_position') }}</th>
           <th
@@ -30,11 +33,8 @@
               <ChevronsUpDown v-else class="h-3.5 w-3.5 text-slate-300" />
             </span>
           </th>
-          <th class="p-4">{{ t('category') }}</th>
-          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
-          <th class="p-4">{{ t('total_quantity') }}</th>
-          <th class="p-4">{{ t('location') }}</th>
           <th class="p-4">{{ t('other_parameters') }}</th>
+          <th class="p-4">{{ t('location') }}</th>
           <th v-if="hasActions" class="p-4">{{ t('actions') }}</th>
         </tr>
       </thead>
@@ -83,6 +83,13 @@
             {{ part.code }}
           </td>
           <td class="p-4 font-semibold">{{ part.name }}</td>
+          <td class="p-4 text-slate-500">{{ part.category.name }}</td>
+          <td class="p-4">
+            {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
+          </td>
+          <td class="p-4 text-slate-700">
+            {{ Math.round(Number(part.totalQuantity ?? 0)) }}
+          </td>
           <td v-if="hasQty" class="p-4" @click.stop>
             <slot name="qty" :part="part" />
           </td>
@@ -96,14 +103,6 @@
           >
             {{ columnValue(part, cp) }}
           </td>
-          <td class="p-4 text-slate-500">{{ part.category.name }}</td>
-          <td class="p-4">
-            {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
-          </td>
-          <td class="p-4 text-slate-700">
-            {{ Math.round(Number(part.totalQuantity ?? 0)) }}
-          </td>
-          <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
           <td class="p-4">
             <div class="flex flex-col gap-1">
               <span
@@ -118,6 +117,7 @@
               >
             </div>
           </td>
+          <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
           <td v-if="hasActions" class="p-4" @click.stop>
             <slot name="actions" :part="part" />
           </td>
@@ -249,8 +249,9 @@ const hasQty = computed(() => !!slots.qty);
 const hasPosition = computed(() => !!slots.position);
 const hasActions = computed(() => !!slots.actions);
 
-// Fixed columns: image, code, name, category, price, stock, location, other
-// parameters. Drives the empty row's colspan, so it has to track the header.
+// Fixed columns: image, code, name, category, price, stock, other
+// parameters, location. Drives the empty row's colspan, so it has to track
+// the header.
 const FIXED_COLUMNS = 8;
 
 const columnCount = computed(
