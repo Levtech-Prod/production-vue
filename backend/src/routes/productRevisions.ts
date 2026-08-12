@@ -121,7 +121,8 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
        p.image        AS "partImage",
        sprp.quantity::integer AS quantity,
        sprp.unit,
-       sprp.notes
+       sprp.notes,
+       sprp.mount_position AS "mountPosition"
      FROM product_revision_sub_products prsp
      JOIN sub_product_revisions spr ON spr.id = prsp.sub_product_revision_id
      JOIN sub_products sp ON sp.id = spr.sub_product_id
@@ -164,6 +165,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
         quantity: row.quantity,
         unit: row.unit ?? null,
         notes: row.notes ?? null,
+        mountPosition: row.mountPosition ?? null,
       });
     }
   }

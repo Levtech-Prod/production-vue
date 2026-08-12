@@ -223,6 +223,13 @@ CREATE INDEX IF NOT EXISTS idx_prsp_sub_product_revision_id ON product_revision_
 CREATE INDEX IF NOT EXISTS idx_sprp_sub_product_revision_id ON sub_product_revision_parts(sub_product_revision_id);
 CREATE INDEX IF NOT EXISTS idx_sprp_part_id ON sub_product_revision_parts(part_id);
 
+-- Where the part sits on the sub-product, e.g. "left side", "R12" (see
+-- migration 018). Per BOM line rather than per part: `parts.location` is the
+-- warehouse spot, this is the spot on the assembly, and the same part sits
+-- differently in different products.
+ALTER TABLE sub_product_revision_parts
+  ADD COLUMN IF NOT EXISTS mount_position VARCHAR(120);
+
 -- Optional pointer to a product's default (canonical) revision. Added here,
 -- after product_revisions exists, so the FK target is available. On revision
 -- deletion the pointer is cleared rather than blocking the delete.

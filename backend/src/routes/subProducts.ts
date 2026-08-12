@@ -39,17 +39,19 @@ async function findFolderProduct(
   return result.rows[0] ?? null;
 }
 
-// Compact descriptor of a BOM line's fields (quantity, unit, notes) for the
-// product log. The part name is carried separately as the event label, so it
-// is not repeated here.
+// Compact descriptor of a BOM line's fields (quantity, unit, mount position,
+// notes) for the product log. The part name is carried separately as the event
+// label, so it is not repeated here.
 function bomLineDetails(
   quantity: number | null,
   unit: string | null,
   notes: string | null,
+  mountPosition: string | null,
 ): string {
   const bits: string[] = [];
   if (quantity != null) bits.push(`× ${quantity}`);
   if (unit) bits.push(unit);
+  if (mountPosition) bits.push(`@ ${mountPosition}`);
   if (notes) bits.push(`"${notes}"`);
   return bits.join(' · ');
 }
@@ -60,6 +62,7 @@ interface RevisionPartInput {
   quantity: number;
   unit?: string | null;
   notes?: string | null;
+  mountPosition?: string | null;
 }
 
 /**
@@ -80,20 +83,22 @@ async function insertRevisionParts(
   const lines = Array.from(byPart.values());
   await client.query(
     `INSERT INTO sub_product_revision_parts
-       (sub_product_revision_id, part_id, quantity, unit, notes)
-     SELECT $1, part_id, quantity, unit, notes
-     FROM unnest($2::int[], $3::numeric[], $4::text[], $5::text[])
-       AS t(part_id, quantity, unit, notes)
+       (sub_product_revision_id, part_id, quantity, unit, notes, mount_position)
+     SELECT $1, part_id, quantity, unit, notes, mount_position
+     FROM unnest($2::int[], $3::numeric[], $4::text[], $5::text[], $6::text[])
+       AS t(part_id, quantity, unit, notes, mount_position)
      ON CONFLICT (sub_product_revision_id, part_id)
      DO UPDATE SET quantity = EXCLUDED.quantity,
                    unit = EXCLUDED.unit,
-                   notes = EXCLUDED.notes`,
+                   notes = EXCLUDED.notes,
+                   mount_position = EXCLUDED.mount_position`,
     [
       revisionId,
       lines.map((p) => p.partId),
       lines.map((p) => p.quantity),
       lines.map((p) => p.unit || null),
       lines.map((p) => p.notes || null),
+      lines.map((p) => p.mountPosition || null),
     ],
   );
 }
@@ -134,7 +139,8 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
        ) AS parameters,
        sprp.quantity::integer AS quantity,
        sprp.unit,
-       sprp.notes
+       sprp.notes,
+       sprp.mount_position AS "mountPosition"
      FROM sub_product_revision_parts sprp
      JOIN parts p ON p.id = sprp.part_id
      JOIN part_categories pc ON pc.id = p.category_id
@@ -143,7 +149,12 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
     [a, b],
   );
 
-  type PartSide = { quantity: number; unit: string | null; notes: string | null } | null;
+  type PartSide = {
+    quantity: number;
+    unit: string | null;
+    notes: string | null;
+    mountPosition: string | null;
+  } | null;
   type PartParameter = { name: string; value: string; unit: string | null; type: string };
 
   const map = new Map<
@@ -176,7 +187,12 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
       });
     }
     const entry = map.get(row.partId)!;
-    const side: PartSide = { quantity: row.quantity, unit: row.unit ?? null, notes: row.notes ?? null };
+    const side: PartSide = {
+      quantity: row.quantity,
+      unit: row.unit ?? null,
+      notes: row.notes ?? null,
+      mountPosition: row.mountPosition ?? null,
+    };
     if (row.revisionId === a) entry.inA = side;
     if (row.revisionId === b) entry.inB = side;
   }
@@ -189,7 +205,8 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
       e.inA &&
       e.inB &&
       (String(e.inA.quantity) !== String(e.inB.quantity) ||
-        (e.inA.unit ?? '') !== (e.inB.unit ?? ''))
+        (e.inA.unit ?? '') !== (e.inB.unit ?? '') ||
+        (e.inA.mountPosition ?? '') !== (e.inB.mountPosition ?? ''))
     )
       status = 'changed';
     else status = 'unchanged';
@@ -479,8 +496,8 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
     if (data.duplicateFromId) {
       await client.query(
         `INSERT INTO sub_product_revision_parts
-           (sub_product_revision_id, part_id, quantity, unit, notes)
-         SELECT $1, part_id, quantity, unit, notes
+           (sub_product_revision_id, part_id, quantity, unit, notes, mount_position)
+         SELECT $1, part_id, quantity, unit, notes, mount_position
          FROM sub_product_revision_parts
          WHERE sub_product_revision_id = $2`,
         [newRevision.id, data.duplicateFromId],
@@ -613,9 +630,11 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       quantity: number | null;
       unit: string | null;
       notes: string | null;
+      mountPosition: string | null;
     }>(
       `SELECT sprp.part_id AS "partId", p.name,
-         sprp.quantity::integer AS quantity, sprp.unit, sprp.notes
+         sprp.quantity::integer AS quantity, sprp.unit, sprp.notes,
+         sprp.mount_position AS "mountPosition"
        FROM sub_product_revision_parts sprp
        JOIN parts p ON p.id = sprp.part_id
        WHERE sprp.sub_product_revision_id = $1`,
@@ -663,21 +682,32 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
     const events: AuditEvent[] = [];
     for (const p of data.parts) {
       const name = nameById.get(p.partId) ?? oldByPart.get(p.partId)?.name ?? String(p.partId);
-      const to = bomLineDetails(p.quantity, p.unit || null, p.notes || null);
+      const to = bomLineDetails(
+        p.quantity,
+        p.unit || null,
+        p.notes || null,
+        p.mountPosition || null,
+      );
       const prev = oldByPart.get(p.partId);
       if (!prev) {
         events.push({ type: 'part', tag: 'added', label: name, scope, to });
       } else if (
         !valuesEqual(prev.quantity, p.quantity) ||
         !valuesEqual(prev.unit, p.unit || null) ||
-        !valuesEqual(prev.notes, p.notes || null)
+        !valuesEqual(prev.notes, p.notes || null) ||
+        !valuesEqual(prev.mountPosition, p.mountPosition || null)
       ) {
         events.push({
           type: 'part',
           tag: 'changed',
           label: name,
           scope,
-          from: bomLineDetails(prev.quantity, prev.unit, prev.notes),
+          from: bomLineDetails(
+            prev.quantity,
+            prev.unit,
+            prev.notes,
+            prev.mountPosition,
+          ),
           to,
         });
       }
@@ -689,7 +719,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
           tag: 'removed',
           label: o.name,
           scope,
-          from: bomLineDetails(o.quantity, o.unit, o.notes),
+          from: bomLineDetails(o.quantity, o.unit, o.notes, o.mountPosition),
         });
       }
     }
@@ -712,7 +742,8 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
     `SELECT
        p.id, p.name, p.code, p.category_id AS "categoryId",
        p.price_per_piece AS "pricePerPiece", p.image,
-       sprp.quantity::integer AS quantity, sprp.unit, sprp.notes
+       sprp.quantity::integer AS quantity, sprp.unit, sprp.notes,
+       sprp.mount_position AS "mountPosition"
      FROM sub_product_revision_parts sprp
      JOIN parts p ON p.id = sprp.part_id
      WHERE sprp.sub_product_revision_id = $1
@@ -738,7 +769,8 @@ router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
        p.image,
        sprp.quantity::integer AS quantity,
        sprp.unit,
-       sprp.notes
+       sprp.notes,
+       sprp.mount_position AS "mountPosition"
      FROM sub_product_revision_parts sprp
      JOIN parts p ON p.id = sprp.part_id
      WHERE sprp.sub_product_revision_id = $1
