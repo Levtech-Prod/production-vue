@@ -40,6 +40,9 @@
         </div>
       </template>
       <div v-else class="text-[11px] text-slate-300">—</div>
+      <div v-if="side.mountPosition" class="text-[10px] text-slate-400">
+        {{ t('mount_position') }}: {{ side.mountPosition }}
+      </div>
       <div v-if="side.notes" class="text-[10px] text-slate-400">
         {{ t('notes') }}: {{ side.notes }}
       </div>
@@ -60,7 +63,7 @@ import { PART_SIDE_GRID, hasDetails, sideAccentClass, sideQty } from './compareH
 
 defineProps<{
   row: ComparePartRow;
-  /** row.inA or row.inB — the quantity/notes payload for this side. */
+  /** row.inA or row.inB — the quantity/position/notes payload for this side. */
   side: PartSideData | null;
   same: boolean | null;
   /** Quantity delta vs. the other side, shown on side B only. */

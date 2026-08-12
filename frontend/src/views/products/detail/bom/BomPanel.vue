@@ -24,7 +24,11 @@
         v-else-if="mode === 'subRev'"
         :parts="partRows"
         :empty-text="t('no_parts_in_revision')"
-      />
+      >
+        <template #position="{ part }">
+          <span class="text-slate-500">{{ mountPositionOf(part.id) }}</span>
+        </template>
+      </PartsTable>
 
       <!-- Main product BOM, empty: same treatment as the Documents panel —
            header stays, just a centered text line where the table would be. -->
@@ -48,6 +52,9 @@
                 {{ t('quantity') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
+                {{ t('mount_position') }}
+              </th>
+              <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('location') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
@@ -59,8 +66,8 @@
 
           <tbody>
             <tr
-              v-for="part in flatParts"
-              :key="part.id"
+              v-for="(part, i) in flatParts"
+              :key="`${part.id}-${i}`"
               class="border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
             >
               <td class="px-4 py-2">
@@ -88,6 +95,9 @@
               <td class="w-px whitespace-nowrap px-3 py-2">
                 <span class="font-semibold">{{ part.quantity }}</span>
                 <span class="text-slate-400"> {{ part.unit || '' }}</span>
+              </td>
+              <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
+                {{ part.mountPosition || '—' }}
               </td>
               <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                 {{ catalogById.get(part.id)?.location || '—' }}
@@ -133,8 +143,16 @@ const { t } = useI18n();
 // (Also loads the catalog on mount, which the main-product view reuses below.)
 const { rows: partRows } = useRevisionPartRows(toRef(props, 'parts'));
 
-// The main-product BOM API returns each part's quantity but not its location
-// or price; look those up from the shared catalog by part id.
+// Mount position lives on the BOM line, not on the catalog part the table
+// rows are built from, so it is looked up from the revision's own payload.
+function mountPositionOf(partId: number): string {
+  return props.parts.find((p) => p.id === partId)?.mountPosition || '—';
+}
+
+// The main-product BOM API returns each part's quantity and mount position,
+// but not its location or price; look those up from the shared catalog by id.
+// A part used by two sub-products appears twice, hence the index in the row
+// key — part id alone is not unique in this flattened list.
 const partsStore = usePartsStore();
 const catalogById = computed(() => {
   const m = new Map<number, Part>();

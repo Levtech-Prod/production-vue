@@ -71,6 +71,9 @@ const messages = {
     price_per_piece: 'Price per piece',
     currency: 'Currency',
     location: 'Location',
+    // Where a part sits on a sub-product — per BOM line, unlike `location`,
+    // which is the warehouse spot of the part itself.
+    mount_position: 'Position',
     password: 'Password',
     already_registered: 'Already registered?',
     create_user_description: 'Create admin or client user',
@@ -695,6 +698,7 @@ const messages = {
     price_per_piece: 'Egységár',
     currency: 'Pénznem',
     location: 'Helyszín',
+    mount_position: 'Pozíció',
     password: 'Jelszó',
     already_registered: 'Már regisztrált?',
     create_user_description: 'Admin vagy ügyfél felhasználó létrehozása',
