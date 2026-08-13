@@ -191,14 +191,86 @@ export function documentsDirFor(entityDir: string): string {
 }
 
 /**
- * Absolute path for a key relative to `productsDir`, or null if the key would
- * escape it. Keys are written by the service rather than by users, so this is
- * belt-and-braces — but it is the one place a bad key could turn into an
- * arbitrary file read, so it is checked before every download.
+ * Absolute path for `key` inside `rootAbs`, or null if it would escape. Keys
+ * are written by the services rather than by users, so this is belt-and-braces
+ * — but it is the one place a bad key could turn into an arbitrary file read,
+ * so it is checked before every download.
  */
-export function resolveUnderProducts(key: string): string | null {
-  const absolute = path.resolve(productsDir, key);
-  const root = path.resolve(productsDir);
+function resolveUnder(rootAbs: string, key: string): string | null {
+  const absolute = path.resolve(rootAbs, key);
+  const root = path.resolve(rootAbs);
   if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
   return absolute;
+}
+
+/** Absolute path for a key relative to `productsDir`, or null if it escapes. */
+export function resolveUnderProducts(key: string): string | null {
+  return resolveUnder(productsDir, key);
+}
+
+// ── Firmware tree ──────────────────────────────────────────────────────────
+//
+// Firmware lives inside the owning sub-product's folder, beside its documents:
+//
+//   uploads/products/{product}/sub-products/{sub}/documents/firmware/
+//     {firmwareId}-{Version}/
+//       firmware.hex
+//
+// That puts it under `uploads/products/`, which IS statically served — and
+// firmware accepts EVERY file extension (see routes/firmwares.ts), so an
+// uploaded .html or .svg would be stored XSS on this origin. server.ts
+// therefore 404s any `/uploads/**` path containing a `firmware` SEGMENT,
+// ahead of the static mount; the authenticated download route is the only way
+// to read one back. Moving this folder means moving that guard with it.
+
+/** The `firmware/` folder inside an entity's documents folder, relative to
+ *  `productsDir`. */
+export function firmwareDirFor(entityDir: string): string {
+  return `${documentsDirFor(entityDir)}/firmware`;
+}
+
+/** Staging area for firmware uploads. A `firmware` segment, so the same guard
+ *  that hides the stored files hides half-written ones too — `_tmp` itself is
+ *  served, and an unfiltered upload must not sit in it unprotected. */
+export const firmwareTmpDir = path.join(tmpDir, 'firmware');
+
+/** `firmwareTmpDir`, created on demand. Multer needs it to already exist. */
+export function ensureFirmwareTmpDir(): string {
+  fs.mkdirSync(firmwareTmpDir, { recursive: true });
+  return firmwareTmpDir;
+}
+
+/**
+ * A firmware's own folder, relative to `productsDir`, as
+ * `{product}/sub-products/{sub}/documents/firmware/{id}-{Version}` — created if
+ * missing, parents included.
+ */
+export function ensureFirmwareDir(
+  product: FolderEntity,
+  subProduct: FolderEntity,
+  firmware: { id: number; name: string },
+): string {
+  const base = firmwareDirFor(ensureSubProductDir(product, subProduct));
+  const baseAbs = path.join(productsDir, base);
+  fs.mkdirSync(baseAbs, { recursive: true });
+  return `${base}/${ensureEntityFolder(baseAbs, firmware.id, firmware.name, null)}`;
+}
+
+/**
+ * Remove one firmware's folder. Call only AFTER the deleting transaction has
+ * committed — an `rm` cannot be rolled back. Deleting a whole sub-product needs
+ * no counterpart: `removeEntityFolder` takes the documents folder, and the
+ * firmware tree inside it, with everything else.
+ */
+export function removeFirmwareDir(
+  product: FolderEntity,
+  subProduct: FolderEntity,
+  firmwareId: number,
+): void {
+  const entityDir = findEntityDir(product, subProduct);
+  if (!entityDir) return;
+  const baseAbs = path.join(productsDir, firmwareDirFor(entityDir));
+  const folder = findEntityFolder(baseAbs, firmwareId);
+  if (!folder) return;
+  fs.rmSync(path.join(baseAbs, folder), { recursive: true, force: true });
 }
