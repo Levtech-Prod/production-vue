@@ -28,6 +28,31 @@
       </div>
 
       <template v-else>
+        <!-- Firmware. Deliberately outside the card grid and styled unlike a
+             document type: a firmware is a versioned build with its own change
+             log, not another file slot. Sub-products only — a product revision
+             has no firmware of its own. -->
+        <button
+          v-if="showFirmware"
+          type="button"
+          class="mb-3 flex w-full items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 py-2.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50"
+          @click="emit('open-firmware')"
+        >
+          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+            <Cpu class="h-5 w-5" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold text-slate-800">{{ t('firmware') }}</span>
+            <span class="block truncate text-xs text-slate-500">
+              {{ t('firmware_count', firmwareCount) }}
+              <template v-if="productionFirmwareName">
+                &middot; {{ t('firmware_production_is', { name: productionFirmwareName }) }}
+              </template>
+            </span>
+          </span>
+          <ChevronRight class="h-4 w-4 shrink-0 text-indigo-400" />
+        </button>
+
         <!-- No requirements defined for this product/sub-product type yet:
              ad-hoc uploads still work, so explain where they come from. -->
         <p
@@ -109,7 +134,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Plus } from 'lucide-vue-next';
+import { ChevronRight, Cpu, Plus } from 'lucide-vue-next';
 import DocumentTypeCard from './DocumentTypeCard.vue';
 import DocumentFilesModal, { type DocumentFilesGroup } from './DocumentFilesModal.vue';
 import type {
@@ -125,6 +150,12 @@ const props = defineProps<{
   canEdit: boolean;
   /** May the viewer define document types for this product (admin)? */
   canManageTypes: boolean;
+  /** Firmware belongs to a sub-product revision, so the entry point only
+   *  appears when one is selected. */
+  showFirmware: boolean;
+  firmwareCount: number;
+  /** Name of this revision's production firmware, if it has one. */
+  productionFirmwareName: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -138,6 +169,8 @@ const emit = defineEmits<{
   (e: 'add-type'): void;
   (e: 'edit-type', group: DocumentTypeGroup): void;
   (e: 'delete-type', group: DocumentTypeGroup): void;
+  /** Swap the right panel over to the firmware section. */
+  (e: 'open-firmware'): void;
 }>();
 
 const { t } = useI18n();

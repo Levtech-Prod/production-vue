@@ -94,21 +94,47 @@
             @edit-sp-revision="openEditSpRevision"
           />
 
-          <DocumentsPanel
-            v-else-if="activeTab === 'documents' && panelScope"
-            :title="docsTitle"
-            :docs="docs"
-            :loading="docsLoading"
-            :can-edit="!isArchived"
-            :can-manage-types="isAdmin"
-            @upload-file="onUploadFile"
-            @replace-file="openDocReplaceConfirm"
-            @delete-doc="openDocDeleteConfirm"
-            @link-doc="openDocLinkModal"
-            @add-type="openDocTypeModal(null)"
-            @edit-type="openDocTypeModal"
-            @delete-type="openDocTypeDeleteConfirm"
-          />
+          <template v-if="activeTab === 'documents' && panelScope">
+            <DocumentsPanel
+              v-if="documentsView === 'documents'"
+              :title="docsTitle"
+              :docs="docs"
+              :loading="docsLoading"
+              :can-edit="!isArchived"
+              :can-manage-types="isAdmin"
+              :show-firmware="panelScope.kind === 'spRev'"
+              :firmware-count="firmwares.length"
+              :production-firmware-name="productionFirmware?.name ?? null"
+              @upload-file="onUploadFile"
+              @replace-file="openDocReplaceConfirm"
+              @delete-doc="openDocDeleteConfirm"
+              @link-doc="openDocLinkModal"
+              @add-type="openDocTypeModal(null)"
+              @edit-type="openDocTypeModal"
+              @delete-type="openDocTypeDeleteConfirm"
+              @open-firmware="documentsView = 'firmware'"
+            />
+            <FirmwarePanel
+              v-else
+              :title="firmwareTitle"
+              :revision-label="firmwareRevisionLabel"
+              :firmwares="firmwares"
+              :selected="selectedFirmware"
+              :selected-id="selectedFirmwareId"
+              :loading="firmwaresLoading"
+              :saving="firmwareSaving"
+              :uploading="firmwareUploading"
+              :can-edit="!isArchived"
+              @back="documentsView = 'documents'"
+              @select="selectedFirmwareId = $event"
+              @create="openFirmwareCreate"
+              @edit="openFirmwareEdit"
+              @delete="openFirmwareDeleteConfirm"
+              @set-production="setFirmwareProduction"
+              @upload="uploadFirmwareFiles"
+              @delete-file="openFirmwareFileDeleteConfirm"
+            />
+          </template>
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
                sub-product revision becomes editable right here. -->
@@ -278,6 +304,36 @@
       @cancel="cancelDocDelete"
     />
 
+    <!-- Firmware version create / edit -->
+    <FirmwareFormModal
+      v-model="firmwareFormOpen"
+      :firmware="firmwareEditTarget"
+      :saving="firmwareSaving"
+      @saved="saveFirmware"
+    />
+
+    <ConfirmModal
+      :visible="firmwareToDelete != null"
+      :title="t('delete_firmware')"
+      :message="`${t('confirmations.delete_firmware_msg')}${firmwareToDelete ? `: ${firmwareToDelete.name}` : ''}`"
+      :confirm-text="t('delete')"
+      :cancel-text="t('cancel')"
+      :loading="firmwareDeleting"
+      @confirm="confirmFirmwareDelete"
+      @cancel="cancelFirmwareDelete"
+    />
+
+    <ConfirmModal
+      :visible="firmwareFileToDelete != null"
+      :title="t('delete_firmware_file')"
+      :message="`${t('confirmations.delete_firmware_file_msg')}${firmwareFileToDelete ? `: ${firmwareFileToDelete.originalName}` : ''}`"
+      :confirm-text="t('delete')"
+      :cancel-text="t('cancel')"
+      :loading="firmwareFileDeleting"
+      @confirm="confirmFirmwareFileDelete"
+      @cancel="cancelFirmwareFileDelete"
+    />
+
     <!-- Add / edit a document type belonging to this product alone -->
     <DocumentTypeFormModal
       v-model="docTypeModalOpen"
@@ -313,6 +369,8 @@ import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ProductTree from './detail/ProductTree.vue';
 import RevisionOverviewPanel from './detail/RevisionOverviewPanel.vue';
 import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
+import FirmwarePanel from './detail/firmware/FirmwarePanel.vue';
+import FirmwareFormModal from './detail/firmware/FirmwareFormModal.vue';
 import BomPanel from './detail/bom/BomPanel.vue';
 import ComparePanel from './detail/compare/ComparePanel.vue';
 import EditRevisionModal from './detail/EditRevisionModal.vue';
@@ -327,6 +385,7 @@ import { useRevisionSelection } from './detail/composables/useRevisionSelection.
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
+import { useFirmwares } from './detail/firmware/composables/useFirmwares.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
@@ -473,6 +532,53 @@ const {
   cancelDelete: cancelDocTypeDelete,
 } = useDocumentTypes(panelScope, refreshAllDocScopes);
 
+// Firmware hangs off a sub-product revision, so it shares the Documents tab
+// rather than earning one of its own: `documentsView` picks which of the two
+// panels that tab shows.
+const documentsView = ref<'documents' | 'firmware'>('documents');
+
+const {
+  firmwares,
+  selected: selectedFirmware,
+  selectedId: selectedFirmwareId,
+  productionFirmware,
+  loading: firmwaresLoading,
+  saving: firmwareSaving,
+  uploading: firmwareUploading,
+  load: loadFirmwares,
+  clearCache: clearFirmwareCache,
+  formOpen: firmwareFormOpen,
+  editTarget: firmwareEditTarget,
+  openCreate: openFirmwareCreate,
+  openEdit: openFirmwareEdit,
+  save: saveFirmware,
+  setProduction: setFirmwareProduction,
+  deleteTarget: firmwareToDelete,
+  deleteBusy: firmwareDeleting,
+  openDeleteConfirm: openFirmwareDeleteConfirm,
+  confirmDelete: confirmFirmwareDelete,
+  cancelDelete: cancelFirmwareDelete,
+  uploadFiles: uploadFirmwareFiles,
+  fileDeleteTarget: firmwareFileToDelete,
+  fileDeleteBusy: firmwareFileDeleting,
+  openFileDeleteConfirm: openFirmwareFileDeleteConfirm,
+  confirmFileDelete: confirmFirmwareFileDelete,
+  cancelFileDelete: cancelFirmwareFileDelete,
+} = useFirmwares(panelScope);
+
+const firmwareRevisionLabel = computed(() => {
+  const scope = panelScope.value;
+  if (scope?.kind !== 'spRev') return '';
+  return spRevInfo(scope.spId, scope.revId).rev?.label ?? '';
+});
+
+const firmwareTitle = computed(() => {
+  const scope = panelScope.value;
+  if (scope?.kind !== 'spRev') return t('firmware');
+  const { sp } = spRevInfo(scope.spId, scope.revId);
+  return t('firmware_for', { name: sp?.name ?? '', label: firmwareRevisionLabel.value });
+});
+
 const {
   bom,
   parts,
@@ -503,6 +609,18 @@ watch(panelScope, (scope) => {
 // per product revision now, so each one has its own set).
 watch(panelScope, (scope) => {
   if (scope) void loadDocs(scope);
+});
+
+// Firmware follows the same scope. It is also loaded while the Documents view
+// is showing, because the entry point there reports the count and the current
+// production version. Selecting the product itself has no firmware to show, so
+// the view falls back rather than rendering an empty panel.
+watch(panelScope, (scope) => {
+  if (scope?.kind === 'spRev') {
+    void loadFirmwares(scope);
+  } else {
+    documentsView.value = 'documents';
+  }
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
@@ -825,7 +943,10 @@ async function loadAndApplyDefaults() {
   // Explicit (rather than relying solely on the panelScope watcher above):
   // switching between two products whose active revision happens to be the
   // same object leaves the scope value unchanged, so the watcher wouldn't fire.
-  if (panelScope.value) void loadDocs(panelScope.value);
+  if (panelScope.value) {
+    void loadDocs(panelScope.value);
+    void loadFirmwares(panelScope.value);
+  }
 }
 
 onMounted(loadAndApplyDefaults);
@@ -833,10 +954,12 @@ onMounted(loadAndApplyDefaults);
 watch(productId, () => {
   resetForProductChange();
   clearDocsCache();
+  clearFirmwareCache();
   clearContentCaches();
   bom.value = [];
   parts.value = [];
   activeTab.value = 'documents';
+  documentsView.value = 'documents';
   loadAndApplyDefaults();
 });
 </script>
