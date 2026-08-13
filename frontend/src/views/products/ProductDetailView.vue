@@ -447,7 +447,9 @@ const {
 const treeCollapsed = ref(false);
 
 type RightPanelTab = 'overview' | 'documents' | 'bom' | 'compare';
-const activeTab = ref<RightPanelTab>('documents');
+
+const DEFAULT_TAB: RightPanelTab = 'bom';
+const activeTab = ref<RightPanelTab>(DEFAULT_TAB);
 
 // Overview describes the selected revision, so it only earns a tab while the
 // left panel is showing revisions. Normal mode keeps the three tabs it had.
@@ -597,7 +599,7 @@ const {
 // active tab would point at a tab that is no longer rendered, leaving the
 // panel blank.
 watch(revisionsMode, (on) => {
-  if (!on && activeTab.value === 'overview') activeTab.value = 'documents';
+  if (!on && activeTab.value === 'overview') activeTab.value = DEFAULT_TAB;
 });
 
 // Load BOM/parts whenever their scope changes (needs a real revision).
@@ -958,7 +960,7 @@ watch(productId, () => {
   clearContentCaches();
   bom.value = [];
   parts.value = [];
-  activeTab.value = 'documents';
+  activeTab.value = DEFAULT_TAB;
   documentsView.value = 'documents';
   loadAndApplyDefaults();
 });
