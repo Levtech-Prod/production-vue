@@ -460,3 +460,62 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
   ON audit_logs (entity_type, entity_id, created_at DESC);
+
+-- ===========================================================================
+-- Firmware (see migration 019)
+-- ---------------------------------------------------------------------------
+-- A firmware belongs to exactly ONE sub-product revision: a revision carries
+-- several firmwares, a firmware is never shared across revisions — hence a
+-- plain FK and no junction table.
+--
+-- Deliberately NOT built on `stored_files`: nothing is shared between
+-- firmwares, so carry-forward / copy-on-write have nothing to do here, and a
+-- `stored_files.storage_key` is by definition a path under the statically
+-- served `uploads/products/`. Firmware accepts every file extension, so its
+-- files live under `uploads/firmware/`, which server.ts does not serve.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS firmwares (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL
+                            REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  name                    VARCHAR(120) NOT NULL,
+  status                  VARCHAR(20)  NOT NULL DEFAULT 'testing'
+                            CHECK (status IN ('testing', 'production', 'deprecated')),
+  release_notes           TEXT,
+  created_by              INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Keyed on LOWER(name), like the document-type name indexes: "v2.1" beside
+-- "V2.1" is a duplicate to anyone reading the version list.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_revision_name
+  ON firmwares(sub_product_revision_id, LOWER(name));
+
+-- "Only one production firmware per revision", enforced by the database
+-- rather than by application code.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_one_production
+  ON firmwares(sub_product_revision_id) WHERE status = 'production';
+
+CREATE INDEX IF NOT EXISTS idx_firmwares_revision_id
+  ON firmwares(sub_product_revision_id);
+
+CREATE TABLE IF NOT EXISTS firmware_files (
+  id            SERIAL PRIMARY KEY,
+  firmware_id   INTEGER NOT NULL REFERENCES firmwares(id) ON DELETE CASCADE,
+  storage_key   TEXT     NOT NULL,   -- relative path within uploads/firmware/
+  original_name VARCHAR(255) NOT NULL,
+  size_bytes    BIGINT   NOT NULL,
+  mime_type     VARCHAR(100),
+  uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Also the conflict target for re-uploading a file of the same name: the row
+-- is updated in place and the bytes overwritten.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_firmware_files_storage_key
+  ON firmware_files(storage_key);
+
+CREATE INDEX IF NOT EXISTS idx_firmware_files_firmware_id
+  ON firmware_files(firmware_id);
