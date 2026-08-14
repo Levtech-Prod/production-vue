@@ -190,6 +190,25 @@ export function documentsDirFor(entityDir: string): string {
   return `${entityDir}/documents`;
 }
 
+/** Delete a file if it is still there; a missing file is not an error. */
+export function safeUnlink(absPath: string): void {
+  if (!fs.existsSync(absPath)) return;
+  try {
+    fs.unlinkSync(absPath);
+  } catch (err) {
+    console.error(`Failed to unlink ${absPath}`, err);
+  }
+}
+
+/** Both `original_name` columns are VARCHAR(255); a name must not overflow one.
+ *  Truncates the stem rather than the extension, which is what identifies the
+ *  file. */
+export function clampFileName(name: string): string {
+  if (name.length <= 255) return name;
+  const ext = path.extname(name);
+  return name.slice(0, 255 - ext.length) + ext;
+}
+
 /**
  * Absolute path for `key` inside `rootAbs`, or null if it would escape. Keys
  * are written by the services rather than by users, so this is belt-and-braces
@@ -257,20 +276,30 @@ export function ensureFirmwareDir(
 }
 
 /**
- * Remove one firmware's folder. Call only AFTER the deleting transaction has
- * committed — an `rm` cannot be rolled back. Deleting a whole sub-product needs
- * no counterpart: `removeEntityFolder` takes the documents folder, and the
- * firmware tree inside it, with everything else.
+ * Remove the folders of the given firmwares. Call only AFTER the deleting
+ * transaction has committed — an `rm` cannot be rolled back. Deleting a whole
+ * sub-product needs no counterpart: `removeEntityFolder` takes the documents
+ * folder, and the firmware tree inside it, with everything else.
+ *
+ * Takes a list rather than one id because deleting a revision deletes all of
+ * its firmwares at once, and locating the containing folder costs three
+ * directory scans — worth paying once, not once per firmware.
  */
-export function removeFirmwareDir(
+export function removeFirmwareDirs(
   product: FolderEntity,
   subProduct: FolderEntity,
-  firmwareId: number,
+  firmwareIds: readonly number[],
 ): void {
+  if (firmwareIds.length === 0) return;
+
   const entityDir = findEntityDir(product, subProduct);
   if (!entityDir) return;
   const baseAbs = path.join(productsDir, firmwareDirFor(entityDir));
-  const folder = findEntityFolder(baseAbs, firmwareId);
-  if (!folder) return;
-  fs.rmSync(path.join(baseAbs, folder), { recursive: true, force: true });
+
+  const wanted = new Set(firmwareIds);
+  for (const folder of directoriesIn(baseAbs)) {
+    if (wanted.has(folderId(folder) ?? -1)) {
+      fs.rmSync(path.join(baseAbs, folder), { recursive: true, force: true });
+    }
+  }
 }

@@ -10,10 +10,14 @@
 -- index is what makes that correct under concurrency rather than merely usual.
 --
 -- Firmware files are NOT `stored_files`: nothing is shared between firmwares,
--- so the carry-forward / copy-on-write machinery has nothing to do here, and
--- `stored_files.storage_key` is by definition a path under the statically
--- served `uploads/products/`. Firmware accepts every extension, so its files
--- live under `uploads/firmware/`, which server.ts deliberately does not serve.
+-- so the carry-forward / copy-on-write machinery has nothing to do here.
+--
+-- They live beside the sub-product's documents, at
+-- `uploads/products/{product}/sub-products/{sub}/documents/firmware/{id}-{ver}/`
+-- — inside the statically served tree. Firmware accepts EVERY extension, so
+-- server.ts 404s any `/uploads/**` path containing a `firmware` segment ahead
+-- of the static mount; removing that guard turns an uploaded .html or .svg
+-- into stored XSS on the app's own origin.
 --
 -- Run once against the existing database:
 --   psql "$DATABASE_URL" -f database/migrations/019-add-firmwares.sql
@@ -40,13 +44,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_revision_name
 CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_one_production
   ON firmwares(sub_product_revision_id) WHERE status = 'production';
 
-CREATE INDEX IF NOT EXISTS idx_firmwares_revision_id
-  ON firmwares(sub_product_revision_id);
+-- No plain index on sub_product_revision_id: ux_firmwares_revision_name above
+-- already leads with that column, so every lookup by revision uses it.
+DROP INDEX IF EXISTS idx_firmwares_revision_id;
 
 CREATE TABLE IF NOT EXISTS firmware_files (
   id            SERIAL PRIMARY KEY,
   firmware_id   INTEGER NOT NULL REFERENCES firmwares(id) ON DELETE CASCADE,
-  storage_key   TEXT     NOT NULL,   -- relative path within uploads/firmware/
+  storage_key   TEXT     NOT NULL,   -- path relative to uploads/products/
   original_name VARCHAR(255) NOT NULL,
   size_bytes    BIGINT   NOT NULL,
   mime_type     VARCHAR(100),

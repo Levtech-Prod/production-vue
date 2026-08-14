@@ -23,8 +23,9 @@
 // ===========================================================================
 import fs from 'fs';
 import path from 'path';
-import type { QueryResult, QueryResultRow } from 'pg';
+import type { Queryable } from '../db.js';
 import {
+  clampFileName,
   documentsDirFor,
   ensureProductDir,
   ensureSubProductDir,
@@ -32,17 +33,15 @@ import {
   productsDir,
   PUBLIC_PREFIX,
   resolveUnderProducts,
+  safeUnlink,
   sanitizeSegment,
   type FolderEntity,
 } from './uploadPaths.js';
 
-/** Anything that can run a parameterized query — the pool or a tx client. */
-export interface Queryable {
-  query<T extends QueryResultRow>(
-    text: string,
-    params?: unknown[],
-  ): Promise<QueryResult<T>>;
-}
+// Re-exported so the many modules that already import their DB plumbing from
+// this service keep one import site.
+export { safeUnlink };
+export type { Queryable };
 
 /** Which family of revision documents a call operates on. */
 export type DocumentScope = 'product' | 'subProduct';
@@ -114,15 +113,6 @@ export function resolveEntityDocumentsDir(entity: DocumentEntity): string {
   return documentsDirFor(entityDir);
 }
 
-/** `original_name` is VARCHAR(255); appending an extension must not overflow it. */
-const MAX_DISPLAY_NAME = 255;
-
-function clampDisplayName(name: string): string {
-  if (name.length <= MAX_DISPLAY_NAME) return name;
-  const ext = path.extname(name);
-  return name.slice(0, MAX_DISPLAY_NAME - ext.length) + ext;
-}
-
 /**
  * The name a document is shown under: the custom name when one was given,
  * otherwise the uploaded file's own name.
@@ -153,11 +143,11 @@ export function resolveDisplayName(
   const base = sanitizeSegment((desiredName ?? '').trim() || originalName);
   const originalExt = path.extname(originalName);
 
-  if (!originalExt) return clampDisplayName(base);
+  if (!originalExt) return clampFileName(base);
   if (path.extname(base).toLowerCase() === originalExt.toLowerCase()) {
-    return clampDisplayName(base);
+    return clampFileName(base);
   }
-  return clampDisplayName(base + originalExt);
+  return clampFileName(base + originalExt);
 }
 
 /**
@@ -259,16 +249,6 @@ export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
   // Vector graphics / packaging design
   '.cdr', '.art',
 ]);
-
-/** Delete a file if it is still there; a missing file is not an error. */
-export function safeUnlink(absPath: string): void {
-  if (!fs.existsSync(absPath)) return;
-  try {
-    fs.unlinkSync(absPath);
-  } catch (err) {
-    console.error(`Failed to unlink ${absPath}`, err);
-  }
-}
 
 /**
  * Unlink a file that the reference check found to be unreferenced. Call only

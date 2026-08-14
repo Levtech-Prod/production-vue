@@ -3,7 +3,7 @@
     <div class="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
       <h4 class="text-sm font-semibold text-slate-700">{{ t('firmware_files') }}</h4>
       <span v-if="firmware" class="text-xs text-slate-400">
-        {{ t('firmware_file_count', firmware.files.length) }}
+        {{ t('n_files', firmware.files.length) }}
       </span>
 
       <label

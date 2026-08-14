@@ -13,19 +13,15 @@
 // ===========================================================================
 import fs from 'fs';
 import path from 'path';
-import type { QueryResult, QueryResultRow } from 'pg';
+import type { Queryable } from '../db.js';
 import {
-  ensureFirmwareDir,
+  clampFileName,
   productsDir,
   resolveUnderProducts,
+  safeUnlink,
   sanitizeSegment,
   type FolderEntity,
 } from './uploadPaths.js';
-
-/** Anything that can run a parameterized query — the pool or a tx client. */
-export interface Queryable {
-  query<T extends QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
-}
 
 /**
  * Everything a firmware request needs about what it is acting on: the owning
@@ -110,15 +106,6 @@ export async function findFirmwareContext(
   return row ? { ...toContext(row), firmwareName: row.firmwareName } : null;
 }
 
-/** `original_name` is VARCHAR(255); the stored name must not overflow it. */
-const MAX_FILE_NAME = 255;
-
-function clampName(name: string): string {
-  if (name.length <= MAX_FILE_NAME) return name;
-  const ext = path.extname(name);
-  return name.slice(0, MAX_FILE_NAME - ext.length) + ext;
-}
-
 /** A firmware file moved into place, not yet recorded in the database. */
 export interface PlacedFirmwareFile {
   /** Path relative to `firmwareDir` — becomes `firmware_files.storage_key`. */
@@ -128,7 +115,12 @@ export interface PlacedFirmwareFile {
 }
 
 /**
- * Move an uploaded temp file into a firmware's folder under its own name.
+ * Move an uploaded temp file into `folder` (relative to `productsDir`, from
+ * `ensureFirmwareDir`) under its own name.
+ *
+ * Takes the resolved folder rather than resolving it, mirroring `placeUpload`
+ * in documentFiles.ts: resolution walks and creates three directory levels,
+ * and one request may carry twenty files into the same folder.
  *
  * Unlike documents, a same-named file is OVERWRITTEN rather than given a
  * " (n)" suffix: re-uploading `firmware.hex` means a new build of the same
@@ -138,15 +130,10 @@ export interface PlacedFirmwareFile {
  */
 export function placeFirmwareFile(
   file: Express.Multer.File,
-  product: FolderEntity,
-  subProduct: FolderEntity,
-  firmware: { id: number; name: string },
+  folder: string,
 ): PlacedFirmwareFile {
-  const folder = ensureFirmwareDir(product, subProduct, firmware);
   const dirAbs = path.join(productsDir, folder);
-  fs.mkdirSync(dirAbs, { recursive: true });
-
-  const originalName = clampName(sanitizeSegment(file.originalname));
+  const originalName = clampFileName(sanitizeSegment(file.originalname));
   fs.renameSync(file.path, path.join(dirAbs, originalName));
 
   return { storageKey: `${folder}/${originalName}`, originalName };
@@ -156,16 +143,6 @@ export function placeFirmwareFile(
  *  Keys are relative to `productsDir`, exactly like a document's. */
 export function resolveFirmwareFilePath(storageKey: string): string | null {
   return resolveUnderProducts(storageKey);
-}
-
-/** Delete a file if it is still there; a missing file is not an error. */
-export function safeUnlink(absPath: string): void {
-  if (!fs.existsSync(absPath)) return;
-  try {
-    fs.unlinkSync(absPath);
-  } catch (err) {
-    console.error(`Failed to unlink ${absPath}`, err);
-  }
 }
 
 /**

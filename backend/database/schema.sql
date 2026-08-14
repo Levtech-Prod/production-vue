@@ -469,10 +469,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
 -- plain FK and no junction table.
 --
 -- Deliberately NOT built on `stored_files`: nothing is shared between
--- firmwares, so carry-forward / copy-on-write have nothing to do here, and a
--- `stored_files.storage_key` is by definition a path under the statically
--- served `uploads/products/`. Firmware accepts every file extension, so its
--- files live under `uploads/firmware/`, which server.ts does not serve.
+-- firmwares, so carry-forward / copy-on-write have nothing to do here.
+--
+-- Files live beside the sub-product's documents, at
+-- `uploads/products/{product}/sub-products/{sub}/documents/firmware/{id}-{ver}/`.
+-- That is inside the statically served tree, and firmware accepts EVERY file
+-- extension — so server.ts 404s any `/uploads/**` path containing a `firmware`
+-- segment, ahead of the static mount. Removing that guard turns any uploaded
+-- .html or .svg into stored XSS on the app's own origin.
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS firmwares (
@@ -498,13 +502,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_revision_name
 CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_one_production
   ON firmwares(sub_product_revision_id) WHERE status = 'production';
 
-CREATE INDEX IF NOT EXISTS idx_firmwares_revision_id
-  ON firmwares(sub_product_revision_id);
+-- No plain index on sub_product_revision_id: ux_firmwares_revision_name above
+-- already leads with that column, so every lookup by revision uses it.
+DROP INDEX IF EXISTS idx_firmwares_revision_id;
 
 CREATE TABLE IF NOT EXISTS firmware_files (
   id            SERIAL PRIMARY KEY,
   firmware_id   INTEGER NOT NULL REFERENCES firmwares(id) ON DELETE CASCADE,
-  storage_key   TEXT     NOT NULL,   -- relative path within uploads/firmware/
+  storage_key   TEXT     NOT NULL,   -- path relative to uploads/products/
   original_name VARCHAR(255) NOT NULL,
   size_bytes    BIGINT   NOT NULL,
   mime_type     VARCHAR(100),

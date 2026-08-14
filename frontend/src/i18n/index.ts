@@ -284,7 +284,6 @@ const messages = {
     firmware_version_info: 'Version information',
     firmware_release_notes: 'Release notes',
     firmware_files: 'Uploaded files',
-    firmware_file_count: 'no files | {n} file | {n} files',
     firmware_status: {
       testing: 'Testing',
       production: 'Production',
@@ -349,7 +348,7 @@ const messages = {
 
     // Document type cards
     other_documents: 'Other documents',
-    n_files: '{n} file | {n} files',
+    n_files: 'no files | {n} file | {n} files',
     no_uploaded_file: 'No file uploaded',
     show_more_files: '+{n} more…',
     manage_files: 'Show all files',
@@ -977,7 +976,6 @@ const messages = {
     firmware_version_info: 'Verzió információk',
     firmware_release_notes: 'Kiadási megjegyzés',
     firmware_files: 'Feltöltött fájlok',
-    firmware_file_count: 'nincs fájl | {n} fájl | {n} fájl',
     firmware_status: {
       testing: 'Teszt',
       production: 'Éles',
@@ -1043,7 +1041,7 @@ const messages = {
     // Dokumentumtípus kártyák
     other_documents: 'Egyéb dokumentumok',
     // Hungarian doesn't inflect the noun after a numeral, so one form covers all.
-    n_files: '{n} fájl',
+    n_files: 'nincs fájl | {n} fájl | {n} fájl',
     no_uploaded_file: 'Nincs feltöltött fájl',
     show_more_files: 'még {n}…',
     manage_files: 'Összes fájl megjelenítése',

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { PoolClient } from 'pg';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { removeFirmwareDir } from '../services/uploadPaths.js';
+import { removeFirmwareDirs } from '../services/uploadPaths.js';
 import { findRevisionContext } from '../services/firmwareFiles.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
@@ -595,11 +595,10 @@ router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
   // Read the revision's firmware ids and folder identity first: the delete
   // cascades their rows away, and afterwards there is nothing left to derive
   // their folders from.
-  const firmwareContext = await findRevisionContext(pool, spId, revId);
-  const firmwares = await query<{ id: number }>(
-    `SELECT id FROM firmwares WHERE sub_product_revision_id = $1`,
-    [revId],
-  );
+  const [firmwareContext, firmwares] = await Promise.all([
+    findRevisionContext(pool, spId, revId),
+    query<{ id: number }>(`SELECT id FROM firmwares WHERE sub_product_revision_id = $1`, [revId]),
+  ]);
 
   const result = await query(
     `DELETE FROM sub_product_revisions
@@ -612,9 +611,11 @@ router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
   }
 
   if (firmwareContext?.product) {
-    for (const firmware of firmwares.rows) {
-      removeFirmwareDir(firmwareContext.product, firmwareContext.subProduct, firmware.id);
-    }
+    removeFirmwareDirs(
+      firmwareContext.product,
+      firmwareContext.subProduct,
+      firmwares.rows.map((row) => row.id),
+    );
   }
 
   res.json({ id: revId, deleted: true });

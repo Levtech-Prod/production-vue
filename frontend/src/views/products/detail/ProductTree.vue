@@ -491,7 +491,8 @@ import {
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import RevisionTimeline from './revisions/RevisionTimeline.vue';
-import { linkedRevOf, statusDot } from './revisionHelpers.ts';
+import { linkedRevOf } from './revisionHelpers.ts';
+import { statusDot } from '../../../utils/statusColors.ts';
 import type {
   ProductDetail,
   ProductRevision,

@@ -1,9 +1,10 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { firmwaresApi } from '../../../../../api/firmwareAPI.ts';
 import { useNotificationStore } from '../../../../../stores/notificationStore.ts';
 import { useConfirmDelete } from '../../../../../composables/useConfirmDelete.ts';
+import { useScopedCache } from '../../../../../composables/useScopedCache.ts';
 import { translateApiError } from '../../../../../utils/apiError.ts';
 import type { Firmware, FirmwareFile, FirmwarePayload } from '../../../../../types/firmware.ts';
 import type { PanelScope } from '../../types.ts';
@@ -14,6 +15,10 @@ type FirmwareScope = Extract<PanelScope, { kind: 'spRev' }>;
 function isFirmwareScope(scope: PanelScope | null): scope is FirmwareScope {
   return scope?.kind === 'spRev';
 }
+
+/** One shared instance: the cache hands it out for every scope with no data,
+ *  and it is never mutated. */
+const EMPTY: Firmware[] = [];
 
 /**
  * Firmware tab: loads one revision's firmwares (cached per revision) and runs
@@ -27,15 +32,38 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
   const { t, te } = useI18n();
   const notify = useNotificationStore();
 
-  const cache = new Map<string, Firmware[]>();
-  const firmwares = ref<Firmware[]>([]);
-  const loading = ref(false);
   const saving = ref(false);
   const uploading = ref(false);
-  let token = 0;
 
   /** Which firmware the details pane is showing. */
   const selectedId = ref<number | null>(null);
+
+  /** Narrowed for the cache: firmware only exists under a sub-product
+   *  revision, so a product-scoped panel has nothing to load. */
+  const scope = computed<FirmwareScope | null>(() =>
+    isFirmwareScope(panelScope.value) ? panelScope.value : null,
+  );
+
+  /** Keep the selection valid across refetches: hold it if the firmware is
+   *  still there, otherwise fall back to the newest. */
+  function applySelection(list: Firmware[]) {
+    if (list.some((f) => f.id === selectedId.value)) return;
+    selectedId.value = list[0]?.id ?? null;
+  }
+
+  const {
+    data: firmwares,
+    loading,
+    load,
+    refresh: refreshScope,
+    clearCache: clearScopeCache,
+  } = useScopedCache<FirmwareScope, Firmware[]>({
+    current: scope,
+    keyFor: (s) => `sp:${s.spId}:${s.revId}`,
+    fetcher: async (s) => (await firmwaresApi.getAll(s.spId, s.revId)).data.firmwares,
+    empty: EMPTY,
+    onData: applySelection,
+  });
 
   const selected = computed(
     () => firmwares.value.find((f) => f.id === selectedId.value) ?? null,
@@ -45,77 +73,15 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
     () => firmwares.value.find((f) => f.status === 'production') ?? null,
   );
 
-  function keyFor(scope: FirmwareScope): string {
-    return `sp:${scope.spId}:${scope.revId}`;
-  }
-
-  /** Is this scope still the one on screen? */
-  function isCurrent(scope: FirmwareScope): boolean {
-    return isFirmwareScope(panelScope.value) && keyFor(panelScope.value) === keyFor(scope);
-  }
-
-  /** Keep the selection valid across refetches: hold it if the firmware is
-   *  still there, otherwise fall back to the newest. */
-  function applySelection(list: Firmware[]) {
-    if (list.some((f) => f.id === selectedId.value)) return;
-    selectedId.value = list[0]?.id ?? null;
-  }
-
-  /** Fetch one revision. Null when the request failed or was superseded — a
-   *  slow response must never overwrite a later selection. The response is
-   *  cached either way: it is valid data for the scope it was asked for. */
-  async function fetchFirmwares(scope: FirmwareScope): Promise<Firmware[] | null> {
-    const requestToken = ++token;
-    try {
-      const res = await firmwaresApi.getAll(scope.spId, scope.revId);
-      cache.set(keyFor(scope), res.data.firmwares);
-      return requestToken === token ? res.data.firmwares : null;
-    } catch {
-      // Drop any cached value: after a failed refresh it is stale, and
-      // re-reading is cheaper than showing something wrong.
-      cache.delete(keyFor(scope));
-      return null;
-    }
-  }
-
-  /** Show a revision's firmwares, from cache when possible. */
-  async function load(scope: PanelScope) {
-    if (!isFirmwareScope(scope)) return;
-
-    const cached = cache.get(keyFor(scope));
-    if (cached) {
-      firmwares.value = cached;
-      applySelection(cached);
-      // A cache hit is not loading, and it may be resolving a scope switch
-      // that happened while a slower load was still in flight.
-      loading.value = false;
-      return;
-    }
-
-    loading.value = true;
-    try {
-      const fresh = await fetchFirmwares(scope);
-      if (isCurrent(scope)) {
-        firmwares.value = fresh ?? [];
-        applySelection(firmwares.value);
-      }
-    } finally {
-      if (isCurrent(scope)) loading.value = false;
-    }
-  }
-
-  /** Re-read the current revision after a mutation. */
-  async function refresh(scope: FirmwareScope, selectId?: number) {
-    const fresh = await fetchFirmwares(scope);
-    if (!fresh || !isCurrent(scope)) return;
-    firmwares.value = fresh;
+  /** Re-read the current revision after a mutation, optionally selecting the
+   *  firmware the mutation produced. */
+  async function refresh(target: FirmwareScope, selectId?: number) {
     if (selectId != null) selectedId.value = selectId;
-    applySelection(fresh);
+    await refreshScope(target);
   }
 
   function clearCache() {
-    cache.clear();
-    firmwares.value = [];
+    clearScopeCache();
     selectedId.value = null;
   }
 
@@ -135,18 +101,24 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
     formOpen.value = true;
   }
 
+  // Cleared whenever the modal closes, cancel included, so a later "New
+  // version" click cannot reuse a stale edit target.
+  watch(formOpen, (open) => {
+    if (!open) editTarget.value = null;
+  });
+
   /** Create when `target` is null, otherwise update it. Shared by the form and
    *  by the details pane's "set as production" shortcut. */
   async function persist(target: Firmware | null, payload: FirmwarePayload) {
-    const scope = panelScope.value;
-    if (!isFirmwareScope(scope) || saving.value) return;
+    const current = scope.value;
+    if (!current || saving.value) return;
     saving.value = true;
     try {
       const res = target
         ? await firmwaresApi.update(target.id, payload)
-        : await firmwaresApi.create(scope.spId, scope.revId, payload);
+        : await firmwaresApi.create(current.spId, current.revId, payload);
       notify.showToast(t(target ? 'firmware_updated' : 'firmware_created'), 'success');
-      await refresh(scope, res.data.id);
+      await refresh(current, res.data.id);
       return true;
     } catch (err) {
       notify.showToast(translateApiError(err, { t, te }, 'errors_save_firmware_failed'), 'error');
@@ -158,10 +130,7 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
 
   async function save(payload: FirmwarePayload) {
     const target = editTarget.value;
-    if (await persist(target, payload)) {
-      formOpen.value = false;
-      editTarget.value = null;
-    }
+    if (await persist(target, payload)) formOpen.value = false;
   }
 
   /** Promote a firmware straight from the details pane. The server demotes
@@ -177,13 +146,13 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
   // ── Delete a firmware ─────────────────────────────────────────────────────
 
   const deleteConfirm = useConfirmDelete<Firmware>(async (firmware) => {
-    const scope = panelScope.value;
-    if (!isFirmwareScope(scope)) return false;
+    const current = scope.value;
+    if (!current) return false;
     try {
       await firmwaresApi.delete(firmware.id);
       if (selectedId.value === firmware.id) selectedId.value = null;
       notify.showToast(t('firmware_deleted'), 'success');
-      await refresh(scope);
+      await refresh(current);
       return true;
     } catch (err) {
       notify.showToast(translateApiError(err, { t, te }, 'errors_delete_firmware_failed'), 'error');
@@ -194,14 +163,14 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
   // ── Files ─────────────────────────────────────────────────────────────────
 
   async function uploadFiles(files: File[]) {
-    const scope = panelScope.value;
+    const current = scope.value;
     const firmware = selected.value;
-    if (!isFirmwareScope(scope) || !firmware || files.length === 0 || uploading.value) return;
+    if (!current || !firmware || files.length === 0 || uploading.value) return;
     uploading.value = true;
     try {
       await firmwaresApi.uploadFiles(firmware.id, files);
       notify.showToast(t('firmware_files_uploaded'), 'success');
-      await refresh(scope, firmware.id);
+      await refresh(current, firmware.id);
     } catch (err) {
       notify.showToast(
         translateApiError(err, { t, te }, 'errors_upload_firmware_file_failed'),
@@ -213,13 +182,13 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
   }
 
   const fileDeleteConfirm = useConfirmDelete<FirmwareFile>(async (file) => {
-    const scope = panelScope.value;
+    const current = scope.value;
     const firmware = selected.value;
-    if (!isFirmwareScope(scope) || !firmware) return false;
+    if (!current || !firmware) return false;
     try {
       await firmwaresApi.deleteFile(file.id);
       notify.showToast(t('firmware_file_deleted'), 'success');
-      await refresh(scope, firmware.id);
+      await refresh(current, firmware.id);
       return true;
     } catch (err) {
       notify.showToast(

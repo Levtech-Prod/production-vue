@@ -19,7 +19,9 @@
       </button>
     </div>
 
-    <!-- Versions exist but none is selected — only reachable via the filter. -->
+    <!-- Versions exist but none is selected: the gap between deleting the
+         selected version and its refetch landing, and permanently if that
+         refetch fails. Filtering does NOT deselect. -->
     <p v-else-if="!firmware" class="py-10 text-center text-sm text-slate-400">
       {{ t('select_firmware_hint') }}
     </p>
@@ -142,7 +144,7 @@ import { computed } from 'vue';
 import { Cpu, Crown, Pencil, Plus, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatDate } from '../../../../utils/formatters.ts';
-import { statusBadgeClass, statusDot } from './firmwareHelpers.ts';
+import { statusBadgeClass, statusDot } from '../../../../utils/statusColors.ts';
 import type { Firmware } from '../../../../types/firmware.ts';
 
 const props = defineProps<{

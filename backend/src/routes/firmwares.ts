@@ -8,9 +8,10 @@
 //
 // Unlike documents, uploads here are NOT extension-filtered: firmware toolchains
 // emit whatever they emit (.uf2, .dfu, vendor programmers). That is only safe
-// because these files are never statically served — `uploads/firmware` is
-// outside the two static mounts in server.ts, and the download route below is
-// the sole way to read one back.
+// because these files are never statically served — they sit under
+// `.../documents/firmware/`, and server.ts 404s any `/uploads/**` path with a
+// `firmware` segment ahead of the static mount, leaving the download route
+// below as the sole way to read one back.
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
@@ -25,13 +26,14 @@ import {
   findRevisionContext,
   placeFirmwareFile,
   resolveFirmwareFilePath,
-  safeUnlink,
   unlinkFirmwareFile,
   type FirmwareContext,
 } from '../services/firmwareFiles.js';
 import {
+  ensureFirmwareDir,
   ensureFirmwareTmpDir,
-  removeFirmwareDir,
+  removeFirmwareDirs,
+  safeUnlink,
 } from '../services/uploadPaths.js';
 import { logAudit, resolveActor, type AuditEvent } from '../services/audit.js';
 import { requireId } from './routeParams.js';
@@ -189,13 +191,16 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
  * Clear the way for a `production` firmware on this revision by deprecating
  * whichever one currently holds the slot. Must run before the insert/update
  * that claims it, or `ux_firmwares_one_production` rejects the statement.
- * Returns the demoted firmware's name, for the change log.
+ *
+ * Returns the change-log entries for the demotion — empty when the slot was
+ * free. Building them here rather than at the two call sites keeps the
+ * demotion and its audit trail from drifting apart.
  */
 async function demoteCurrentProduction(
   client: PoolClient,
-  revisionId: number,
+  context: FirmwareContext,
   exceptId: number | null,
-): Promise<string | null> {
+): Promise<AuditEvent[]> {
   const result = await client.query<{ name: string }>(
     `UPDATE firmwares
         SET status = 'deprecated', updated_at = NOW()
@@ -203,9 +208,16 @@ async function demoteCurrentProduction(
         AND status = 'production'
         AND ($2::int IS NULL OR id <> $2)
       RETURNING name`,
-    [revisionId, exceptId],
+    [context.revisionId, exceptId],
   );
-  return result.rows[0]?.name ?? null;
+  return result.rows.map((row) => ({
+    type: 'firmware',
+    tag: 'changed',
+    label: row.name,
+    scope: firmwareScope(context),
+    from: 'production',
+    to: 'deprecated',
+  }));
 }
 
 /**
@@ -247,10 +259,16 @@ router.get('/sub-products/:spId/revisions/:revId/firmwares', requireAuth, async 
   const revId = requireId(res, req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   if (revId === null) return;
 
-  const context = await findRevisionContext(pool, spId, revId);
+  // Independent: the context is only a 404 check, so it need not gate the
+  // list. One round-trip instead of two on the common path; the wasted list
+  // query on a 404 is far cheaper than the extra latency on every hit.
+  const [context, firmwares] = await Promise.all([
+    findRevisionContext(pool, spId, revId),
+    listFirmwares(revId),
+  ]);
   if (!context) return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
 
-  res.json({ firmwares: await listFirmwares(revId) });
+  res.json({ firmwares });
 });
 
 // POST /api/sub-products/:spId/revisions/:revId/firmwares
@@ -264,23 +282,14 @@ router.post('/sub-products/:spId/revisions/:revId/firmwares', requireAuth, async
   const context = await findRevisionContext(pool, spId, revId);
   if (!context) return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
 
+  let newFirmwareId: number;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     const events: AuditEvent[] = [];
     if (data.status === 'production') {
-      const demoted = await demoteCurrentProduction(client, revId, null);
-      if (demoted) {
-        events.push({
-          type: 'firmware',
-          tag: 'changed',
-          label: demoted,
-          scope: firmwareScope(context),
-          from: 'production',
-          to: 'deprecated',
-        });
-      }
+      events.push(...(await demoteCurrentProduction(client, context, null)));
     }
 
     const inserted = await client.query<{ id: number }>(
@@ -290,6 +299,7 @@ router.post('/sub-products/:spId/revisions/:revId/firmwares', requireAuth, async
        RETURNING id`,
       [revId, data.name, data.status, data.releaseNotes, req.user?.id ?? null],
     );
+    newFirmwareId = inserted.rows[0].id;
 
     events.push({
       type: 'firmware',
@@ -301,7 +311,6 @@ router.post('/sub-products/:spId/revisions/:revId/firmwares', requireAuth, async
     await logFirmwareEvents(client, context, req.user?.id, events);
 
     await client.query('COMMIT');
-    res.status(201).json(await loadFirmware(inserted.rows[0].id));
   } catch (err) {
     await client.query('ROLLBACK');
     if (isUniqueViolation(err, 'ux_firmwares_revision_name')) {
@@ -311,6 +320,12 @@ router.post('/sub-products/:spId/revisions/:revId/firmwares', requireAuth, async
   } finally {
     client.release();
   }
+
+  // Reloaded only after the client is back in the pool: `loadFirmware` checks
+  // one out itself, and holding two per request deadlocks the pool under
+  // concurrency. Outside the `catch` for a second reason — a read failing here
+  // must not issue a ROLLBACK against an already-committed transaction.
+  res.status(201).json(await loadFirmware(newFirmwareId));
 });
 
 // PUT /api/firmwares/:id
@@ -338,17 +353,7 @@ router.put('/firmwares/:id', requireAuth, async (req, res) => {
 
     const events: AuditEvent[] = [];
     if (data.status === 'production' && previous.status !== 'production') {
-      const demoted = await demoteCurrentProduction(client, context.revisionId, firmwareId);
-      if (demoted) {
-        events.push({
-          type: 'firmware',
-          tag: 'changed',
-          label: demoted,
-          scope: firmwareScope(context),
-          from: 'production',
-          to: 'deprecated',
-        });
-      }
+      events.push(...(await demoteCurrentProduction(client, context, firmwareId)));
     }
 
     await client.query(
@@ -375,7 +380,6 @@ router.put('/firmwares/:id', requireAuth, async (req, res) => {
     await logFirmwareEvents(client, context, req.user?.id, events);
 
     await client.query('COMMIT');
-    res.json(await loadFirmware(firmwareId));
   } catch (err) {
     await client.query('ROLLBACK');
     if (isUniqueViolation(err, 'ux_firmwares_revision_name')) {
@@ -385,6 +389,9 @@ router.put('/firmwares/:id', requireAuth, async (req, res) => {
   } finally {
     client.release();
   }
+
+  // After `client.release()` — see the create handler above.
+  res.json(await loadFirmware(firmwareId));
 });
 
 // DELETE /api/firmwares/:id
@@ -424,7 +431,7 @@ router.delete('/firmwares/:id', requireAuth, async (req, res) => {
   }
 
   // Post-commit: `firmware_files` cascaded, so the whole folder goes.
-  if (context.product) removeFirmwareDir(context.product, context.subProduct, firmwareId);
+  if (context.product) removeFirmwareDirs(context.product, context.subProduct, [firmwareId]);
   res.json({ id: firmwareId, deleted: true });
 });
 
@@ -441,22 +448,24 @@ router.post('/firmwares/:id/files', requireAuth, uploadFiles, async (req, res) =
   const files = uploadedFiles(req);
   if (files.length === 0) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
 
-  const context = await findFirmwareContext(pool, firmwareId);
-  if (!context) {
-    discardUploads(req);
-    return res.status(404).json({ code: ErrorCodes.FIRMWARE_NOT_FOUND });
-  }
-
-  // Which storage keys already exist decides two things below: whether the
+  // Both depend only on `firmwareId`, so they go together. Which storage keys
+  // already exist decides two things below: whether the
   // change log calls an upload an addition or a replacement, and — more
   // importantly — which files may be unlinked if the transaction fails. An
   // upload that overwrote an existing file has already destroyed the old
   // bytes, so unlinking it on rollback would leave a surviving row pointing
   // at nothing; only genuinely new files can be taken back.
-  const existing = await query<{ storage_key: string }>(
-    `SELECT storage_key FROM firmware_files WHERE firmware_id = $1`,
-    [firmwareId],
-  );
+  const [context, existing] = await Promise.all([
+    findFirmwareContext(pool, firmwareId),
+    query<{ storage_key: string }>(
+      `SELECT storage_key FROM firmware_files WHERE firmware_id = $1`,
+      [firmwareId],
+    ),
+  ]);
+  if (!context) {
+    discardUploads(req);
+    return res.status(404).json({ code: ErrorCodes.FIRMWARE_NOT_FOUND });
+  }
   const existingKeys = new Set(existing.rows.map((row) => row.storage_key));
 
   // The firmware folder lives inside the main product's tree, so a parentless
@@ -468,16 +477,19 @@ router.post('/firmwares/:id/files', requireAuth, uploadFiles, async (req, res) =
     return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
   }
 
-  const placed = files.map((file) => ({
-    file,
-    ...placeFirmwareFile(file, product, context.subProduct, {
-      id: firmwareId,
-      name: context.firmwareName,
-    }),
-  }));
+  // Resolved once, not per file: it walks and creates three directory levels.
+  const folder = ensureFirmwareDir(product, context.subProduct, {
+    id: firmwareId,
+    name: context.firmwareName,
+  });
+  const placed = files.map((file) => ({ file, ...placeFirmwareFile(file, folder) }));
 
-  const client = await pool.connect();
+  // `pool.connect()` is inside the try so that a failure to get a client is
+  // covered by the same cleanup as a failed transaction — by this point the
+  // bytes have already left `_tmp`, so nothing else would ever reclaim them.
+  let client: PoolClient | undefined;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     const events: AuditEvent[] = [];
 
@@ -514,13 +526,13 @@ router.post('/firmwares/:id/files', requireAuth, uploadFiles, async (req, res) =
     await logFirmwareEvents(client, context, req.user?.id, events);
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client?.query('ROLLBACK');
     for (const item of placed) {
       if (!existingKeys.has(item.storageKey)) unlinkFirmwareFile(item.storageKey);
     }
     throw err;
   } finally {
-    client.release();
+    client?.release();
   }
 
   res.status(201).json(await loadFirmware(firmwareId));
@@ -531,20 +543,55 @@ router.delete('/firmware-files/:fileId', requireAuth, async (req, res) => {
   const fileId = requireId(res, req.params.fileId, ErrorCodes.INVALID_FIRMWARE_FILE_ID);
   if (fileId === null) return;
 
-  const deleted = await query<{ storage_key: string; firmware_id: number; original_name: string }>(
-    `DELETE FROM firmware_files WHERE id = $1
-     RETURNING storage_key, firmware_id, original_name`,
-    [fileId],
-  );
-  const row = deleted.rows[0];
-  if (!row) return res.status(404).json({ code: ErrorCodes.FIRMWARE_FILE_NOT_FOUND });
+  let storageKey: string;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const deleted = await client.query<{
+      storage_key: string;
+      firmware_id: number;
+      original_name: string;
+    }>(
+      `DELETE FROM firmware_files WHERE id = $1
+       RETURNING storage_key, firmware_id, original_name`,
+      [fileId],
+    );
+    const row = deleted.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.FIRMWARE_FILE_NOT_FOUND });
+    }
+    storageKey = row.storage_key;
 
-  unlinkFirmwareFile(row.storage_key);
+    // Without this the change log shows firmware files appearing and never
+    // disappearing, which misrepresents the current state rather than merely
+    // omitting it.
+    const context = await findFirmwareContext(client, row.firmware_id);
+    if (context) {
+      await logFirmwareEvents(client, context, req.user?.id, [
+        {
+          type: 'firmware_file',
+          tag: 'removed',
+          label: row.original_name,
+          scope: [...firmwareScope(context), { type: 'firmware', label: context.firmwareName }],
+          from: context.firmwareName,
+        },
+      ]);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  unlinkFirmwareFile(storageKey);
   res.json({ id: fileId, deleted: true });
 });
 
 // GET /api/firmware-files/:fileId/download — the ONLY way to read a firmware
-// file: nothing under `uploads/firmware` is statically served.
+// file: server.ts refuses to serve any path with a `firmware` segment.
 router.get('/firmware-files/:fileId/download', requireAuth, async (req, res) => {
   const fileId = requireId(res, req.params.fileId, ErrorCodes.INVALID_FIRMWARE_FILE_ID);
   if (fileId === null) return;
