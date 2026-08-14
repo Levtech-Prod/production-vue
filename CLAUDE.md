@@ -4,10 +4,37 @@ Stack: Vue 3 + TypeScript + Vite + Pinia + Tailwind (frontend), Express + TypeSc
 
 These rules apply to all code written or edited in this project.
 
+## Before writing something new
+
+Search before you build. Most features here have a sibling that already solved
+the same problem, and the cheapest bug to avoid is the one you copy.
+
+- **Look first.** Before implementing anything — a component, a composable, a
+  service helper, an endpoint shape — search for an existing version of it.
+  Search by concept, not by name: "a modal that names a file before upload",
+  "a cache keyed by the current selection", "pick a target, confirm, delete"
+  may all exist under wording you wouldn't guess.
+- **Where to look:** `frontend/src/components`, `frontend/src/composables`,
+  `frontend/src/utils`, `backend/src/services`, and above all the existing
+  feature most like the one you're adding — new panels almost always parallel
+  an old one.
+- **If something close exists, use it.** If it's close but not exact, prefer
+  widening it — a prop, a parameter, a type argument — over copying it. Update
+  every call site in the same change, so the two can't drift.
+- **Write something new only when reuse would bend the existing code out of
+  shape.** When you do, say in a comment what you looked at and why it didn't
+  fit, so the next person doesn't redo the search.
+- **Similar-looking is not duplicated.** Duplication is the same *decision*
+  written twice. Two things with the same shape but different meaning — say two
+  status colour maps that encode deliberately different palettes — should stay
+  apart; merging them yields a helper with a discriminator parameter that is no
+  simpler than the two it replaced. Ask whether a change to one should
+  necessarily change the other. If yes, share it. If no, leave it.
+
 ## Code quality
 
 - Keep code clean and optimized — remove dead code, unused imports/vars, and stray console logs before finishing a task.
-- Avoid duplication: extract repeated logic into helper functions, composables (`frontend/src/composables`), shared variables, or sub-components rather than copy-pasting.
+- Avoid duplication: extract repeated logic into helper functions, composables (`frontend/src/composables`), shared variables, or sub-components rather than copy-pasting. This applies to code you are adding *now*, not only to duplication you find later — see "Before writing something new" above.
 - Cache data where it meaningfully improves performance (e.g. expensive queries, repeated API calls, derived state) — but don't cache prematurely or where it risks stale data on writes.
 
 ## Comments
