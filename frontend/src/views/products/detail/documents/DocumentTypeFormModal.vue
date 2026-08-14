@@ -44,9 +44,11 @@
         <label class="mb-2 block text-xs font-medium text-slate-500">
           {{ t('allowed_extensions') }}
         </label>
-        <ExtensionChipsInput
+        <ChipsInput
           ref="extensionsInput"
           v-model="draft.allowedExtensions"
+          :placeholder="t('allowed_extensions_placeholder')"
+          :normalize="normalizeExtensionChip"
         />
         <p class="mt-2 text-xs text-slate-400">
           {{ t('allowed_extensions_any_hint') }}
@@ -88,8 +90,8 @@ import { useI18n } from 'vue-i18n';
 import { TriangleAlert } from 'lucide-vue-next';
 import BaseModal from '../../../../components/modal/BaseModal.vue';
 import IconPicker from '../../../../components/IconPicker.vue';
-import ExtensionChipsInput from '../../../../components/ExtensionChipsInput.vue';
-import { documentTypeNameError } from '../../../../utils/documentTypeDraft.ts';
+import ChipsInput from '../../../../components/ChipsInput.vue';
+import { documentTypeNameError, normalizeExtensionChip } from '../../../../utils/documentTypeDraft.ts';
 import type { DocumentTypeDraft } from '../../../../types/documentTypes.ts';
 
 const props = defineProps<{
@@ -110,7 +112,7 @@ const title = computed(() =>
 );
 
 const nameError = ref<string | null>(null);
-const extensionsInput = ref<InstanceType<typeof ExtensionChipsInput> | null>(
+const extensionsInput = ref<InstanceType<typeof ChipsInput> | null>(
   null,
 );
 

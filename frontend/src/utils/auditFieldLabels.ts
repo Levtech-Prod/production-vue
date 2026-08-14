@@ -5,6 +5,7 @@
 export const PART_FIELD_LABEL_KEYS: Record<string, string> = {
   name: 'field_name',
   code: 'field_code',
+  secondaryCode: 'field_secondary_code',
   category: 'field_category',
   price: 'field_price',
   location: 'field_location',

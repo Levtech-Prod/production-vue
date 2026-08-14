@@ -18,7 +18,12 @@
   </td>
 
   <td class="border-r border-slate-300 px-2 py-1">
-    <ExtensionChipsInput ref="extensionsInput" v-model="draft.allowedExtensions" />
+    <ChipsInput
+      ref="extensionsInput"
+      v-model="draft.allowedExtensions"
+      :placeholder="t('allowed_extensions_placeholder')"
+      :normalize="normalizeExtensionChip"
+    />
   </td>
 
   <td class="border-r border-slate-300 px-2 py-1 text-center">
@@ -54,7 +59,8 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Check, X } from 'lucide-vue-next';
 import IconPicker from '../../components/IconPicker.vue';
-import ExtensionChipsInput from '../../components/ExtensionChipsInput.vue';
+import ChipsInput from '../../components/ChipsInput.vue';
+import { normalizeExtensionChip } from '../../utils/documentTypeDraft.ts';
 import type { DocumentTypeDraft } from '../../types/documentTypes.ts';
 
 defineProps<{
@@ -70,7 +76,7 @@ const emit = defineEmits<{
 const draft = defineModel<DocumentTypeDraft>({ required: true });
 
 const { t } = useI18n();
-const extensionsInput = ref<InstanceType<typeof ExtensionChipsInput> | null>(null);
+const extensionsInput = ref<InstanceType<typeof ChipsInput> | null>(null);
 
 // Flush any not-yet-committed extension text before saving, so typing an
 // extension and immediately clicking Save (without pressing Enter) doesn't

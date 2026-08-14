@@ -188,6 +188,7 @@ function label(field: string): string {
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined || v === '') return '';
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '';
   if (typeof v === 'object') {
     const o = v as Record<string, unknown>;
     if ('amount' in o && 'currency' in o) return `${o.amount} ${o.currency}`;

@@ -1,24 +1,24 @@
-<!-- Tag-style editor for a document type's `allowedExtensions`: committed
-     values show as removable chips, the trailing input takes the next one.
-     Shared by the settings table row (DocumentTypeRowForm.vue) and the
-     Documents panel's add/edit modal (DocumentTypeFormModal.vue), which
-     otherwise have no markup in common. -->
+<!-- Generic tag-style editor for a string list: committed values show as
+     removable chips, the trailing input takes the next one. Originally built
+     just for a document type's `allowedExtensions`, then widened (rather
+     than copied) for any list-of-strings field — e.g. a part's secondary
+     codes — via the `normalize`/`placeholder` props below. -->
 <template>
   <div class="flex flex-col items-start gap-2.5 pt-1">
     <!-- Committed values sit above the input rather than inline with it, so
          adding one never moves the field the user is typing in. -->
-    <div v-if="extensions.length > 0" class="flex flex-wrap gap-1">
+    <div v-if="items.length > 0" class="flex flex-wrap gap-1">
       <span
-        v-for="(ext, i) in extensions"
-        :key="ext"
+        v-for="(item, i) in items"
+        :key="item"
         class="badge inline-flex items-center gap-1 bg-slate-100 text-slate-700"
       >
-        {{ ext }}
+        {{ item }}
         <button
           type="button"
           class="rounded-full p-0.5 hover:bg-slate-200"
           :aria-label="t('delete')"
-          @click="extensions.splice(i, 1)"
+          @click="items.splice(i, 1)"
         >
           <X class="h-3 w-3" />
         </button>
@@ -28,7 +28,7 @@
     <input
       v-model="pending"
       class="input-sm w-40 shrink-0"
-      :placeholder="t('allowed_extensions_placeholder')"
+      :placeholder="placeholder"
       @keydown.enter.prevent="commit"
       @keydown="onKeydown"
       @blur="commit"
@@ -41,27 +41,29 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { X } from 'lucide-vue-next';
 
-const extensions = defineModel<string[]>({ required: true });
+const items = defineModel<string[]>({ required: true });
+
+const props = withDefaults(
+  defineProps<{
+    placeholder: string;
+    // Turns raw input text into a committable chip value; return '' to
+    // reject it (e.g. blank input). Defaults to a plain trim.
+    normalize?: (raw: string) => string;
+  }>(),
+  { normalize: (raw: string) => raw.trim() },
+);
 
 const { t } = useI18n();
 const pending = ref('');
 
-// Extensions are also normalised server-side (documentTypes.schema.ts), but
-// doing it here too means the chip the admin sees matches what's saved.
-function normalize(raw: string): string {
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return '';
-  return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
-}
-
 /** Turn whatever is in the input into a chip. Exposed so a parent can flush
- *  uncommitted text before saving — typing an extension and clicking Save
+ *  uncommitted text before saving — typing a value and clicking Save
  *  without pressing Enter must not silently drop it. */
 function commit() {
-  const value = normalize(pending.value);
+  const value = props.normalize(pending.value);
   pending.value = '';
-  if (!value || value === '.') return;
-  if (!extensions.value.includes(value)) extensions.value.push(value);
+  if (!value) return;
+  if (!items.value.includes(value)) items.value.push(value);
 }
 
 // Comma also commits a chip (in addition to Enter/blur), matching common

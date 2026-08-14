@@ -112,6 +112,12 @@ ALTER TABLE part_categories
 ALTER TABLE parts ADD COLUMN IF NOT EXISTS name_prefix VARCHAR(180);
 UPDATE parts SET name_prefix = name WHERE name_prefix IS NULL;
 
+-- Alternate codes the same part is ordered under at other companies (see
+-- migration 020). `code` stays the one required, unique identifier; this is
+-- an optional, unordered list with no uniqueness constraint.
+ALTER TABLE parts
+  ADD COLUMN IF NOT EXISTS secondary_code TEXT[] NOT NULL DEFAULT ARRAY[]::text[];
+
 -- ===========================================================================
 -- Product Management & Revisioning module
 -- ---------------------------------------------------------------------------
