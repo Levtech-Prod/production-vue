@@ -33,6 +33,9 @@ export interface Part {
   name: string;
   namePrefix?: string | null;
   code: string;
+  // Alternate codes the same part is ordered under at other companies.
+  // Unlike `code`, not unique and not required.
+  secondaryCodes?: string[];
   // Canonical price in EUR. `priceEntered*` record how it was entered.
   pricePerPiece: number | string;
   priceEnteredAmount?: number | string | null;

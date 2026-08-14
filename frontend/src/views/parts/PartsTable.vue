@@ -80,7 +80,10 @@
             </div>
           </td>
           <td class="p-4 font-mono text-xs text-slate-600">
-            {{ part.code }}
+            <div>{{ part.code }}</div>
+            <div v-if="part.secondaryCodes?.length" class="mt-0.5 text-[10px] text-slate-400">
+              {{ part.secondaryCodes.join(', ') }}
+            </div>
           </td>
           <td class="p-4 font-semibold">{{ part.name }}</td>
           <td class="p-4 text-slate-500">{{ part.category.name }}</td>

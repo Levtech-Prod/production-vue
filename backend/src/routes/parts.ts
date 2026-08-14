@@ -23,6 +23,14 @@ function valuesByParameterId(
   return Object.fromEntries(parameters.map((p) => [p.parameterId, p.value]));
 }
 
+/** Order-independent equality for secondary codes — re-typing the same set
+ *  in a different order is not a change worth logging. */
+function sameStringSet(a: string[] | null, b: string[] | null): boolean {
+  const as = [...(a ?? [])].sort();
+  const bs = [...(b ?? [])].sort();
+  return as.length === bs.length && as.every((v, i) => v === bs[i]);
+}
+
 // Columns exposing the stored EUR price plus how it was entered (amount +
 // currency the user typed, and the BNR rate/date applied for RON entries).
 const PART_PRICE_COLUMNS = `
@@ -40,6 +48,7 @@ router.get('/', requireAuth, async (_req, res) => {
       p.name,
       p.name_prefix AS "namePrefix",
       p.code,
+      p.secondary_code AS "secondaryCodes",
       ${PART_PRICE_COLUMNS},
       p.location,
       p.description,
@@ -127,11 +136,12 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 
     const partResult = await client.query(
       `INSERT INTO parts
-         (category_id, name, name_prefix, code, price_per_piece, price_entered_amount,
+         (category_id, name, name_prefix, code, secondary_code, price_per_piece, price_entered_amount,
           price_entered_currency, price_rate_used, price_rate_date,
           location, description, image)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING id, category_id AS "categoryId", name, name_prefix AS "namePrefix", code,
+         secondary_code AS "secondaryCodes",
          ${PART_PRICE_COLUMNS.replace(/\bp\./g, '')},
          location, description, image, created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
@@ -139,6 +149,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
         name,
         data.name,
         data.code,
+        data.secondaryCodes,
         price.priceEur,
         data.pricePerPiece.amount,
         data.pricePerPiece.currency,
@@ -239,20 +250,23 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const partResult = await client.query(
       `
       UPDATE parts
-      SET category_id = $1, name = $2, name_prefix = $3, code = $4, price_per_piece = $5,
-          price_entered_amount = $6, price_entered_currency = $7,
-          price_rate_used = $8, price_rate_date = $9,
-          location = $10, description = $11, image = $12, updated_at = NOW()
-      FROM (SELECT * FROM parts WHERE id = $13) old
+      SET category_id = $1, name = $2, name_prefix = $3, code = $4, secondary_code = $5,
+          price_per_piece = $6,
+          price_entered_amount = $7, price_entered_currency = $8,
+          price_rate_used = $9, price_rate_date = $10,
+          location = $11, description = $12, image = $13, updated_at = NOW()
+      FROM (SELECT * FROM parts WHERE id = $14) old
       WHERE parts.id = old.id
       RETURNING parts.id, parts.category_id AS "categoryId", parts.name,
         parts.name_prefix AS "namePrefix", parts.code,
+        parts.secondary_code AS "secondaryCodes",
         ${PART_PRICE_COLUMNS.replace(/\bp\./g, 'parts.')},
         parts.location, parts.description, parts.image,
         parts.created_at AS "createdAt", parts.updated_at AS "updatedAt",
         old.category_id            AS "oldCategoryId",
         old.name                   AS "oldName",
         old.code                   AS "oldCode",
+        old.secondary_code         AS "oldSecondaryCodes",
         old.price_entered_amount   AS "oldPriceEnteredAmount",
         old.price_entered_currency AS "oldPriceEnteredCurrency",
         old.location               AS "oldLocation",
@@ -264,6 +278,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         name,
         data.name,
         data.code,
+        data.secondaryCodes,
         price.priceEur,
         data.pricePerPiece.amount,
         data.pricePerPiece.currency,
@@ -397,6 +412,15 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       };
     }
 
+    // Secondary codes: an unordered list, so compare sorted — reordering the
+    // same set of codes is not a change.
+    if (!sameStringSet(row.oldSecondaryCodes, row.secondaryCodes)) {
+      fields.secondaryCode = {
+        from: row.oldSecondaryCodes ?? [],
+        to: row.secondaryCodes ?? [],
+      };
+    }
+
     // Parameters: build events from data already read above (no extra query).
     const paramNameRes = await client.query<{ id: number; name: string }>(
       `SELECT id, name FROM part_category_parameters WHERE id = ANY($1::int[])`,
@@ -431,6 +455,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       oldCategoryId: _oc,
       oldName: _on,
       oldCode: _ocode,
+      oldSecondaryCodes: _osc,
       oldPriceEnteredAmount: _opa,
       oldPriceEnteredCurrency: _opc,
       oldLocation: _ol,

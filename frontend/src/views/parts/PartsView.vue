@@ -249,7 +249,8 @@ const filteredParts = computed(() => {
     const matchesName =
       !q ||
       p.name.toLowerCase().includes(q) ||
-      p.code.toLowerCase().includes(q);
+      p.code.toLowerCase().includes(q) ||
+      (p.secondaryCodes ?? []).some((c) => c.toLowerCase().includes(q));
     const matchesCategory =
       !selectedCategoryId.value || p.categoryId === selectedCategoryId.value;
     return matchesName && matchesCategory && matchesParamFilters(p);

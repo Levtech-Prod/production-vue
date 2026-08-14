@@ -7,7 +7,10 @@
     >
       <div class="min-w-0 flex-1">
         <h2 class="font-semibold text-slate-900 truncate leading-tight">{{ part.name }}</h2>
-        <span class="text-xs font-mono text-slate-400">{{ part.code }}</span>
+        <div class="text-xs font-mono text-slate-400 truncate">{{ part.code }}</div>
+        <div v-if="part.secondaryCodes?.length" class="text-[10px] font-mono text-slate-300 truncate">
+          {{ part.secondaryCodes.join(', ') }}
+        </div>
       </div>
 
       <div class="flex items-center gap-0.5 shrink-0">
