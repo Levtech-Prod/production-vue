@@ -190,15 +190,153 @@ export function documentsDirFor(entityDir: string): string {
   return `${entityDir}/documents`;
 }
 
+/** Delete a file if it is still there; a missing file is not an error. */
+export function safeUnlink(absPath: string): void {
+  if (!fs.existsSync(absPath)) return;
+  try {
+    fs.unlinkSync(absPath);
+  } catch (err) {
+    console.error(`Failed to unlink ${absPath}`, err);
+  }
+}
+
+/** Both `original_name` columns are VARCHAR(255); a name must not overflow one.
+ *  Truncates the stem rather than the extension, which is what identifies the
+ *  file. */
+export function clampFileName(name: string): string {
+  if (name.length <= 255) return name;
+  const ext = path.extname(name);
+  return name.slice(0, 255 - ext.length) + ext;
+}
+
 /**
- * Absolute path for a key relative to `productsDir`, or null if the key would
- * escape it. Keys are written by the service rather than by users, so this is
- * belt-and-braces — but it is the one place a bad key could turn into an
- * arbitrary file read, so it is checked before every download.
+ * The name an uploaded file is shown under: the custom name when one was given,
+ * otherwise the uploaded file's own name.
+ *
+ * The extension ALWAYS comes from the uploaded file, and is appended rather
+ * than substituted when a custom name carries a different one ("notes.txt"
+ * for a .zip becomes "notes.txt.zip"). Two reasons:
+ *
+ *  - It is the extension that was validated — against the global allow-list
+ *    and the card's `allowedExtensions`. Letting a label rename `x.zip` to
+ *    `x.svg` would put an unvalidated extension on a file served statically
+ *    from `/uploads`.
+ *  - Appending never guesses. Substituting means deciding which trailing
+ *    dot-segment of the typed name is "the extension", and `path.extname`
+ *    reads "v2.1 release" as ".1 release" — so a legitimate name with a dot
+ *    in it would be silently truncated.
+ *
+ * Deliberately independent of what is already on disk. The display name is
+ * what the user typed (or uploaded); collision handling belongs to
+ * `resolveUniqueName` and must never leak back into it, or replacing a file
+ * with a new version of itself would rename the document to "foo (1).ext"
+ * merely because the file being replaced is still on disk at that moment.
  */
-export function resolveUnderProducts(key: string): string | null {
-  const absolute = path.resolve(productsDir, key);
-  const root = path.resolve(productsDir);
+export function resolveDisplayName(
+  desiredName: string | undefined,
+  originalName: string,
+): string {
+  const base = sanitizeSegment((desiredName ?? '').trim() || originalName);
+  const originalExt = path.extname(originalName);
+
+  if (!originalExt) return clampFileName(base);
+  if (path.extname(base).toLowerCase() === originalExt.toLowerCase()) {
+    return clampFileName(base);
+  }
+  return clampFileName(base + originalExt);
+}
+
+/**
+ * Absolute path for `key` inside `rootAbs`, or null if it would escape. Keys
+ * are written by the services rather than by users, so this is belt-and-braces
+ * — but it is the one place a bad key could turn into an arbitrary file read,
+ * so it is checked before every download.
+ */
+function resolveUnder(rootAbs: string, key: string): string | null {
+  const absolute = path.resolve(rootAbs, key);
+  const root = path.resolve(rootAbs);
   if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
   return absolute;
+}
+
+/** Absolute path for a key relative to `productsDir`, or null if it escapes. */
+export function resolveUnderProducts(key: string): string | null {
+  return resolveUnder(productsDir, key);
+}
+
+// ── Firmware tree ──────────────────────────────────────────────────────────
+//
+// Firmware lives inside the owning sub-product's folder, beside its documents:
+//
+//   uploads/products/{product}/sub-products/{sub}/documents/firmware/
+//     {firmwareId}-{Version}/
+//       firmware.hex
+//
+// That puts it under `uploads/products/`, which IS statically served — and
+// firmware accepts EVERY file extension (see routes/firmwares.ts), so an
+// uploaded .html or .svg would be stored XSS on this origin. server.ts
+// therefore 404s any `/uploads/**` path containing a `firmware` SEGMENT,
+// ahead of the static mount; the authenticated download route is the only way
+// to read one back. Moving this folder means moving that guard with it.
+
+/** The `firmware/` folder inside an entity's documents folder, relative to
+ *  `productsDir`. */
+export function firmwareDirFor(entityDir: string): string {
+  return `${documentsDirFor(entityDir)}/firmware`;
+}
+
+/** Staging area for firmware uploads. A `firmware` segment, so the same guard
+ *  that hides the stored files hides half-written ones too — `_tmp` itself is
+ *  served, and an unfiltered upload must not sit in it unprotected. */
+export const firmwareTmpDir = path.join(tmpDir, 'firmware');
+
+/** `firmwareTmpDir`, created on demand. Multer needs it to already exist. */
+export function ensureFirmwareTmpDir(): string {
+  fs.mkdirSync(firmwareTmpDir, { recursive: true });
+  return firmwareTmpDir;
+}
+
+/**
+ * A firmware's own folder, relative to `productsDir`, as
+ * `{product}/sub-products/{sub}/documents/firmware/{id}-{Version}` — created if
+ * missing, parents included.
+ */
+export function ensureFirmwareDir(
+  product: FolderEntity,
+  subProduct: FolderEntity,
+  firmware: { id: number; name: string },
+): string {
+  const base = firmwareDirFor(ensureSubProductDir(product, subProduct));
+  const baseAbs = path.join(productsDir, base);
+  fs.mkdirSync(baseAbs, { recursive: true });
+  return `${base}/${ensureEntityFolder(baseAbs, firmware.id, firmware.name, null)}`;
+}
+
+/**
+ * Remove the folders of the given firmwares. Call only AFTER the deleting
+ * transaction has committed — an `rm` cannot be rolled back. Deleting a whole
+ * sub-product needs no counterpart: `removeEntityFolder` takes the documents
+ * folder, and the firmware tree inside it, with everything else.
+ *
+ * Takes a list rather than one id because deleting a revision deletes all of
+ * its firmwares at once, and locating the containing folder costs three
+ * directory scans — worth paying once, not once per firmware.
+ */
+export function removeFirmwareDirs(
+  product: FolderEntity,
+  subProduct: FolderEntity,
+  firmwareIds: readonly number[],
+): void {
+  if (firmwareIds.length === 0) return;
+
+  const entityDir = findEntityDir(product, subProduct);
+  if (!entityDir) return;
+  const baseAbs = path.join(productsDir, firmwareDirFor(entityDir));
+
+  const wanted = new Set(firmwareIds);
+  for (const folder of directoriesIn(baseAbs)) {
+    if (wanted.has(folderId(folder) ?? -1)) {
+      fs.rmSync(path.join(baseAbs, folder), { recursive: true, force: true });
+    }
+  }
 }

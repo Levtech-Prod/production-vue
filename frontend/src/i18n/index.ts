@@ -100,11 +100,14 @@ const messages = {
     saving: 'Saving...',
     add_part: 'Add Part',
     code: 'Code',
+    secondary_codes: 'Secondary Codes',
+    secondary_codes_hint: 'Codes this part is ordered under at other companies.',
+    secondary_codes_placeholder: 'Add a code…',
     sku: 'SKU',
     all_categories: 'All categories',
     select_option: 'Select option',
     yes: 'Yes',
-    search_parts_placeholder: 'Search by name or code...',
+    search_parts_placeholder: 'Search by name, code, or secondary code...',
     no_parts_msg:
       'No parts yet. Click the "Add Part" button to create the first one.',
     delete_part: 'Delete Part',
@@ -143,6 +146,7 @@ const messages = {
     field_name: 'Name',
     field_part_name_mode: 'Part name',
     field_code: 'Code',
+    field_secondary_code: 'Secondary codes',
     field_category: 'Category',
     field_price: 'Price',
     field_location: 'Location',
@@ -259,8 +263,8 @@ const messages = {
     product_documents: 'Product Documents',
     sp_rev_documents: '{name} — {label} Documents',
     upload_document: 'Upload document',
-    document_name: 'File name',
-    document_name_hint:
+    file_name: 'File name',
+    file_name_hint:
       'Optionally give the file a name. Leave blank to keep the original file name.',
     uploading: 'Uploading…',
     delete_document: 'Delete document',
@@ -268,6 +272,63 @@ const messages = {
     document_deleted: 'Document deleted',
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
+    errors_download_failed: 'Failed to download file',
+
+    // Firmware (per sub-product revision)
+    firmware: 'Firmware',
+    firmware_for: 'Firmware — {name} · {label}',
+    firmware_count: '{n} version | {n} versions',
+    firmware_production_is: 'Production: {name}',
+    firmware_change_log: 'Change log',
+    firmware_version: 'Version',
+    firmware_version_placeholder: 'e.g. v2.14.3',
+    firmware_created_at: 'Created',
+    firmware_created_by: 'Created by',
+    firmware_revision: 'Revision',
+    firmware_version_info: 'Version information',
+    firmware_release_notes: 'Release notes',
+    firmware_files: 'Uploaded files',
+    firmware_status: {
+      testing: 'Testing',
+      production: 'Production',
+      deprecated: 'Deprecated',
+    },
+    firmware_is_production: 'This is the production firmware',
+    firmware_is_production_hint:
+      'Manufacturing and service use this version by default.',
+    firmware_not_production: 'Not the production firmware',
+    firmware_not_production_hint:
+      'Only one version per revision can be the production firmware.',
+    firmware_production_takeover_hint:
+      'The revision\'s current production version will be set to Deprecated.',
+    set_as_production: 'Set as production',
+    add_firmware: 'New version',
+    edit_firmware: 'Edit version',
+    delete_firmware: 'Delete firmware version',
+    delete_firmware_file: 'Delete firmware file',
+    firmware_created: 'Firmware version created',
+    firmware_updated: 'Firmware version updated',
+    firmware_deleted: 'Firmware version deleted',
+    firmware_files_uploaded: 'Files uploaded',
+    firmware_file_deleted: 'File deleted',
+    firmware_any_extension_hint: 'Any file type is allowed',
+    firmware_executable: 'Executable',
+    firmware_executable_hint:
+      'This file runs as a program once downloaded. Only open it if you trust the source.',
+    no_firmware_yet: 'No firmware version yet',
+    no_firmware_yet_hint:
+      'Files belong to a version, so create a version first — then upload its files.',
+    add_first_firmware: 'Create the first version',
+    no_firmware_for_filter: 'No firmware version matches this filter.',
+    no_firmware_files: 'No file uploaded to this version yet.',
+    no_release_notes: 'No release notes.',
+    select_firmware_hint: 'Select a version to see its details.',
+    errors_save_firmware_failed: 'Failed to save firmware version',
+    errors_delete_firmware_failed: 'Failed to delete firmware version',
+    errors_upload_firmware_file_failed: 'Failed to upload firmware file',
+    errors_delete_firmware_file_failed: 'Failed to delete firmware file',
+    event_firmware: 'Firmware',
+    event_firmware_file: 'Firmware file',
 
     // Reusing a file another revision already holds
     link_document: 'Use existing',
@@ -291,7 +352,7 @@ const messages = {
 
     // Document type cards
     other_documents: 'Other documents',
-    n_files: '{n} file | {n} files',
+    n_files: 'no files | {n} file | {n} files',
     no_uploaded_file: 'No file uploaded',
     show_more_files: '+{n} more…',
     manage_files: 'Show all files',
@@ -503,6 +564,12 @@ const messages = {
       INVALID_SUB_PRODUCT_ID: 'Invalid sub-product id',
       SUB_PRODUCT_UPDATE_FAILED: 'Failed to update sub-product',
       REVISION_NOT_FOUND: 'Revision not found',
+      FIRMWARE_NOT_FOUND: 'Firmware version not found',
+      FIRMWARE_NAME_ALREADY_EXISTS:
+        'A firmware version with this name already exists on this revision',
+      FIRMWARE_FILE_NOT_FOUND: 'Firmware file not found',
+      FIRMWARE_FILE_MISSING: 'The firmware file is missing from storage',
+      FIRMWARE_TOO_LARGE: 'The firmware file is too large',
       INVALID_REVISION_ID: 'Invalid revision id',
       REVISION_UPDATE_FAILED: 'Failed to update revision',
       COMPARE_INVALID_PARAMS: 'Invalid comparison parameters',
@@ -616,6 +683,9 @@ const messages = {
         'This change rebuilds the name of every part in this category. Continue?',
       delete_part_msg: 'Are you sure you want to delete this part',
       delete_document_msg: 'Are you sure you want to delete this document',
+      delete_firmware_msg:
+        'Are you sure you want to delete this firmware version and all of its files',
+      delete_firmware_file_msg: 'Are you sure you want to delete this firmware file',
       replace_document_msg:
         'Replace "{current}" with "{incoming}"?\nOnly this revision is affected — other revisions keep the current file.',
       archive_product_msg:
@@ -725,11 +795,14 @@ const messages = {
     saving: 'Mentés...',
     add_part: 'Alkatrész hozzáadása',
     code: 'Kód',
+    secondary_codes: 'Másodlagos kódok',
+    secondary_codes_hint: 'Kódok, amelyeken ez az alkatrész más vállalatoknál rendelhető.',
+    secondary_codes_placeholder: 'Kód hozzáadása…',
     sku: 'SKU',
     all_categories: 'Összes kategória',
     select_option: 'Válassz opciót',
     yes: 'Igen',
-    search_parts_placeholder: 'Keresés név vagy kód alapján…',
+    search_parts_placeholder: 'Keresés név, kód vagy másodlagos kód alapján…',
     no_parts_msg:
       'Még nincs alkatrész. Kattints az „Alkatrész hozzáadása" gombra az első létrehozásához.',
     delete_part: 'Alkatrész törlése',
@@ -768,6 +841,7 @@ const messages = {
     field_name: 'Név',
     field_part_name_mode: 'Alkatrész neve',
     field_code: 'Kód',
+    field_secondary_code: 'Másodlagos kódok',
     field_category: 'Kategória',
     field_price: 'Ár',
     field_location: 'Hely',
@@ -885,8 +959,8 @@ const messages = {
     product_documents: 'Termék dokumentumok',
     sp_rev_documents: '{name} — {label} dokumentumok',
     upload_document: 'Dokumentum feltöltése',
-    document_name: 'Fájlnév',
-    document_name_hint:
+    file_name: 'Fájlnév',
+    file_name_hint:
       'Megadhatsz egy nevet a fájlnak. Hagyd üresen az eredeti fájlnév megtartásához.',
     uploading: 'Feltöltés…',
     delete_document: 'Dokumentum törlése',
@@ -894,6 +968,63 @@ const messages = {
     document_deleted: 'Dokumentum törölve',
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
+    errors_download_failed: 'Nem sikerült letölteni a fájlt',
+
+    // Firmware (altermék revíziónként)
+    firmware: 'Firmware',
+    firmware_for: 'Firmware — {name} · {label}',
+    firmware_count: '{n} verzió',
+    firmware_production_is: 'Éles: {name}',
+    firmware_change_log: 'Változásnapló',
+    firmware_version: 'Verzió',
+    firmware_version_placeholder: 'pl. v2.14.3',
+    firmware_created_at: 'Létrehozva',
+    firmware_created_by: 'Készítette',
+    firmware_revision: 'Revízió',
+    firmware_version_info: 'Verzió információk',
+    firmware_release_notes: 'Kiadási megjegyzés',
+    firmware_files: 'Feltöltött fájlok',
+    firmware_status: {
+      testing: 'Teszt',
+      production: 'Éles',
+      deprecated: 'Elavult',
+    },
+    firmware_is_production: 'Ez az éles firmware',
+    firmware_is_production_hint:
+      'A gyártás és a szerviz alapértelmezetten ezt a verziót használja.',
+    firmware_not_production: 'Nem ez az éles firmware',
+    firmware_not_production_hint:
+      'Revíziónként csak egy verzió lehet az éles firmware.',
+    firmware_production_takeover_hint:
+      'A revízió jelenlegi éles verziója elavult státuszba kerül.',
+    set_as_production: 'Beállítás élesként',
+    add_firmware: 'Új verzió',
+    edit_firmware: 'Verzió szerkesztése',
+    delete_firmware: 'Firmware verzió törlése',
+    delete_firmware_file: 'Firmware fájl törlése',
+    firmware_created: 'Firmware verzió létrehozva',
+    firmware_updated: 'Firmware verzió módosítva',
+    firmware_deleted: 'Firmware verzió törölve',
+    firmware_files_uploaded: 'Fájlok feltöltve',
+    firmware_file_deleted: 'Fájl törölve',
+    firmware_any_extension_hint: 'Bármilyen fájltípus feltölthető',
+    firmware_executable: 'Futtatható',
+    firmware_executable_hint:
+      'Ez a fájl letöltés után programként fut. Csak megbízható forrásból nyisd meg.',
+    no_firmware_yet: 'Még nincs firmware verzió',
+    no_firmware_yet_hint:
+      'A fájlok mindig egy verzióhoz tartoznak, ezért előbb hozz létre egy verziót, utána töltsd fel a fájljait.',
+    add_first_firmware: 'Első verzió létrehozása',
+    no_firmware_for_filter: 'Nincs a szűrésnek megfelelő firmware verzió.',
+    no_firmware_files: 'Ehhez a verzióhoz még nincs feltöltött fájl.',
+    no_release_notes: 'Nincs kiadási megjegyzés.',
+    select_firmware_hint: 'Válassz egy verziót a részletekhez.',
+    errors_save_firmware_failed: 'Nem sikerült menteni a firmware verziót',
+    errors_delete_firmware_failed: 'Nem sikerült törölni a firmware verziót',
+    errors_upload_firmware_file_failed: 'Nem sikerült feltölteni a firmware fájlt',
+    errors_delete_firmware_file_failed: 'Nem sikerült törölni a firmware fájlt',
+    event_firmware: 'Firmware',
+    event_firmware_file: 'Firmware fájl',
 
     // Másik revízió fájljának újrafelhasználása
     link_document: 'Meglévő használata',
@@ -918,7 +1049,7 @@ const messages = {
     // Dokumentumtípus kártyák
     other_documents: 'Egyéb dokumentumok',
     // Hungarian doesn't inflect the noun after a numeral, so one form covers all.
-    n_files: '{n} fájl',
+    n_files: 'nincs fájl | {n} fájl | {n} fájl',
     no_uploaded_file: 'Nincs feltöltött fájl',
     show_more_files: 'még {n}…',
     manage_files: 'Összes fájl megjelenítése',
@@ -1126,6 +1257,12 @@ const messages = {
       INVALID_SUB_PRODUCT_ID: 'Érvénytelen altermék-azonosító',
       SUB_PRODUCT_UPDATE_FAILED: 'Nem sikerült módosítani az alterméket',
       REVISION_NOT_FOUND: 'A revízió nem található',
+      FIRMWARE_NOT_FOUND: 'A firmware verzió nem található',
+      FIRMWARE_NAME_ALREADY_EXISTS:
+        'Ezen a revízión már létezik ilyen nevű firmware verzió',
+      FIRMWARE_FILE_NOT_FOUND: 'A firmware fájl nem található',
+      FIRMWARE_FILE_MISSING: 'A firmware fájl hiányzik a tárolóból',
+      FIRMWARE_TOO_LARGE: 'A firmware fájl túl nagy',
       INVALID_REVISION_ID: 'Érvénytelen revízióazonosító',
       REVISION_UPDATE_FAILED: 'Nem sikerült módosítani a revíziót',
       COMPARE_INVALID_PARAMS: 'Érvénytelen összehasonlítási paraméterek',
@@ -1238,6 +1375,9 @@ const messages = {
         'Ez a módosítás újraépíti a kategória összes alkatrészének nevét. Folytatod?',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
+      delete_firmware_msg:
+        'Biztosan törölni szeretnéd ezt a firmware verziót és az összes fájlját',
+      delete_firmware_file_msg: 'Biztosan törölni szeretnéd ezt a firmware fájlt',
       replace_document_msg:
         'Lecseréled a(z) „{current}” fájlt erre: „{incoming}”?\nCsak ez a revízió változik — a többi revízióban a jelenlegi fájl marad.',
       archive_product_msg:

@@ -30,6 +30,16 @@ export const partPayloadSchema = z.object({
   location: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   image: z.string().optional().nullable(),
+  // Alternate codes the same part is ordered under at other companies.
+  // Stored in the `secondary_code` column — unlike `code`, not unique.
+  // Blanks and duplicates are dropped here so the stored list is clean.
+  secondaryCodes: z
+    .array(z.string())
+    .default([])
+    .transform((codes) => {
+      const trimmed = codes.map((c) => c.trim()).filter(Boolean);
+      return Array.from(new Set(trimmed));
+    }),
   parameters: z.array(z.object({ parameterId: z.number(), value: z.string() })).default([]),
 });
 export type PartPayload = z.input<typeof partPayloadSchema>;

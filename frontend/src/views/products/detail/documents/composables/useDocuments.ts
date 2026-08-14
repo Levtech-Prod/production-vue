@@ -10,6 +10,7 @@ import type {
 } from '../../../../../types/products.ts';
 import type { PanelScope } from '../../types.ts';
 import { useConfirmDelete } from '../../../../../composables/useConfirmDelete.ts';
+import { useScopedCache } from '../../../../../composables/useScopedCache.ts';
 
 interface SpRevLookup {
   (spId: number, revId: number): { sp?: { name: string }; rev?: { label: string } };
@@ -33,8 +34,9 @@ const EMPTY: RevisionDocuments = {
 };
 
 /**
- * Documents tab: loads the grouped payload (cached per scope), and handles
- * upload / replace / delete against whichever card the user acted on.
+ * Documents tab: loads the grouped payload (cached per scope via
+ * `useScopedCache`), and handles upload / replace / delete against whichever
+ * card the user acted on.
  *
  * Every mutation refetches the scope rather than patching the cached tree by
  * hand — a single upload can flip a card's status and shift the summary, so
@@ -48,11 +50,22 @@ export function useDocuments(
   const { t } = useI18n();
   const notify = useNotificationStore();
 
-  const docsCache = new Map<string, RevisionDocuments>();
-  const docs = ref<RevisionDocuments>(EMPTY);
-  const docsLoading = ref(false);
   const docsUploading = ref(false);
-  let docsToken = 0;
+
+  const {
+    data: docs,
+    loading: docsLoading,
+    load: loadDocs,
+    refresh,
+    invalidateAndRefresh,
+    clearCache,
+    dropCacheKey,
+  } = useScopedCache<PanelScope, RevisionDocuments>({
+    current: panelScope,
+    keyFor: docsKeyFor,
+    fetcher: async (scope) => (await documentsApiFor(scope).getAll(scope.revId)).data,
+    empty: EMPTY,
+  });
 
   const docsTitle = computed(() => {
     const scope = panelScope.value;
@@ -61,97 +74,20 @@ export function useDocuments(
     return t('sp_rev_documents', { name: sp?.name ?? '', label: rev?.label ?? '' });
   });
 
-  /** Is this scope still the one on screen? */
-  function isCurrent(scope: PanelScope): boolean {
-    return panelScope.value != null && docsKeyFor(panelScope.value) === docsKeyFor(scope);
-  }
-
-  /** Fetch one scope. Null when the request failed or was superseded by a newer
-   *  one — a slow response must never overwrite a later selection.
-   *
-   *  The response is cached either way: it is valid data for the scope it was
-   *  asked for, whether or not that scope is still on screen, so switching back
-   *  is instant instead of refetching. Only the *return* is suppressed. */
-  async function fetchDocs(scope: PanelScope): Promise<RevisionDocuments | null> {
-    const token = ++docsToken;
-    const key = docsKeyFor(scope);
-    try {
-      const res = await documentsApiFor(scope).getAll(scope.revId);
-      docsCache.set(key, res.data);
-      return token === docsToken ? res.data : null;
-    } catch {
-      // Drop any cached value: after a failed refresh (post-mutation) it is
-      // stale, and re-reading is cheaper than showing something wrong.
-      docsCache.delete(key);
-      return null;
-    }
-  }
-
-  /** Show a scope, from cache when possible. */
-  async function loadDocs(scope: PanelScope) {
-    const cached = docsCache.get(docsKeyFor(scope));
-    if (cached) {
-      docs.value = cached;
-      // A cache hit is not loading — and it may be resolving a scope switch
-      // that happened while an earlier, slower load was still in flight. That
-      // load will bail out below without touching the flag, so if this branch
-      // did not clear it the spinner would cover perfectly good cached data.
-      docsLoading.value = false;
-      return;
-    }
-
-    docsLoading.value = true;
-    try {
-      const fresh = await fetchDocs(scope);
-      // If the user moved on, leave the view to the newer call.
-      if (isCurrent(scope)) docs.value = fresh ?? EMPTY;
-    } finally {
-      // Only the call whose scope is still on screen owns the flag; a
-      // superseded one clearing it would hide the newer call's spinner.
-      if (isCurrent(scope)) docsLoading.value = false;
-    }
-  }
-
-  /** Re-read a scope after a mutation, updating the view if still on it. */
-  async function refresh(scope: PanelScope) {
-    const fresh = await fetchDocs(scope);
-    if (fresh && isCurrent(scope)) docs.value = fresh;
-  }
-
-  /**
-   * Drop every cached scope and re-read the one on screen. For changes that
-   * are not confined to a single revision — a document type belongs to the
-   * ENTITY, so adding, renaming or deleting one changes the panel of every
-   * revision, including the ones already cached.
-   *
-   * Clearing the lot over-invalidates a little (a product-level change also
-   * drops cached sub-product scopes), which costs one refetch on the next
-   * visit and is the only version of this that cannot go stale.
-   */
-  async function invalidateAndRefresh(scope: PanelScope) {
-    docsCache.clear();
-    await refresh(scope);
-  }
-
-  /** Forget everything and show nothing — used when switching product. */
-  function clearCache() {
-    docsCache.clear();
-    docs.value = EMPTY;
-  }
-
-  /** Drop one scope's cached documents (e.g. after its owning revision was
-   *  deleted elsewhere), without disturbing other cached scopes. */
-  function dropCacheKey(key: string) {
-    docsCache.delete(key);
-  }
-
   // ── Upload (name entry, then upload) ──────────────────────────────────────
 
   const docNameModalOpen = ref(false);
   const pendingDocFile = ref<File | null>(null);
   const pendingDocScope = ref<PanelScope | null>(null);
   const pendingDocTypeId = ref<number | null>(null);
-  const pendingDocName = ref('');
+  /** Index-aligned with `pendingDocFiles`. An array of one, because the shared
+   *  name modal handles multi-file uploads too. */
+  const pendingDocNames = ref<string[]>([]);
+
+  /** The pending file as the shared modal wants it — a list. */
+  const pendingDocFiles = computed(() =>
+    pendingDocFile.value ? [pendingDocFile.value] : [],
+  );
 
   /** `documentTypeId` null means the file goes to "Other documents". */
   function onUploadFile(file: File, documentTypeId: number | null) {
@@ -159,7 +95,7 @@ export function useDocuments(
     pendingDocFile.value = file;
     pendingDocScope.value = panelScope.value;
     pendingDocTypeId.value = documentTypeId;
-    pendingDocName.value = ''; // empty → backend keeps the original file name
+    pendingDocNames.value = ['']; // empty → backend keeps the original file name
     docNameModalOpen.value = true;
   }
 
@@ -172,7 +108,7 @@ export function useDocuments(
       await documentsApiFor(scope).upload(
         scope.revId,
         file,
-        pendingDocName.value.trim() || undefined,
+        pendingDocNames.value[0]?.trim() || undefined,
         pendingDocTypeId.value,
       );
       await refresh(scope);
@@ -190,7 +126,7 @@ export function useDocuments(
     pendingDocFile.value = null;
     pendingDocScope.value = null;
     pendingDocTypeId.value = null;
-    pendingDocName.value = '';
+    pendingDocNames.value = [];
   }
 
   /** Turn the server's specific rejection codes into something actionable. */
@@ -319,7 +255,8 @@ export function useDocuments(
 
     docNameModalOpen,
     pendingDocFile,
-    pendingDocName,
+    pendingDocFiles,
+    pendingDocNames,
     onUploadFile,
     confirmDocUpload,
     closeUploadModal,

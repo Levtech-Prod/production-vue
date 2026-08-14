@@ -15,6 +15,7 @@ import path from 'path';
 import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
 import documentTypeRoutes from './routes/documentTypes.js';
+import firmwareRoutes from './routes/firmwares.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
@@ -39,10 +40,35 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 
+// Firmware accepts every file extension, so it must never be reachable as
+// static content — an uploaded .html or .svg would otherwise be stored XSS on
+// this origin. Its folders sit inside the served product tree
+// (`.../documents/firmware/`, see uploadPaths.ts), so this matches the path
+// SEGMENT rather than a fixed prefix, and is registered BEFORE the static
+// mount so it wins. Firmware is read back only through the authenticated
+// download route in routes/firmwares.ts.
+//
+// Segments are decoded before comparison: express.static decodes the path
+// itself, so a request for `%66irmware` would otherwise slip past this guard
+// and still resolve to the same directory.
+app.use('/uploads', (req, res, next) => {
+  for (const segment of req.path.split('/')) {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      // Malformed escape — compare the raw segment rather than throwing.
+    }
+    if (decoded.toLowerCase() === 'firmware') return res.sendStatus(404);
+  }
+  next();
+});
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 app.use('/api', uploadRoutes);
 app.use('/api', documentRoutes);
 app.use('/api', documentTypeRoutes);
+app.use('/api', firmwareRoutes);
 
 app.use(
   (

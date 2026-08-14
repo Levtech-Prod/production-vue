@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { pool } from '../db.js';
-import { tmpDir, TMP_PUBLIC_PREFIX } from './uploadPaths.js';
+import { firmwareTmpDir, tmpDir, TMP_PUBLIC_PREFIX } from './uploadPaths.js';
 
 /** How long a staged file may sit unclaimed. Long enough to cover a form left
  *  open over a lunch break, short enough that `_tmp` stays small. */
@@ -33,19 +33,19 @@ async function stagedNamesInUse(): Promise<Set<string>> {
   );
 }
 
-/** Delete unclaimed staging files older than `MAX_AGE_MS`. Returns the count. */
-async function sweepTmp(): Promise<number> {
-  if (!fs.existsSync(tmpDir)) return 0;
+/** Delete files older than `MAX_AGE_MS` from one staging dir, skipping any
+ *  name in `inUse`. Returns the count removed. */
+function sweepDir(dir: string, inUse: Set<string>): number {
+  if (!fs.existsSync(dir)) return 0;
 
-  const inUse = await stagedNamesInUse();
   const cutoff = Date.now() - MAX_AGE_MS;
   let removed = 0;
 
-  for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     if (inUse.has(entry.name)) continue;
 
-    const absolute = path.join(tmpDir, entry.name);
+    const absolute = path.join(dir, entry.name);
     try {
       if (fs.statSync(absolute).mtimeMs > cutoff) continue;
       fs.unlinkSync(absolute);
@@ -56,6 +56,14 @@ async function sweepTmp(): Promise<number> {
   }
 
   return removed;
+}
+
+/** Sweep both staging dirs (`sweepDir` skips subdirectories, so the nested
+ *  firmware one does not sweep itself). Firmware needs no in-use check: a
+ *  firmware upload is filed within the request that staged it, so nothing ever
+ *  holds a reference to a file still sitting there. */
+async function sweepTmp(): Promise<number> {
+  return sweepDir(tmpDir, await stagedNamesInUse()) + sweepDir(firmwareTmpDir, new Set());
 }
 
 /** Sweep on boot, then hourly. Failures are logged, never fatal. */

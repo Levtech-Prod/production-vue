@@ -3,7 +3,7 @@
        render above it rather than relying on template order. -->
   <BaseModal v-model="open" :title="t('upload_document')" size="sm" layer="nested">
     <div class="flex flex-col gap-3">
-      <p class="text-sm text-slate-500">{{ t('document_name_hint') }}</p>
+      <p class="text-sm text-slate-500">{{ t('file_name_hint') }}</p>
       <div
         v-if="file"
         class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
@@ -13,7 +13,7 @@
       </div>
       <div>
         <label class="mb-1 block text-xs font-medium text-slate-500">
-          {{ t('document_name') }}
+          {{ t('file_name') }}
         </label>
         <input
           v-model="name"

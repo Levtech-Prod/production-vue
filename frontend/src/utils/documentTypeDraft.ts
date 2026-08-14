@@ -65,3 +65,13 @@ export function documentTypeNameError(
 ): string | null {
   return draft.name.trim() ? null : `${t('name')}: ${t('validation.required')}`;
 }
+
+/** Mirrors the backend's canonical extension format (see
+ *  backend/src/schemas/documentTypes.schema.ts) so the chip an admin sees
+ *  in the shared ChipsInput matches what's actually saved. Returns '' for a
+ *  blank or dot-only entry so ChipsInput rejects it. */
+export function normalizeExtensionChip(raw: string): string {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || trimmed === '.') return '';
+  return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
+}

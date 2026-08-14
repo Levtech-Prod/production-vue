@@ -33,6 +33,18 @@
           <p v-if="fieldErrors.code" class="text-xs text-red-500">{{ fieldErrors.code }}</p>
         </div>
 
+        <div class="flex flex-col gap-1 md:col-span-2">
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
+            {{ t('secondary_codes') }}
+          </label>
+          <ChipsInput
+            ref="secondaryCodesInput"
+            v-model="form.secondaryCodes"
+            :placeholder="t('secondary_codes_placeholder')"
+          />
+          <p class="text-xs text-slate-400">{{ t('secondary_codes_hint') }}</p>
+        </div>
+
         <div class="flex flex-col gap-1">
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">
             {{ t('name') }}
@@ -140,6 +152,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import BaseModal from '../../components/modal/BaseModal.vue';
 import ImageUploadField from '../../components/uploader/ImageUploadField.vue';
+import ChipsInput from '../../components/ChipsInput.vue';
 import PartParameterValueList from './PartParameterValueList.vue';
 import PriceInput from '../../components/PriceInput.vue';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
@@ -174,6 +187,7 @@ const form = reactive({
   categoryId: 0,
   name: '',
   code: '',
+  secondaryCodes: [] as string[],
   // Price is entered in EUR or RON; the backend converts to canonical EUR.
   priceAmount: 0 as number | null,
   priceCurrency: 'EUR' as EntryCurrency,
@@ -184,6 +198,7 @@ const form = reactive({
 
 const parameterValues = ref<Record<number, string>>({});
 const parameterListRef = ref<InstanceType<typeof PartParameterValueList> | null>(null);
+const secondaryCodesInput = ref<InstanceType<typeof ChipsInput> | null>(null);
 const { fieldErrors, validate, resetValidation } = useRequiredFieldValidation(() => [
   { key: 'categoryId', label: t('category'), missing: !form.categoryId },
   { key: 'code', label: t('code'), missing: !form.code.trim() },
@@ -233,6 +248,9 @@ watch(
         ? (part.namePrefix ?? part.name)
         : part.name;
       form.code = part.code;
+      // Copied, not shared: the chips editor mutates the array in place, so
+      // cancelling an edit must not leave the part's own list already changed.
+      form.secondaryCodes = [...(part.secondaryCodes ?? [])];
       // Show what was originally entered so editing preserves the currency.
       form.priceAmount =
         Number(part.priceEnteredAmount ?? part.pricePerPiece) || 0;
@@ -273,6 +291,7 @@ function resetForm() {
   form.categoryId = 0;
   form.name = '';
   form.code = '';
+  form.secondaryCodes = [];
   form.priceAmount = 0;
   form.priceCurrency = 'EUR';
   form.location = '';
@@ -283,6 +302,10 @@ function resetForm() {
 
 function save() {
   emit('clearError');
+
+  // Flush uncommitted secondary-code text before saving, so typing one and
+  // clicking Save without pressing Enter doesn't silently drop it.
+  secondaryCodesInput.value?.commit();
 
   const parameters = Object.entries(parameterValues.value)
     .filter(([, value]) => value !== '' && value !== undefined && value !== null)
@@ -298,6 +321,7 @@ function save() {
     categoryId: form.categoryId,
     name: form.name,
     code: form.code,
+    secondaryCodes: form.secondaryCodes,
     pricePerPiece: {
       amount: Number(form.priceAmount) || 0,
       currency: form.priceCurrency,

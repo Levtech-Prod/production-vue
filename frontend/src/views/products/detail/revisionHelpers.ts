@@ -1,30 +1,4 @@
-import type {
-  DetailSubProduct,
-  RevisionStatus,
-  SubProductRevision,
-} from '../../../types/products.ts';
-
-/** Status dot colour, shared by the tree, the timeline and the revision pills. */
-export function statusDot(status: RevisionStatus): string {
-  return (
-    {
-      draft: 'bg-slate-400',
-      active: 'bg-emerald-500',
-      deprecated: 'bg-amber-500',
-    }[status] ?? 'bg-slate-400'
-  );
-}
-
-/** Text badge accompanying the dot — status is never colour-only. */
-export function statusBadgeClass(status: RevisionStatus): string {
-  return (
-    {
-      draft: 'bg-slate-100 text-slate-600',
-      active: 'bg-emerald-50 text-emerald-700',
-      deprecated: 'bg-amber-50 text-amber-700',
-    }[status] ?? 'bg-slate-100 text-slate-600'
-  );
-}
+import type { DetailSubProduct, SubProductRevision } from '../../../types/products.ts';
 
 /** Newest revision first. Copies — the source array stays in API order. */
 export function newestFirst<T extends { revisionNumber: number }>(
