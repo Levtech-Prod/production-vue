@@ -259,8 +259,8 @@ const messages = {
     product_documents: 'Product Documents',
     sp_rev_documents: '{name} — {label} Documents',
     upload_document: 'Upload document',
-    document_name: 'File name',
-    document_name_hint:
+    file_name: 'File name',
+    file_name_hint:
       'Optionally give the file a name. Leave blank to keep the original file name.',
     uploading: 'Uploading…',
     delete_document: 'Delete document',
@@ -951,8 +951,8 @@ const messages = {
     product_documents: 'Termék dokumentumok',
     sp_rev_documents: '{name} — {label} dokumentumok',
     upload_document: 'Dokumentum feltöltése',
-    document_name: 'Fájlnév',
-    document_name_hint:
+    file_name: 'Fájlnév',
+    file_name_hint:
       'Megadhatsz egy nevet a fájlnak. Hagyd üresen az eredeti fájlnév megtartásához.',
     uploading: 'Feltöltés…',
     delete_document: 'Dokumentum törlése',

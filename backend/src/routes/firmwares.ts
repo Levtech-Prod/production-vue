@@ -20,7 +20,11 @@ import type { PoolClient } from 'pg';
 import { pool, query } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { firmwarePayloadSchema, type FirmwarePayload } from '../schemas/firmwares.schema.js';
+import {
+  firmwareFileUploadSchema,
+  firmwarePayloadSchema,
+  type FirmwarePayload,
+} from '../schemas/firmwares.schema.js';
 import {
   findFirmwareContext,
   findRevisionContext,
@@ -72,6 +76,20 @@ function uploadedFiles(req: Request): Express.Multer.File[] {
 
 function discardUploads(req: Request): void {
   for (const file of uploadedFiles(req)) safeUnlink(file.path);
+}
+
+/**
+ * Validate the multipart text fields. Multer has already written the files to
+ * disk by this point, so a rejected body takes them with it rather than
+ * leaving them behind.
+ */
+function parseUploadBody(req: Request) {
+  try {
+    return firmwareFileUploadSchema.parse(req.body ?? {});
+  } catch (err) {
+    discardUploads(req);
+    throw err;
+  }
 }
 
 // ── Response shape ─────────────────────────────────────────────────────────
@@ -448,6 +466,8 @@ router.post('/firmwares/:id/files', requireAuth, uploadFiles, async (req, res) =
   const files = uploadedFiles(req);
   if (files.length === 0) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
 
+  const { names } = parseUploadBody(req);
+
   // Both depend only on `firmwareId`, so they go together. Which storage keys
   // already exist decides two things below: whether the
   // change log calls an upload an addition or a replacement, and — more
@@ -482,7 +502,10 @@ router.post('/firmwares/:id/files', requireAuth, uploadFiles, async (req, res) =
     id: firmwareId,
     name: context.firmwareName,
   });
-  const placed = files.map((file) => ({ file, ...placeFirmwareFile(file, folder) }));
+  const placed = files.map((file, index) => ({
+    file,
+    ...placeFirmwareFile(file, folder, names[index]),
+  }));
 
   // `pool.connect()` is inside the try so that a failure to get a client is
   // covered by the same cleanup as a failed transaction — by this point the

@@ -17,3 +17,19 @@ export const firmwarePayloadSchema = z.object({
     .transform((value) => value || null),
 });
 export type FirmwarePayload = z.infer<typeof firmwarePayloadSchema>;
+
+/**
+ * Text fields of a firmware file upload: one optional display name per file,
+ * index-aligned with the `files` parts. An empty entry keeps the uploaded
+ * file's own name.
+ *
+ * Multipart repeats the field once per file, and a single repeat arrives as a
+ * bare string rather than a one-element array — hence the preprocess.
+ */
+export const firmwareFileUploadSchema = z.object({
+  names: z.preprocess(
+    (value) => (value === undefined ? [] : Array.isArray(value) ? value : [value]),
+    z.array(z.string().trim().max(255)),
+  ),
+});
+export type FirmwareFileUploadPayload = z.infer<typeof firmwareFileUploadSchema>;

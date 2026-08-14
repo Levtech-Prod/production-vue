@@ -80,7 +80,14 @@ export function useDocuments(
   const pendingDocFile = ref<File | null>(null);
   const pendingDocScope = ref<PanelScope | null>(null);
   const pendingDocTypeId = ref<number | null>(null);
-  const pendingDocName = ref('');
+  /** Index-aligned with `pendingDocFiles`. An array of one, because the shared
+   *  name modal handles multi-file uploads too. */
+  const pendingDocNames = ref<string[]>([]);
+
+  /** The pending file as the shared modal wants it — a list. */
+  const pendingDocFiles = computed(() =>
+    pendingDocFile.value ? [pendingDocFile.value] : [],
+  );
 
   /** `documentTypeId` null means the file goes to "Other documents". */
   function onUploadFile(file: File, documentTypeId: number | null) {
@@ -88,7 +95,7 @@ export function useDocuments(
     pendingDocFile.value = file;
     pendingDocScope.value = panelScope.value;
     pendingDocTypeId.value = documentTypeId;
-    pendingDocName.value = ''; // empty → backend keeps the original file name
+    pendingDocNames.value = ['']; // empty → backend keeps the original file name
     docNameModalOpen.value = true;
   }
 
@@ -101,7 +108,7 @@ export function useDocuments(
       await documentsApiFor(scope).upload(
         scope.revId,
         file,
-        pendingDocName.value.trim() || undefined,
+        pendingDocNames.value[0]?.trim() || undefined,
         pendingDocTypeId.value,
       );
       await refresh(scope);
@@ -119,7 +126,7 @@ export function useDocuments(
     pendingDocFile.value = null;
     pendingDocScope.value = null;
     pendingDocTypeId.value = null;
-    pendingDocName.value = '';
+    pendingDocNames.value = [];
   }
 
   /** Turn the server's specific rejection codes into something actionable. */
@@ -248,7 +255,8 @@ export function useDocuments(
 
     docNameModalOpen,
     pendingDocFile,
-    pendingDocName,
+    pendingDocFiles,
+    pendingDocNames,
     onUploadFile,
     confirmDocUpload,
     closeUploadModal,

@@ -162,14 +162,36 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
 
   // ── Files ─────────────────────────────────────────────────────────────────
 
-  async function uploadFiles(files: File[]) {
+  // Picked files are held here while the name modal is open, mirroring the
+  // documents flow — the difference being that firmware takes several at once,
+  // so the names are a parallel array rather than a single field.
+  const uploadModalOpen = ref(false);
+  const pendingFiles = ref<File[]>([]);
+  const pendingNames = ref<string[]>([]);
+
+  function onUploadFiles(files: File[]) {
+    if (!scope.value || !selected.value || files.length === 0) return;
+    pendingFiles.value = files;
+    pendingNames.value = files.map(() => ''); // empty -> keep the original name
+    uploadModalOpen.value = true;
+  }
+
+  function closeUploadModal() {
+    uploadModalOpen.value = false;
+    pendingFiles.value = [];
+    pendingNames.value = [];
+  }
+
+  async function confirmUpload() {
     const current = scope.value;
     const firmware = selected.value;
+    const files = pendingFiles.value;
     if (!current || !firmware || files.length === 0 || uploading.value) return;
     uploading.value = true;
     try {
-      await firmwaresApi.uploadFiles(firmware.id, files);
+      await firmwaresApi.uploadFiles(firmware.id, files, pendingNames.value);
       notify.showToast(t('firmware_files_uploaded'), 'success');
+      closeUploadModal();
       await refresh(current, firmware.id);
     } catch (err) {
       notify.showToast(
@@ -223,7 +245,11 @@ export function useFirmwares(panelScope: ComputedRef<PanelScope | null>) {
     confirmDelete: deleteConfirm.confirm,
     cancelDelete: deleteConfirm.cancel,
 
-    uploadFiles,
+    onUploadFiles,
+    uploadModalOpen,
+    pendingFiles,
+    pendingNames,
+    confirmUpload,
     fileDeleteTarget: fileDeleteConfirm.target,
     fileDeleteBusy: fileDeleteConfirm.busy,
     openFileDeleteConfirm: fileDeleteConfirm.open,

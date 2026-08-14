@@ -132,7 +132,7 @@
               @edit="fw.openEdit"
               @delete="fw.openDeleteConfirm"
               @set-production="fw.setProduction"
-              @upload="fw.uploadFiles"
+              @upload="fw.onUploadFiles"
               @delete-file="fw.openFileDeleteConfirm"
             />
           </template>
@@ -251,11 +251,13 @@
     />
 
     <!-- Document name entry (before upload) -->
-    <DocumentUploadModal
+    <FileNameModal
       v-model="docNameModalOpen"
-      v-model:name="pendingDocName"
-      :file="pendingDocFile"
+      v-model:names="pendingDocNames"
+      :files="pendingDocFiles"
+      title-key="upload_document"
       :uploading="docsUploading"
+      layer="nested"
       @confirm="confirmDocUpload"
     />
 
@@ -297,6 +299,15 @@
       :loading="docDeleting"
       @confirm="confirmDocDelete"
       @cancel="cancelDocDelete"
+    />
+
+    <FileNameModal
+      v-model="fw.uploadModalOpen"
+      v-model:names="fw.pendingNames"
+      :files="fw.pendingFiles"
+      title-key="upload_file"
+      :uploading="fw.uploading"
+      @confirm="fw.confirmUpload"
     />
 
     <!-- Firmware version create / edit -->
@@ -370,7 +381,7 @@ import ComposeRevisionModal from './detail/ComposeRevisionModal.vue';
 import PartsEditorPanel from './detail/PartsEditorPanel.vue';
 import ProductOverviewCard from './detail/ProductOverviewCard.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
-import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
+import FileNameModal from '../../components/modal/FileNameModal.vue';
 import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
 import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
@@ -482,8 +493,8 @@ const {
   clearCache: clearDocsCache,
   dropCacheKey: dropDocsCacheKey,
   docNameModalOpen,
-  pendingDocFile,
-  pendingDocName,
+  pendingDocFiles,
+  pendingDocNames,
   onUploadFile,
   confirmDocUpload,
   linkModalOpen: docLinkModalOpen,

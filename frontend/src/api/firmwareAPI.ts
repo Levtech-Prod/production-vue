@@ -28,11 +28,18 @@ export const firmwaresApi = {
     return api.delete(`/firmwares/${firmwareId}`);
   },
 
-  /** Several files at once. Re-uploading a name that already exists on this
-   *  firmware overwrites it rather than adding a second entry. */
-  uploadFiles(firmwareId: number, files: File[]) {
+  /**
+   * Several files at once. `names` is index-aligned with `files`; an empty
+   * entry keeps the uploaded file's own name. Re-uploading a name that already
+   * exists on this firmware overwrites it rather than adding a second entry.
+   *
+   * One `names` part per file, appended in the same order — the server pairs
+   * them by index, so a name must be sent even when it is blank.
+   */
+  uploadFiles(firmwareId: number, files: File[], names: string[] = []) {
     const form = new FormData();
     for (const file of files) form.append('files', file);
+    for (let i = 0; i < files.length; i += 1) form.append('names', names[i]?.trim() ?? '');
     return api.post<Firmware>(`/firmwares/${firmwareId}/files`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });

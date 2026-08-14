@@ -25,18 +25,19 @@ import fs from 'fs';
 import path from 'path';
 import type { Queryable } from '../db.js';
 import {
-  clampFileName,
   documentsDirFor,
   ensureProductDir,
   ensureSubProductDir,
   findEntityDir,
   productsDir,
   PUBLIC_PREFIX,
+  resolveDisplayName,
   resolveUnderProducts,
   safeUnlink,
-  sanitizeSegment,
   type FolderEntity,
 } from './uploadPaths.js';
+
+export { resolveDisplayName };
 
 // Re-exported so the many modules that already import their DB plumbing from
 // this service keep one import site.
@@ -111,43 +112,6 @@ export function resolveEntityDocumentsDir(entity: DocumentEntity): string {
       ? ensureProductDir(entity)
       : ensureSubProductDir(entity.product, entity);
   return documentsDirFor(entityDir);
-}
-
-/**
- * The name a document is shown under: the custom name when one was given,
- * otherwise the uploaded file's own name.
- *
- * The extension ALWAYS comes from the uploaded file, and is appended rather
- * than substituted when a custom name carries a different one ("notes.txt"
- * for a .zip becomes "notes.txt.zip"). Two reasons:
- *
- *  - It is the extension that was validated — against the global allow-list
- *    and the card's `allowedExtensions`. Letting a label rename `x.zip` to
- *    `x.svg` would put an unvalidated extension on a file served statically
- *    from `/uploads`.
- *  - Appending never guesses. Substituting means deciding which trailing
- *    dot-segment of the typed name is "the extension", and `path.extname`
- *    reads "v2.1 release" as ".1 release" — so a legitimate name with a dot
- *    in it would be silently truncated.
- *
- * Deliberately independent of what is already on disk. The display name is
- * what the user typed (or uploaded); collision handling belongs to
- * `resolveUniqueName` and must never leak back into it, or replacing a file
- * with a new version of itself would rename the document to "foo (1).ext"
- * merely because the file being replaced is still on disk at that moment.
- */
-export function resolveDisplayName(
-  desiredName: string | undefined,
-  originalName: string,
-): string {
-  const base = sanitizeSegment((desiredName ?? '').trim() || originalName);
-  const originalExt = path.extname(originalName);
-
-  if (!originalExt) return clampFileName(base);
-  if (path.extname(base).toLowerCase() === originalExt.toLowerCase()) {
-    return clampFileName(base);
-  }
-  return clampFileName(base + originalExt);
 }
 
 /**

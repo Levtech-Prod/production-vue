@@ -15,11 +15,10 @@ import fs from 'fs';
 import path from 'path';
 import type { Queryable } from '../db.js';
 import {
-  clampFileName,
   productsDir,
+  resolveDisplayName,
   resolveUnderProducts,
   safeUnlink,
-  sanitizeSegment,
   type FolderEntity,
 } from './uploadPaths.js';
 
@@ -108,9 +107,10 @@ export async function findFirmwareContext(
 
 /** A firmware file moved into place, not yet recorded in the database. */
 export interface PlacedFirmwareFile {
-  /** Path relative to `firmwareDir` — becomes `firmware_files.storage_key`. */
+  /** Path relative to `productsDir` — becomes `firmware_files.storage_key`. */
   storageKey: string;
-  /** The name shown to users — becomes `firmware_files.original_name`. */
+  /** The name shown to users — becomes `firmware_files.original_name`. The
+   *  custom name when one was given, otherwise the uploaded file's own. */
   originalName: string;
 }
 
@@ -131,9 +131,14 @@ export interface PlacedFirmwareFile {
 export function placeFirmwareFile(
   file: Express.Multer.File,
   folder: string,
+  customName?: string,
 ): PlacedFirmwareFile {
   const dirAbs = path.join(productsDir, folder);
-  const originalName = clampFileName(sanitizeSegment(file.originalname));
+  // The same rule documents use: the extension always comes from the uploaded
+  // file, appended rather than substituted when a custom name carries a
+  // different one. Here it also decides the storage key, so a renamed upload
+  // no longer overwrites the file it was renamed from.
+  const originalName = resolveDisplayName(customName, file.originalname);
   fs.renameSync(file.path, path.join(dirAbs, originalName));
 
   return { storageKey: `${folder}/${originalName}`, originalName };
