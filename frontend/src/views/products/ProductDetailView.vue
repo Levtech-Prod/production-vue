@@ -94,21 +94,48 @@
             @edit-sp-revision="openEditSpRevision"
           />
 
-          <DocumentsPanel
-            v-else-if="activeTab === 'documents' && panelScope"
-            :title="docsTitle"
-            :docs="docs"
-            :loading="docsLoading"
-            :can-edit="!isArchived"
-            :can-manage-types="isAdmin"
-            @upload-file="onUploadFile"
-            @replace-file="openDocReplaceConfirm"
-            @delete-doc="openDocDeleteConfirm"
-            @link-doc="openDocLinkModal"
-            @add-type="openDocTypeModal(null)"
-            @edit-type="openDocTypeModal"
-            @delete-type="openDocTypeDeleteConfirm"
-          />
+          <template v-if="activeTab === 'documents' && panelScope">
+            <DocumentsPanel
+              v-if="documentsView === 'documents'"
+              :title="docsTitle"
+              :docs="docs"
+              :loading="docsLoading"
+              :can-edit="!isArchived"
+              :can-manage-types="isAdmin"
+              :show-firmware="panelScope.kind === 'spRev'"
+              :firmware-count="fw.firmwares.length"
+              :production-firmware-name="fw.productionFirmware?.name ?? null"
+              @upload-file="onUploadFile"
+              @replace-file="openDocReplaceConfirm"
+              @delete-doc="openDocDeleteConfirm"
+              @link-doc="openDocLinkModal"
+              @add-type="openDocTypeModal(null)"
+              @edit-type="openDocTypeModal"
+              @delete-type="openDocTypeDeleteConfirm"
+              @open-firmware="documentsView = 'firmware'"
+            />
+            <FirmwarePanel
+              v-else
+              :key="firmwareScopeKey"
+              :title="firmwareTitle"
+              :revision-label="firmwareRevisionLabel"
+              :firmwares="fw.firmwares"
+              :selected="fw.selected"
+              :selected-id="fw.selectedId"
+              :loading="fw.loading"
+              :saving="fw.saving"
+              :uploading="fw.uploading"
+              :can-edit="!isArchived"
+              @back="documentsView = 'documents'"
+              @select="fw.selectedId = $event"
+              @create="fw.openCreate"
+              @edit="fw.openEdit"
+              @delete="fw.openDeleteConfirm"
+              @set-production="fw.setProduction"
+              @upload="fw.onUploadFiles"
+              @delete-file="fw.openFileDeleteConfirm"
+            />
+          </template>
 
           <!-- BOM tab: read-only BOM/parts view; in Revisions mode a selected
                sub-product revision becomes editable right here. -->
@@ -196,24 +223,20 @@
       :saving="modalSaving"
       @saved="onEditRevisionSaved"
     />
-    <!-- Delete revision confirmation -->
-    <ConfirmModal
-      :visible="revToDelete != null"
-      :title="t('delete_revision')"
-      :message="`${t('confirmations.delete_revision_msg')}${revToDelete ? `: ${revToDelete.spName} · ${revToDelete.revLabel}` : ''}`"
-      :confirm-text="t('delete')"
-      :cancel-text="t('cancel')"
+    <DeleteConfirmModal
+      :target="revToDelete"
+      title-key="delete_revision"
+      message-key="confirmations.delete_revision_msg"
+      :label="(r) => `${r.spName} · ${r.revLabel}`"
       :loading="revDeleting"
       @confirm="confirmDeleteRevision"
       @cancel="cancelDeleteRevConfirm"
     />
-    <!-- Delete whole sub-product confirmation -->
-    <ConfirmModal
-      :visible="spToDelete != null"
-      :title="t('delete_sub_product')"
-      :message="`${t('confirmations.delete_sub_product_msg')}${spToDelete ? `: ${spToDelete.name}` : ''}`"
-      :confirm-text="t('delete')"
-      :cancel-text="t('cancel')"
+    <DeleteConfirmModal
+      :target="spToDelete"
+      title-key="delete_sub_product"
+      message-key="confirmations.delete_sub_product_msg"
+      :label="(sp) => sp.name"
       :loading="spDeleting"
       @confirm="confirmDeleteSubProduct"
       @cancel="cancelDeleteSubProductConfirm"
@@ -228,11 +251,13 @@
     />
 
     <!-- Document name entry (before upload) -->
-    <DocumentUploadModal
+    <FileNameModal
       v-model="docNameModalOpen"
-      v-model:name="pendingDocName"
-      :file="pendingDocFile"
+      v-model:names="pendingDocNames"
+      :files="pendingDocFiles"
+      title-key="upload_document"
       :uploading="docsUploading"
+      layer="nested"
       @confirm="confirmDocUpload"
     />
 
@@ -266,16 +291,51 @@
       @cancel="cancelDocReplace"
     />
 
-    <!-- Delete document confirmation -->
-    <ConfirmModal
-      :visible="docDeleteConfirmVisible"
-      :title="t('delete_document')"
-      :message="`${t('confirmations.delete_document_msg')}${docToDelete ? `: ${docToDelete.doc.originalName}` : ''}`"
-      :confirm-text="t('delete')"
-      :cancel-text="t('cancel')"
+    <DeleteConfirmModal
+      :target="docToDelete"
+      title-key="delete_document"
+      message-key="confirmations.delete_document_msg"
+      :label="(d) => d.doc.originalName"
       :loading="docDeleting"
       @confirm="confirmDocDelete"
       @cancel="cancelDocDelete"
+    />
+
+    <FileNameModal
+      v-model="fw.uploadModalOpen"
+      v-model:names="fw.pendingNames"
+      :files="fw.pendingFiles"
+      title-key="upload_file"
+      :uploading="fw.uploading"
+      @confirm="fw.confirmUpload"
+    />
+
+    <!-- Firmware version create / edit -->
+    <FirmwareFormModal
+      v-model="fw.formOpen"
+      :firmware="fw.editTarget"
+      :saving="fw.saving"
+      @saved="fw.save"
+    />
+
+    <DeleteConfirmModal
+      :target="fw.deleteTarget"
+      title-key="delete_firmware"
+      message-key="confirmations.delete_firmware_msg"
+      :label="(f) => f.name"
+      :loading="fw.deleteBusy"
+      @confirm="fw.confirmDelete"
+      @cancel="fw.cancelDelete"
+    />
+
+    <DeleteConfirmModal
+      :target="fw.fileDeleteTarget"
+      title-key="delete_firmware_file"
+      message-key="confirmations.delete_firmware_file_msg"
+      :label="(f) => f.originalName"
+      :loading="fw.fileDeleteBusy"
+      @confirm="fw.confirmFileDelete"
+      @cancel="fw.cancelFileDelete"
     />
 
     <!-- Add / edit a document type belonging to this product alone -->
@@ -287,14 +347,12 @@
       @confirm="confirmDocTypeSave"
     />
 
-    <!-- Delete document type confirmation — its files move to "Other
-         documents", they are never deleted. -->
-    <ConfirmModal
-      :visible="docTypeDeleteVisible"
-      :title="t('delete_document_type')"
-      :message="`${t('confirmations.delete_document_type_msg')}${docTypeToDelete ? `: ${docTypeToDelete.group.name}` : ''}`"
-      :confirm-text="t('delete')"
-      :cancel-text="t('cancel')"
+    <!-- Its files move to "Other documents", they are never deleted. -->
+    <DeleteConfirmModal
+      :target="docTypeToDelete"
+      title-key="delete_document_type"
+      message-key="confirmations.delete_document_type_msg"
+      :label="(d) => d.group.name"
       :loading="docTypeDeleting"
       @confirm="confirmDocTypeDelete"
       @cancel="cancelDocTypeDelete"
@@ -303,16 +361,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ChevronLeft, FileText, Info, List, GitCompare } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
+import DeleteConfirmModal from '../../components/notification/DeleteConfirmModal.vue';
 import ProductTree from './detail/ProductTree.vue';
 import RevisionOverviewPanel from './detail/RevisionOverviewPanel.vue';
 import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
+import FirmwarePanel from './detail/firmware/FirmwarePanel.vue';
+import FirmwareFormModal from './detail/firmware/FirmwareFormModal.vue';
 import BomPanel from './detail/bom/BomPanel.vue';
 import ComparePanel from './detail/compare/ComparePanel.vue';
 import EditRevisionModal from './detail/EditRevisionModal.vue';
@@ -320,13 +381,14 @@ import ComposeRevisionModal from './detail/ComposeRevisionModal.vue';
 import PartsEditorPanel from './detail/PartsEditorPanel.vue';
 import ProductOverviewCard from './detail/ProductOverviewCard.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
-import DocumentUploadModal from './detail/documents/DocumentUploadModal.vue';
+import FileNameModal from '../../components/modal/FileNameModal.vue';
 import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
 import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
+import { useFirmwares } from './detail/firmware/composables/useFirmwares.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
@@ -388,7 +450,9 @@ const {
 const treeCollapsed = ref(false);
 
 type RightPanelTab = 'overview' | 'documents' | 'bom' | 'compare';
-const activeTab = ref<RightPanelTab>('documents');
+
+const DEFAULT_TAB: RightPanelTab = 'bom';
+const activeTab = ref<RightPanelTab>(DEFAULT_TAB);
 
 // Overview describes the selected revision, so it only earns a tab while the
 // left panel is showing revisions. Normal mode keeps the three tabs it had.
@@ -429,8 +493,8 @@ const {
   clearCache: clearDocsCache,
   dropCacheKey: dropDocsCacheKey,
   docNameModalOpen,
-  pendingDocFile,
-  pendingDocName,
+  pendingDocFiles,
+  pendingDocNames,
   onUploadFile,
   confirmDocUpload,
   linkModalOpen: docLinkModalOpen,
@@ -473,6 +537,40 @@ const {
   cancelDelete: cancelDocTypeDelete,
 } = useDocumentTypes(panelScope, refreshAllDocScopes);
 
+// Firmware hangs off a sub-product revision, so it shares the Documents tab
+// rather than earning one of its own: `documentsView` picks which of the two
+// panels that tab shows.
+const documentsView = ref<'documents' | 'firmware'>('documents');
+
+// Kept as one namespace rather than destructured: every name would otherwise
+// need a `firmware` prefix to avoid colliding with the document and revision
+// equivalents (`selected`, `loading`, `saving`, `deleteTarget`…). `reactive`
+// unwraps the refs, so the template reads `fw.selected`, `fw.loading`, and so
+// on.
+const fw = reactive(useFirmwares(panelScope));
+
+// One lookup feeding all three: the panel's title, the revision label it
+// shows, and the key that remounts it (so per-revision view state such as the
+// change log's status filter does not follow you to the next revision).
+const firmwareContext = computed(() => {
+  const scope = panelScope.value;
+  if (scope?.kind !== 'spRev') return null;
+  const { sp, rev } = spRevInfo(scope.spId, scope.revId);
+  return {
+    key: `${scope.spId}:${scope.revId}`,
+    label: rev?.label ?? '',
+    name: sp?.name ?? '',
+  };
+});
+
+const firmwareScopeKey = computed(() => firmwareContext.value?.key ?? '');
+const firmwareRevisionLabel = computed(() => firmwareContext.value?.label ?? '');
+const firmwareTitle = computed(() =>
+  firmwareContext.value
+    ? t('firmware_for', { name: firmwareContext.value.name, label: firmwareContext.value.label })
+    : t('firmware'),
+);
+
 const {
   bom,
   parts,
@@ -491,18 +589,27 @@ const {
 // active tab would point at a tab that is no longer rendered, leaving the
 // panel blank.
 watch(revisionsMode, (on) => {
-  if (!on && activeTab.value === 'overview') activeTab.value = 'documents';
+  if (!on && activeTab.value === 'overview') activeTab.value = DEFAULT_TAB;
 });
 
-// Load BOM/parts whenever their scope changes (needs a real revision).
+// Everything the right-hand panel shows is keyed on the same scope, so one
+// watcher rather than one per resource: three effects on a single source meant
+// three scheduler jobs and an ordering that was only implicit.
+//
+// Documents are per product REVISION, so switching revision is a scope change
+// like any other. Firmware exists only under a sub-product revision — and is
+// loaded even while the Documents view is showing, because the entry point
+// there reports the version count and the current production version.
 watch(panelScope, (scope) => {
-  if (scope) void loadContent(scope);
-});
-// Load docs whenever the panel scope changes (e.g. selecting a different
-// sub-product, or switching product revision — product documents are stored
-// per product revision now, so each one has its own set).
-watch(panelScope, (scope) => {
-  if (scope) void loadDocs(scope);
+  if (!scope) return;
+  void loadContent(scope);
+  void loadDocs(scope);
+  if (scope.kind === 'spRev') {
+    void fw.load(scope);
+  } else {
+    // No firmware to show at product scope; fall back rather than render blank.
+    documentsView.value = 'documents';
+  }
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
@@ -825,7 +932,11 @@ async function loadAndApplyDefaults() {
   // Explicit (rather than relying solely on the panelScope watcher above):
   // switching between two products whose active revision happens to be the
   // same object leaves the scope value unchanged, so the watcher wouldn't fire.
-  if (panelScope.value) void loadDocs(panelScope.value);
+  const scope = panelScope.value;
+  if (scope) {
+    void loadDocs(scope);
+    if (scope.kind === 'spRev') void fw.load(scope);
+  }
 }
 
 onMounted(loadAndApplyDefaults);
@@ -833,10 +944,12 @@ onMounted(loadAndApplyDefaults);
 watch(productId, () => {
   resetForProductChange();
   clearDocsCache();
+  fw.clearCache();
   clearContentCaches();
   bom.value = [];
   parts.value = [];
-  activeTab.value = 'documents';
+  activeTab.value = DEFAULT_TAB;
+  documentsView.value = 'documents';
   loadAndApplyDefaults();
 });
 </script>

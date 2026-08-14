@@ -156,7 +156,8 @@ import { computed } from 'vue';
 import { Pencil, Star } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatDate } from '../../../utils/formatters.ts';
-import { linkedRevOf, statusBadgeClass, statusDot } from './revisionHelpers.ts';
+import { linkedRevOf } from './revisionHelpers.ts';
+import { statusBadgeClass, statusDot } from '../../../utils/statusColors.ts';
 import type {
   DetailSubProduct,
   ProductDetail,

@@ -30,13 +30,14 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-1">
-            <a
-              :href="file.downloadUrl"
+            <button
+              type="button"
               class="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               :title="t('download')"
+              @click="download(file.downloadUrl, file.originalName)"
             >
               <Download class="h-4 w-4" />
-            </a>
+            </button>
             <label
               v-if="canEdit"
               class="cursor-pointer rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -82,6 +83,7 @@ import { useI18n } from 'vue-i18n';
 import { Download, FileText, RefreshCw, Trash2 } from 'lucide-vue-next';
 import BaseModal from '../../../../components/modal/BaseModal.vue';
 import { formatBytes, formatDate } from '../../../../utils/formatters.ts';
+import { useFileDownload } from '../../../../composables/useFileDownload.ts';
 import type { ProductDocument } from '../../../../types/products.ts';
 
 /** What the modal needs about the card it was opened from. `files` comes
@@ -105,6 +107,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const { download } = useFileDownload();
 const open = defineModel<boolean>({ default: false });
 
 const acceptAttr = computed(() =>

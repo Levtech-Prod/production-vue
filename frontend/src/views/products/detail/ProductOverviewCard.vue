@@ -167,7 +167,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Archive, ChevronDown, Star, Clock } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatDate } from '../../../utils/formatters.ts';
-import { pinnedOrder, statusDot } from './revisionHelpers.ts';
+import { pinnedOrder } from './revisionHelpers.ts';
+import { statusDot } from '../../../utils/statusColors.ts';
 import type { ProductDetail } from '../../../types/products.ts';
 
 /** How many revisions stay visible; the rest move into the "more" popover. */

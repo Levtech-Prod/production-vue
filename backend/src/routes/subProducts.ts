@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { PoolClient } from 'pg';
 import { query, pool } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { removeFirmwareDirs } from '../services/uploadPaths.js';
+import { findRevisionContext } from '../services/firmwareFiles.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   createSubProductSchema,
@@ -452,6 +454,8 @@ router.delete('/:spId', requireAuth, async (req, res) => {
 
   // Post-delete: the cascade has removed every row pointing into this folder,
   // so the whole thing goes. Previously these files were left behind on disk.
+  // Firmware sits inside this folder too (`documents/firmware/`), so it goes
+  // with it — no separate sweep needed.
   if (parent) removeEntityFolder({ ...subProduct, product: parent });
 
   res.json({ id: spId, deleted: true });
@@ -588,6 +592,14 @@ router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
   if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
     return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
   }
+  // Read the revision's firmware ids and folder identity first: the delete
+  // cascades their rows away, and afterwards there is nothing left to derive
+  // their folders from.
+  const [firmwareContext, firmwares] = await Promise.all([
+    findRevisionContext(pool, spId, revId),
+    query<{ id: number }>(`SELECT id FROM firmwares WHERE sub_product_revision_id = $1`, [revId]),
+  ]);
+
   const result = await query(
     `DELETE FROM sub_product_revisions
      WHERE id = $1 AND sub_product_id = $2
@@ -597,6 +609,15 @@ router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
   if (result.rowCount === 0) {
     return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
   }
+
+  if (firmwareContext?.product) {
+    removeFirmwareDirs(
+      firmwareContext.product,
+      firmwareContext.subProduct,
+      firmwares.rows.map((row) => row.id),
+    );
+  }
+
   res.json({ id: revId, deleted: true });
 });
 

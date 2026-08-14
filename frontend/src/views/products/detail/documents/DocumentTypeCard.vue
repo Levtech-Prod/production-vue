@@ -146,14 +146,14 @@
           <span
             class="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           >
-            <a
-              :href="file.downloadUrl"
+            <button
+              type="button"
               class="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               :title="t('download')"
-              @click.stop
+              @click.stop="download(file.downloadUrl, file.originalName)"
             >
               <Download class="h-3.5 w-3.5" />
-            </a>
+            </button>
             <label
               v-if="canEdit"
               class="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -236,6 +236,7 @@ import {
 } from 'lucide-vue-next';
 import { resolveIcon } from '../../../../utils/documentTypeIcons.ts';
 import { formatBytes } from '../../../../utils/formatters.ts';
+import { useFileDownload } from '../../../../composables/useFileDownload.ts';
 import type { DocumentTypeStatus, ProductDocument } from '../../../../types/products.ts';
 
 const props = withDefaults(
@@ -273,6 +274,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const { download } = useFileDownload();
 
 const icon = computed(() => resolveIcon(props.iconName));
 
