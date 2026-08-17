@@ -21,6 +21,13 @@ export function translateApiError(
   const code = err?.response?.data?.code as string | undefined;
   const codeKey = code ? `errors.${code}` : null;
 
+  // The server attaches `details` to unrecognized failures outside production
+  // (see server.ts). Surfaced here rather than left in the Network tab: the
+  // toast can only ever say "request failed", so without this the real cause
+  // stays invisible to whoever is looking at the screen.
+  const details = err?.response?.data?.details;
+  if (details) console.error('[api]', code, details);
+
   if (codeKey && te(codeKey)) return t(codeKey);
   if (te(fallbackKey)) return t(fallbackKey);
   return t(UNKNOWN_ERROR_KEY);

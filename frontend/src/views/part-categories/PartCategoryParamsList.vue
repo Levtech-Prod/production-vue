@@ -17,7 +17,7 @@
     <div class="overflow-hidden rounded-lg border border-slate-300 bg-white">
       <table class="w-full text-left text-sm">
         <thead
-          class="border-b border-slate-300 bg-blue-50 text-[11px] uppercase tracking-wide text-slate-600"
+          class="border-b border-slate-300 table-head text-[11px] tracking-wide"
         >
           <tr>
             <th class="w-9 border-r border-slate-300 px-2 py-1"></th>

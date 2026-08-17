@@ -3,7 +3,7 @@
     <h1 class="text-3xl font-bold">{{ t('users') }}</h1>
     <div class="card mt-6 overflow-hidden">
       <table class="w-full text-left text-sm">
-        <thead class="bg-blue-50 text-xs uppercase text-black">
+        <thead class="table-head text-xs">
           <tr>
             <th class="p-4">{{ t('username') }}</th>
             <th>{{ t('email') }}</th>

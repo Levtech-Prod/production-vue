@@ -13,7 +13,7 @@
     </div>
 
     <table v-else class="w-full text-left text-sm">
-      <thead class="bg-blue-50 text-xs uppercase text-black sticky top-0 z-10">
+      <thead class="table-head text-xs sticky top-0 z-10">
         <tr>
           <th class="p-4">{{ t('action') }}</th>
           <th class="p-4">{{ t('field') }}</th>

@@ -248,6 +248,33 @@ export interface BomSubProduct {
   parts: BomPart[];
 }
 
+// ---- Part alternatives ------------------------------------------------------
+//
+// A part linked to an alternative part, scoped to one sub-product REVISION
+// (see migration 021) — a link belongs to exactly one revision, same as
+// quantity/unit/mount_position. Directional: `partId` is the row being
+// viewed, `alternatePartId` is what was linked to it; linking A -> B does not
+// also make B show A as its alternative.
+
+export interface PartAlternative {
+  id: number;
+  partId: number;
+  alternatePartId: number;
+  /** Which of the pair the revision is actually built with: false = the BOM
+   *  line itself, the alternate being an approved standby; true = the
+   *  alternate is fitted in its place. The BOM cannot answer this on its own,
+   *  since the alternate is a catalog part rather than a BOM row. */
+  alternateInUse: boolean;
+}
+
+/** One link as returned by the batched product-revision lookup (GET
+ *  /product-revisions/:revId/part-alternatives) — same shape as
+ *  PartAlternative plus which sub-product revision it belongs to, since that
+ *  one call spans every sub-product in the BOM at once. */
+export interface ProductRevisionPartAlternative extends PartAlternative {
+  subProductRevisionId: number;
+}
+
 // ---- Payloads ---------------------------------------------------------------
 //
 // These mirror the request bodies the backend validates with zod (see
@@ -261,6 +288,7 @@ import type { RevisionPartInput as RevisionPartInputSchema } from '../../../back
 import type {
   CreateSubProductInput,
   NewSubProductRevisionInput,
+  CreatePartAlternativeInput as CreatePartAlternativeInputSchema,
 } from '../../../backend/src/schemas/subProducts.schema.ts';
 
 export type ProductPayload = ProductPayloadSchema;
@@ -270,6 +298,7 @@ export type RevisionPartInput = RevisionPartInputSchema;
 // that separately (see subProductsApi.create), so it's omitted here.
 export type SubProductPayload = Omit<CreateSubProductInput, 'productId'>;
 export type NewSubProductRevisionPayload = NewSubProductRevisionInput;
+export type CreatePartAlternativeInput = CreatePartAlternativeInputSchema;
 
 // Editable row used by the parts picker (carries display fields).
 export interface SelectedPart {

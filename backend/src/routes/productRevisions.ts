@@ -173,6 +173,37 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   res.json(Array.from(map.values()));
 });
 
+// Every alternative link across the whole BOM in one query — the flattened
+// product view opens every sub-product at once, so per-sub-product fetching
+// would be N requests per page load.
+router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const result = await query<{
+    id: number;
+    subProductRevisionId: number;
+    partId: number;
+    alternatePartId: number;
+    alternateInUse: boolean;
+  }>(
+    `SELECT pa.id,
+            pa.sub_product_revision_id AS "subProductRevisionId",
+            pa.part_id AS "partId",
+            pa.alternate_part_id AS "alternatePartId",
+            pa.alternate_in_use AS "alternateInUse"
+     FROM part_alternatives pa
+     JOIN product_revision_sub_products prsp
+       ON prsp.sub_product_revision_id = pa.sub_product_revision_id
+     WHERE prsp.product_revision_id = $1
+     ORDER BY pa.id`,
+    [revId],
+  );
+  res.json(result.rows);
+});
+
 // PATCH /api/product-revisions/:revId — update status, change_notes, label
 router.patch('/:revId', requireAuth, async (req, res) => {
   const revId = Number(req.params.revId);

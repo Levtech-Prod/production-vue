@@ -82,7 +82,7 @@
       </div>
 
       <table class="w-full text-left text-sm">
-        <thead class="bg-blue-50 text-xs uppercase text-black">
+        <thead class="table-head text-xs">
           <!-- Sort row -->
           <tr>
             <th class="p-4">{{ t('image') }}</th>

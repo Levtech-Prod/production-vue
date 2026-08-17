@@ -149,6 +149,8 @@
             <PartsEditorPanel
               v-if="revisionsMode && selection.type === 'subProduct'"
               :key="selection.spRevId"
+              :sp-id="selection.spId"
+              :rev-id="selection.spRevId"
               :sp-name="
                 spRevInfo(selection.spId, selection.spRevId).sp?.name ?? ''
               "
@@ -159,15 +161,19 @@
               :loading="contentLoading"
               :saving="partsSaving"
               :can-edit="!isArchived"
+              :alt-parts="altParts"
               @update="onPartsUpdate"
             />
             <BomPanel
               v-else
               :mode="panelScope.kind === 'product' ? 'product' : 'subRev'"
+              :sp-id="panelScope.kind === 'spRev' ? panelScope.spId : undefined"
+              :rev-id="panelScope.kind === 'spRev' ? panelScope.revId : undefined"
               :bom="bom"
               :parts="parts"
               :loading="contentLoading"
               :header-chip="bomHeaderChip"
+              :alt-parts="altParts"
               @select="
                 onSelect({
                   type: 'subProduct',
@@ -390,6 +396,7 @@ import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
 import { useFirmwares } from './detail/firmware/composables/useFirmwares.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
+import { useAlternativeParts } from './detail/bom/composables/useAlternativeParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
@@ -585,6 +592,13 @@ const {
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
 
+// Alternative-part links (see migration 021): shared across the BOM tab's
+// views so the cache survives switching revisions/tabs, same reasoning as
+// useBomAndParts above. reactive() (matching `fw` above) so `altParts.saving`
+// unwraps to a plain boolean wherever it's read through the prop, instead of
+// staying a Ref once it's nested inside this plain object.
+const altParts = reactive(useAlternativeParts());
+
 // Leaving Revisions mode takes the Overview tab with it — without this the
 // active tab would point at a tab that is no longer rendered, leaving the
 // panel blank.
@@ -606,10 +620,26 @@ watch(panelScope, (scope) => {
   void loadDocs(scope);
   if (scope.kind === 'spRev') {
     void fw.load(scope);
+    void altParts.ensureLoaded(scope.spId, scope.revId);
   } else {
     // No firmware to show at product scope; fall back rather than render blank.
     documentsView.value = 'documents';
   }
+});
+
+// Product-level BOM lists parts across every linked sub-product revision, so
+// its alternative links are batched in one request keyed by the product
+// revision (see ensureLoadedForProductRevision) instead of looping
+// ensureLoaded per sub-product — that would mean N requests on every product
+// page load. Only fires for the flattened product-level view: `bom` is only
+// populated when panelScope.kind === 'product' (see useBomAndParts).
+watch(bom, (list) => {
+  const scope = panelScope.value;
+  if (list.length === 0 || scope?.kind !== 'product') return;
+  void altParts.ensureLoadedForProductRevision(
+    scope.revId,
+    list.map((sp) => sp.subProductRevisionId),
+  );
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
