@@ -46,9 +46,7 @@ export const ErrorCodes = {
   SUB_PRODUCT_UPDATE_FAILED: 'SUB_PRODUCT_UPDATE_FAILED',
   INVALID_SUB_PRODUCT_TYPE: 'INVALID_SUB_PRODUCT_TYPE',
 
-  // part alternatives (per sub-product revision; see routes/subProducts.ts).
-  // No "already linked" code: a part holds at most one alternate, so POST
-  // replaces rather than colliding.
+  // part alternatives. No "already linked" code: POST replaces.
   PART_ALTERNATIVE_SAME_PART: 'PART_ALTERNATIVE_SAME_PART',
   PART_ALTERNATIVE_NOT_FOUND: 'PART_ALTERNATIVE_NOT_FOUND',
 

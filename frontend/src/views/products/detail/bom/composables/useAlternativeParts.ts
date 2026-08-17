@@ -9,44 +9,27 @@ import type { Part } from '../../../../../types/parts.ts';
 import type { PartAlternative } from '../../../../../types/products.ts';
 
 /**
- * Alternative-part links, keyed by sub_product_revision_id (see migration
- * 021 — a link belongs to exactly one revision, same as quantity/unit/
- * mount_position). Cached by revId alone, not spId+revId: revision ids are
- * already globally unique (SERIAL across every sub-product), matching how
- * useBomAndParts caches parts/BOM by revId. One instance is shared across the
- * BOM tab's views (see ProductDetailView), so switching between the editable
- * Parts panel and the read-only BOM panel reuses the same cache.
- *
- * A part holds AT MOST ONE alternate per revision (unique index on
- * (revision, part_id)), hence `alternateFor` returning a single part rather
- * than a list, and `link` replacing rather than appending.
- *
- * Directional: linking A -> B only shows on A's row. `alternateFor` never
- * looks at `alternatePartId` matches, unlike a symmetric/undirected design.
+ * Alternative-part links (see migration 021). Keyed by revision id alone —
+ * those are globally unique, so spId never enters the cache key.
  */
 export function useAlternativeParts() {
   const { t, te } = useI18n();
   const notify = useNotificationStore();
   const partsStore = usePartsStore();
 
-  // reactive() (not a plain Map) so components reading through alternativesFor
-  // re-render once a revision's links resolve, even though the fetch isn't
-  // triggered from inside their own setup().
+  // reactive(), not a plain Map: fetches are triggered outside the consuming
+  // components, so a plain Map would not re-render them on arrival.
   const cache = reactive(new Map<number, PartAlternative[]>());
   const loadingIds = reactive(new Set<number>());
   const inFlight = new Map<number, Promise<void>>();
-  // Keyed by product revision id — separate from `inFlight` (keyed by sub-
-  // product revision id) so a batch load and a single-revision load never
-  // dedupe against each other.
+  // Separate from `inFlight` (different key space) so a batch and a single
+  // load never dedupe against each other.
   const productRevInFlight = new Map<number, Promise<void>>();
   const saving = ref(false);
 
-  // Bumped whenever the cache gains or loses links. Consumers that need to
-  // react to links ARRIVING (rather than just read them during render) watch
-  // this — notably the panels that auto-expand every part with an alternate,
-  // which have to re-seed once a fetch resolves. Watching the reactive Map
-  // itself would need a deep watcher on a structure that is replaced
-  // wholesale per revision; a counter says the same thing far more cheaply.
+  // Watchable signal that links arrived, for the panels that auto-expand.
+  // A counter rather than a deep watcher on the Map, which is replaced
+  // wholesale per revision anyway.
   const linkVersion = ref(0);
 
   function ensureLoaded(spId: number, revId: number): Promise<void> {
@@ -73,11 +56,8 @@ export function useAlternativeParts() {
     return promise;
   }
 
-  /** Loads every `revIds` entry's links in one request instead of one GET per
-   *  sub-product revision — the product-level BOM view opens with every
-   *  sub-product in the composition at once, so looping `ensureLoaded` here
-   *  would mean N requests on every product page load. Revisions already
-   *  cached (individually or from an earlier batch) are left untouched. */
+  /** One request for the whole product revision. Looping `ensureLoaded` here
+   *  would be N requests, since the product view opens every sub-product. */
   function ensureLoadedForProductRevision(
     productRevId: number,
     revIds: number[],
@@ -134,18 +114,14 @@ export function useAlternativeParts() {
     return partsStore.parts.find((p) => p.id === id);
   }
 
-  /** The alternate linked to `partId` within `revId`, if any — one direction
-   *  only, so this never returns a part that merely links TO `partId`.
-   *  Undefined both when nothing is linked and when the linked part is
-   *  missing from the catalog. */
+  /** Directional: never returns a part that merely links TO `partId`. */
   function alternateFor(revId: number, partId: number): Part | undefined {
     const link = linksFor(revId).find((l) => l.partId === partId);
     return link ? partById(link.alternatePartId) : undefined;
   }
 
-  /** Whether `partId` has an alternate on `revId` — true even if the catalog
-   *  hasn't loaded that part yet, which is what the auto-expand seeding wants
-   *  (a row shouldn't collapse just because the catalog is still arriving). */
+  /** True even before the catalog loads, unlike `alternateFor` — so
+   *  auto-expanded rows don't collapse while it is still arriving. */
   function hasAlternate(revId: number, partId: number): boolean {
     return linksFor(revId).some((l) => l.partId === partId);
   }
@@ -154,9 +130,6 @@ export function useAlternativeParts() {
     return linksFor(revId).find((l) => l.partId === partId)?.id;
   }
 
-  /** True when the revision is built with the alternate rather than the BOM
-   *  line itself. False both when the BOM line is fitted and when there is no
-   *  alternate at all. */
   function alternateInUse(revId: number, partId: number): boolean {
     return !!linksFor(revId).find((l) => l.partId === partId)?.alternateInUse;
   }
@@ -178,10 +151,8 @@ export function useAlternativeParts() {
     }
   }
 
-  /** Sets `partId`'s alternate, replacing whatever it pointed at before —
-   *  the route does the swap in one transaction (see migration 021). A brand
-   *  new link comes back already marked fitted; a swap keeps whatever the
-   *  previous link had. */
+  /** Replaces any existing alternate. A new link comes back fitted; a swap
+   *  keeps the previous link's flag. */
   async function link(spId: number, revId: number, partId: number, alternatePartId: number) {
     if (saving.value) return;
     saving.value = true;
@@ -232,8 +203,6 @@ export function useAlternativeParts() {
   };
 }
 
-// Every consumer receives this through a `reactive()` wrapper (see
-// ProductDetailView, matching the existing `useFirmwares`/`fw` pattern) so
-// `saving` reads as a plain boolean instead of a Ref wherever it's used —
-// UnwrapNestedRefs describes that post-reactive() shape, not the raw return.
+// Describes the post-`reactive()` shape (see ProductDetailView). Drop the
+// unwrap and `saving` reads as a Ref through the prop — vue-tsc will fail.
 export type UseAlternativeParts = UnwrapNestedRefs<ReturnType<typeof useAlternativeParts>>;

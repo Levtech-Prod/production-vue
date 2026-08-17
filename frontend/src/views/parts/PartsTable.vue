@@ -125,9 +125,8 @@
             </td>
           </tr>
           <tr v-if="hasExpanded && expandedPartIds.has(part.id)" class="border-t-0">
-            <!-- No background here: the slot content owns its own ground, so
-                 it can pick one that never matches a row (see
-                 AlternativesPanel — slate-50 would collide with even rows). -->
+            <!-- No background: the slot owns its ground, so it can pick one
+                 that never matches a row. -->
             <td :colspan="columnCount" class="p-0">
               <slot name="expanded" :part="part" />
             </td>
@@ -163,14 +162,10 @@ const props = withDefaults(
     emptyText?: string;
     // ID of the currently selected part (highlighted row)
     selectedPartId?: number | null;
-    // IDs of the parts whose #expanded slot row is open. A set rather than a
-    // single id because consumers open several at once — the alternatives
-    // panel starts expanded on every part that has one.
+    // A set, not a single id: consumers open several at once.
     expandedPartIds?: Set<number>;
-    // Tighter rows and a smaller thumbnail. For the BOM views, where a
-    // revision can run to hundreds of parts and each one may carry an
-    // expanded alternative strip — at the default spacing only a handful fit
-    // on screen. The parts catalogue keeps the roomier default.
+    // Tighter rows for the BOM views, where a revision plus its expanded
+    // alternatives leaves only a handful visible at the default spacing.
     dense?: boolean;
   }>(),
   {
@@ -270,10 +265,7 @@ const sortedParts = computed<Part[]>(() => {
 });
 
 // Optional columns: each renders only when the consumer fills its slot.
-// `qty` and `position` carry BOM-line data — how many of the part a
-// sub-product revision uses, and where it sits on that sub-product — which a
-// plain stock listing has no notion of. `expanded` isn't a column (it renders
-// as a full-width row via colspan) so it doesn't add to columnCount.
+// `expanded` is a full-width row via colspan, so it isn't in columnCount.
 const hasQty = computed(() => !!slots.qty);
 const hasPosition = computed(() => !!slots.position);
 const hasActions = computed(() => !!slots.actions);

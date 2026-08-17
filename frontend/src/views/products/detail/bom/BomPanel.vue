@@ -27,10 +27,8 @@
         :expanded-part-ids="expandedPartIds"
         dense
       >
-        <!-- Read-only counterparts of the editable panel's inputs. Filling the
-             slot is what makes PartsTable render the column at all (see its
-             hasQty / hasPosition), so without this the BOM view listed parts
-             without ever saying how many of each the revision needs. -->
+        <!-- Filling these slots is what makes PartsTable render the columns
+             at all (see its hasQty / hasPosition). -->
         <template #qty="{ part }">
           <span class="whitespace-nowrap">
             <span class="font-semibold text-slate-700">
@@ -143,9 +141,8 @@
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
                   {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
                 </td>
-                <!-- Stock on hand, not a BOM figure: the BOM payload carries
-                     quantity and mount position but not stock, so this comes
-                     from the shared catalogue like price and location do. -->
+                <!-- Stock, not a BOM figure — the BOM payload has none, so it
+                     comes from the catalogue like price and location. -->
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{
                     catalogById.get(part.id)
@@ -256,10 +253,7 @@ function mountPositionOf(partId: number): string {
   return revisionPartOf(partId)?.mountPosition || '—';
 }
 
-// View-only expand state — same PartsTable#expanded mechanism as the editable
-// panel, just with no add/remove controls (see AlternativesPanel
-// :editable="false" above and below). Sets rather than single ids because
-// every part that has an alternate opens by default.
+// Sets rather than single ids: every part with an alternative opens by default.
 const expandedPartIds = ref<Set<number>>(new Set());
 function toggleExpanded(partId: number) {
   const next = new Set(expandedPartIds.value);
@@ -268,10 +262,8 @@ function toggleExpanded(partId: number) {
   expandedPartIds.value = next;
 }
 
-// Product-level flattened table isn't built on PartsTable, so it tracks its
-// own expanded rows by the same `${part.id}-${i}` key used for v-for/:key —
-// part id alone can't key it since the same part may appear via two
-// sub-products.
+// Not built on PartsTable, so it keys its own expanded rows — part id alone
+// won't do, since the same part can appear via two sub-products.
 const expandedFlatKeys = ref<Set<string>>(new Set());
 function toggleFlatExpanded(key: string) {
   const next = new Set(expandedFlatKeys.value);
@@ -302,10 +294,7 @@ const flatParts = computed(() =>
   ),
 );
 
-// Columns in the flattened table above: thumbnail, code, name, price, stock,
-// quantity, mount position, location, and the alternatives toggle. Drives the
-// expanded row's colspan, so it has to be kept in step with the header — the
-// same reason PartsTable keeps its own FIXED_COLUMNS.
+// Drives the expanded row's colspan, so it must track the header above.
 const FLAT_COLUMNS = 9;
 
 // An empty product BOM skips the table (and its column headers) in favor of
@@ -314,11 +303,8 @@ const isEmptyProductBom = computed(
   () => props.mode === 'product' && flatParts.value.length === 0,
 );
 
-// Auto-expand: a part that has an alternate opens by default in both modes,
-// so the substitution is visible without hunting for it. Seeded rather than
-// computed outright — once the user collapses a row by hand, that choice
-// stands until the underlying rows or links change. `linkVersion` is what
-// makes this fire when a fetch resolves (see useAlternativeParts).
+// Seeded, not computed: a row the user collapses by hand stays collapsed.
+// `linkVersion` is what fires this when a fetch resolves.
 watch(
   [() => props.revId, partRows, () => props.altParts.linkVersion],
   () => {

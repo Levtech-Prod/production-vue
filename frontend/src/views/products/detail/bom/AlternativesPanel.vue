@@ -1,24 +1,15 @@
 <template>
-  <!-- A BOM can run to hundreds of parts and every part with an alternative is
-       expanded by default, so this section is held to roughly three short
-       lines. The subtitle sits OUTSIDE the table — it names the section and
-       carries the labelled "built with" control, which in turn lets the table
-       drop two columns.
-
-       bg-blue-50/60 deliberately: the parts table alternates white and
+  <!-- bg-blue-50/60, not slate-50: the parts table alternates white and
        even:bg-slate-50, and slate-50 is also the page background, so a
-       slate-50 ground merged into the very row it belongs to. -->
+       slate-50 ground merges into the row this belongs to. -->
   <div class="bg-blue-50/60 py-1 pl-14 pr-3">
-    <!-- The rail is the only thing that marks the fitted part. It turns
-         emerald when the revision is built with the alternative — a full
-         green fill on the row was too loud once several are open at once. -->
+    <!-- The rail alone marks the fitted part; a full green fill was too loud
+         with several open at once. -->
     <div
       class="border-l-[3px] pl-2.5"
       :class="inUse ? 'border-emerald-500' : 'border-blue-400'"
     >
       <div class="mb-0.5 flex items-center gap-2 leading-none">
-        <!-- Turn-down arrow rather than a heading: says "belongs to the row
-             above" without costing a line of its own. -->
         <CornerDownRight class="h-3.5 w-3.5 shrink-0 text-slate-400" />
         <span
           class="text-[10px] font-bold uppercase tracking-wide"
@@ -28,15 +19,11 @@
         </span>
 
         <div v-if="alternate" class="ml-auto flex shrink-0 items-center gap-1.5">
-          <!-- Only labels the switch. The read-only badge below is phrased as
-               a status of the alternative itself ("Fitted" / "Standby"), so a
-               "Built with" prefix would misread it. -->
+          <!-- Labels the switch only: the read-only badge reads as a status
+               of the alternative, which this prefix would misdescribe. -->
           <span v-if="editable" class="text-[10px] uppercase tracking-wide text-slate-500">
             {{ t('built_with') }}
           </span>
-          <!-- Editable: a two-way switch that both shows and sets which part
-               is fitted, so the answer and the control are one object.
-               Read-only: the same fact as a badge. -->
           <div
             v-if="editable"
             class="inline-flex overflow-hidden rounded-md text-[10px] font-bold ring-1 ring-slate-300"
@@ -62,8 +49,7 @@
               {{ t('use_alternative') }}
             </button>
           </div>
-          <!-- Icon + words, never colour alone, so the state survives
-               greyscale and colour-blindness. -->
+          <!-- Icon + words, never colour alone. -->
           <span
             v-else-if="inUse"
             class="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white"
@@ -81,15 +67,10 @@
 
       <div v-if="alternate" class="overflow-hidden rounded-md ring-1 ring-slate-200">
         <table class="w-full text-left">
-          <!-- Same header colour as the parts table above (the shared
-               .table-head class), at 9px so the section stays compact. -->
-          <!-- Same columns as the parts table above, in the same order, so
-               the eye tracks straight down from a row to its alternative.
-               Widths live on the <th>, not the <td>: in an auto-layout table
-               the wider of the two wins, so setting them only on the body
-               cells left the header free to stretch a column back out.
-               "Other parameters" is the one column left unconstrained, so it
-               absorbs the slack — the same column that does so upstairs. -->
+          <!-- Widths belong on the <th>: in an auto-layout table the wider of
+               th/td wins, so body-only widths let the header stretch a column
+               back out. "Other parameters" is left unconstrained to absorb
+               the slack, as it does in the parts table. -->
           <thead class="table-head text-[9px] tracking-wide">
             <tr>
               <th class="w-10 px-2 py-0.5 font-semibold">{{ t('image') }}</th>
@@ -124,8 +105,6 @@
               <td class="whitespace-nowrap px-2 py-1 font-mono text-[11px] text-slate-600">
                 {{ alternate.code }}
               </td>
-              <!-- Capped and truncating so a long part name can no longer
-                   swallow the rest of the row. -->
               <td class="max-w-0 truncate px-2 py-1 text-xs font-semibold text-slate-800">
                 {{ alternate.name }}
               </td>
@@ -138,12 +117,8 @@
               <td class="whitespace-nowrap px-2 py-1 text-[11px] text-slate-500">
                 {{ Math.round(Number(alternate.totalQuantity ?? 0)) }}
               </td>
-              <!-- Quantity and position are NOT stored on the link: fitting
-                   the alternative means fitting it in place of the BOM line,
-                   so it is needed in the same amount and sits in the same
-                   spot. Both are read straight off that line, and shown
-                   read-only because there is nothing here that could
-                   diverge. -->
+              <!-- Not stored on the link: the alternative is fitted in the BOM
+                   line's place, so both are read off that line. -->
               <td
                 class="whitespace-nowrap px-2 py-1 text-[11px] text-slate-700"
                 :title="t('same_qty_as_main')"
@@ -157,9 +132,8 @@
               >
                 {{ mountPosition || '—' }}
               </td>
-              <!-- Kept to one line, unlike the stacked chips upstairs: several
-                   parameters would otherwise make this strip taller than the
-                   row it belongs to. -->
+              <!-- One line, unlike the stacked chips upstairs: several
+                   parameters would make this taller than its own row. -->
               <td class="max-w-0 px-2 py-1">
                 <div class="flex items-center gap-1 overflow-hidden">
                   <span
@@ -204,9 +178,6 @@
         </table>
       </div>
 
-      <!-- No alternative yet: one line, no table — there are no values to
-           label, and an empty state should not cost more room than a filled
-           one. -->
       <div
         v-else
         class="flex items-center gap-2 rounded-md bg-white px-2 py-1 ring-1 ring-slate-200"
@@ -223,8 +194,7 @@
         </button>
       </div>
 
-      <!-- The picker only exists while choosing, so it never adds height at
-           rest — the reason the old always-visible select had to go. -->
+      <!-- Rendered only while choosing, so it costs no height at rest. -->
       <div v-if="editable && picking" class="mt-1 flex items-center gap-2">
         <select v-model.number="selected" class="input !w-56 !py-0.5 !text-[11px]" :disabled="saving">
           <option :value="0" disabled>{{ t('select_part') }}</option>
@@ -264,18 +234,15 @@ withDefaults(
   defineProps<{
     /** A part carries at most one alternate per revision (see migration 021). */
     alternate?: Part;
-    /** True when the revision is built with the alternate rather than the
-     *  BOM line. This, not BOM membership, is what marks the fitted part —
-     *  the alternate is a catalog part, so it is never a BOM row itself. */
+    /** Marks the fitted part. Not BOM membership — the alternative is a
+     *  catalog part, so it is never a BOM row itself. */
     inUse?: boolean;
     editable?: boolean;
     /** Catalog parts this row could be set to (only needed when editable). */
     candidates?: Part[];
     saving?: boolean;
-    /** The BOM line's quantity, unit and mount position. Fitting the
-     *  alternative means fitting it INSTEAD of the BOM part, so it is needed
-     *  in the same amount and sits in the same spot — none of this is stored
-     *  on the link, it is passed straight through from the parent row. */
+    /** Read off the BOM line, not the link: the alternative is fitted in
+     *  that line's place. */
     quantity?: number | string | null;
     unit?: string | null;
     mountPosition?: string | null;
@@ -303,8 +270,7 @@ const { t } = useI18n();
 const picking = ref(false);
 const selected = ref(0);
 
-// Emits `add` whether or not one is already set — the route treats a post as
-// "set this part's alternate" and replaces (see migration 021).
+// Emits `add` either way: the route treats a post as "set", and replaces.
 function confirmSet() {
   if (!selected.value) return;
   emit('add', selected.value);

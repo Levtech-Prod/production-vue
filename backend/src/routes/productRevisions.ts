@@ -173,13 +173,9 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   res.json(Array.from(map.values()));
 });
 
-// GET /api/product-revisions/:revId/part-alternatives — every alternative
-// link across every sub-product revision in this product revision's BOM, in
-// one query. The BOM panel's flattened product-level view opens with every
-// sub-product in the composition at once; fetching links per sub-product
-// (GET /sub-products/:spId/revisions/:revId/part-alternatives) would mean N
-// requests on every product page load, so this aggregates the same way
-// GET /:revId/bom already does for parts.
+// Every alternative link across the whole BOM in one query — the flattened
+// product view opens every sub-product at once, so per-sub-product fetching
+// would be N requests per page load.
 router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
   const revId = Number(req.params.revId);
   if (!revId || Number.isNaN(revId)) {
