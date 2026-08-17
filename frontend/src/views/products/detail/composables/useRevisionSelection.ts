@@ -20,8 +20,11 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
   const selection = ref<Selection>({ type: 'product' });
   const revisionsMode = ref(false);
   // Which of Revisions mode's two views is showing. Ignored while
-  // `revisionsMode` is off — normal mode has a single view.
-  const revPanelView = ref<RevPanelView>('changelog');
+  // `revisionsMode` is off — normal mode has a single view. Composition is
+  // the default: it holds the revision chips, the per-sub-product revision
+  // lists and the compose checkboxes, so it is the view you actually work in.
+  // The changelog is for looking back, and is one click away.
+  const revPanelView = ref<RevPanelView>('composition');
   // True while the user is actively building a new product revision
   // composition (started via "Add new revision" on the left tree). Gates
   // whether the compose checkboxes are interactive and whether the "Save as
@@ -80,9 +83,10 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
 
   function toggleRevisionsMode() {
     revisionsMode.value = !revisionsMode.value;
-    // Revisions mode is about history first — always land on the changelog,
-    // never on whichever view was left open last time.
-    if (revisionsMode.value) revPanelView.value = 'changelog';
+    // Always land on composition, never on whichever view was left open last
+    // time: switching into Revisions mode is how you go to compose or inspect
+    // a revision's make-up, so that is the view worth arriving in.
+    if (revisionsMode.value) revPanelView.value = 'composition';
     composingRevision.value = false;
     composeSelection.value = {};
   }
@@ -111,7 +115,10 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     composingRevision.value = false;
     composeSelection.value = {};
     activeProductRevId.value = preComposeRevId.value;
-    revPanelView.value = 'changelog';
+    // Stay on composition. Cancelling restores the state you were in before
+    // composing, and that state is now the composition view — bouncing to the
+    // changelog would be a view switch the user never asked for.
+    revPanelView.value = 'composition';
   }
 
   function toggleCompose(spId: number, revId: number) {
@@ -167,7 +174,9 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
     activeProductRevId.value = null;
     selection.value = { type: 'product' };
     revisionsMode.value = false;
-    revPanelView.value = 'changelog';
+    // Back to the same default the ref is created with, so a second product
+    // opens exactly like the first.
+    revPanelView.value = 'composition';
     composingRevision.value = false;
     composeSelection.value = {};
   }

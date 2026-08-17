@@ -1,25 +1,25 @@
 <template>
   <div class="overflow-x-auto">
     <table class="w-full text-left text-sm">
-      <thead class="bg-blue-50 text-xs uppercase text-black">
+      <thead class="table-head text-xs">
         <tr>
-          <th class="p-4">{{ t('image') }}</th>
-          <th class="p-4">{{ t('code') }}</th>
-          <th class="p-4">{{ t('name') }}</th>
-          <th class="p-4">{{ t('category') }}</th>
-          <th class="p-4">{{ t('avg_price_per_piece') }}</th>
-          <th class="p-4">{{ t('total_quantity') }}</th>
-          <th v-if="hasQty" class="p-4">{{ t('quantity') }}</th>
-          <th v-if="hasPosition" class="p-4">{{ t('mount_position') }}</th>
+          <th :class="cellPad">{{ t('image') }}</th>
+          <th :class="cellPad">{{ t('code') }}</th>
+          <th :class="cellPad">{{ t('name') }}</th>
+          <th :class="cellPad">{{ t('category') }}</th>
+          <th :class="cellPad">{{ t('avg_price_per_piece') }}</th>
+          <th :class="cellPad">{{ t('total_quantity') }}</th>
+          <th v-if="hasQty" :class="cellPad">{{ t('quantity') }}</th>
+          <th v-if="hasPosition" :class="cellPad">{{ t('mount_position') }}</th>
           <th
             v-for="cp in columnParameters"
             :key="cp.id"
-            class="cursor-pointer select-none p-4 hover:bg-blue-100"
+            :class="[cellPad, 'cursor-pointer select-none hover:bg-blue-200']"
             @click="toggleSort(cp)"
           >
             <span class="inline-flex items-center gap-1">
               {{ cp.name }}
-              <span v-if="cp.unit" class="normal-case text-slate-400"
+              <span v-if="cp.unit" class="normal-case text-blue-700/70"
                 >({{ cp.unit }})</span
               >
               <ChevronUp
@@ -30,12 +30,12 @@
                 v-else-if="sortParameterId === cp.id && sortDir === 'desc'"
                 class="h-3.5 w-3.5"
               />
-              <ChevronsUpDown v-else class="h-3.5 w-3.5 text-slate-300" />
+              <ChevronsUpDown v-else class="h-3.5 w-3.5 text-blue-400" />
             </span>
           </th>
-          <th class="p-4">{{ t('other_parameters') }}</th>
-          <th class="p-4">{{ t('location') }}</th>
-          <th v-if="hasActions" class="p-4">{{ t('actions') }}</th>
+          <th :class="cellPad">{{ t('other_parameters') }}</th>
+          <th :class="cellPad">{{ t('location') }}</th>
+          <th v-if="hasActions" :class="cellPad">{{ t('actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -47,84 +47,92 @@
             {{ emptyText || t('no_parts_msg') }}
           </td>
         </tr>
-        <tr
-          v-for="part in sortedParts"
-          :key="part.id"
-          class="border-t border-slate-100 transition-colors cursor-pointer"
-          :class="
-            selectedPartId === part.id
-              ? 'bg-blue-50 hover:bg-blue-100'
-              : 'even:bg-slate-50 hover:bg-slate-100'
-          "
-          @click="emit('clickRow', part)"
-        >
-          <td class="p-4">
-            <button
-              v-if="part.image"
-              type="button"
-              class="block"
-              :title="t('view_image')"
-              @click="openImagePreview(part)"
-            >
-              <img
-                :src="part.image"
-                class="h-12 w-12 rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105"
-                :alt="part.name"
-              />
-            </button>
-            <div
-              v-else
-              class="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
-            >
-              ▣
-            </div>
-          </td>
-          <td class="p-4 font-mono text-xs text-slate-600">
-            <div>{{ part.code }}</div>
-            <div v-if="part.secondaryCodes?.length" class="mt-0.5 text-[10px] text-slate-400">
-              {{ part.secondaryCodes.join(', ') }}
-            </div>
-          </td>
-          <td class="p-4 font-semibold">{{ part.name }}</td>
-          <td class="p-4 text-slate-500">{{ part.category.name }}</td>
-          <td class="p-4">
-            {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
-          </td>
-          <td class="p-4 text-slate-700">
-            {{ Math.round(Number(part.totalQuantity ?? 0)) }}
-          </td>
-          <td v-if="hasQty" class="p-4" @click.stop>
-            <slot name="qty" :part="part" />
-          </td>
-          <td v-if="hasPosition" class="p-4" @click.stop>
-            <slot name="position" :part="part" />
-          </td>
-          <td
-            v-for="cp in columnParameters"
-            :key="cp.id"
-            class="p-4 text-slate-600"
+        <template v-for="part in sortedParts" :key="part.id">
+          <tr
+            class="border-t border-slate-100 transition-colors cursor-pointer"
+            :class="
+              selectedPartId === part.id
+                ? 'bg-blue-50 hover:bg-blue-100'
+                : 'even:bg-slate-50 hover:bg-slate-100'
+            "
+            @click="emit('clickRow', part)"
           >
-            {{ columnValue(part, cp) }}
-          </td>
-          <td class="p-4">
-            <div class="flex flex-col gap-1">
-              <span
-                v-for="v in otherParameters(part)"
-                :key="v.id"
-                class="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+            <td :class="cellPad">
+              <button
+                v-if="part.image"
+                type="button"
+                class="block"
+                :title="t('view_image')"
+                @click="openImagePreview(part)"
               >
-                {{ v.parameter?.name }}: {{ v.value }}
-              </span>
-              <span v-if="!otherParameters(part).length" class="text-slate-300"
-                >—</span
+                <img
+                  :src="part.image"
+                  :class="[thumbSize, 'rounded-lg border border-slate-200 object-cover transition-transform hover:scale-105']"
+                  :alt="part.name"
+                />
+              </button>
+              <div
+                v-else
+                :class="[thumbSize, 'grid place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300']"
               >
-            </div>
-          </td>
-          <td class="p-4 text-slate-500">{{ part.location || '—' }}</td>
-          <td v-if="hasActions" class="p-4" @click.stop>
-            <slot name="actions" :part="part" />
-          </td>
-        </tr>
+                ▣
+              </div>
+            </td>
+            <td :class="[cellPad, 'font-mono text-xs text-slate-600']">
+              <div>{{ part.code }}</div>
+              <div v-if="part.secondaryCodes?.length" class="mt-0.5 text-[10px] text-slate-400">
+                {{ part.secondaryCodes.join(', ') }}
+              </div>
+            </td>
+            <td :class="[cellPad, 'font-semibold']">{{ part.name }}</td>
+            <td :class="[cellPad, 'text-slate-500']">{{ part.category.name }}</td>
+            <td :class="cellPad">
+              {{ formatPrice(part.avgPricePerPiece ?? Number(part.pricePerPiece)) }}
+            </td>
+            <td :class="[cellPad, 'text-slate-700']">
+              {{ Math.round(Number(part.totalQuantity ?? 0)) }}
+            </td>
+            <td v-if="hasQty" :class="cellPad" @click.stop>
+              <slot name="qty" :part="part" />
+            </td>
+            <td v-if="hasPosition" :class="cellPad" @click.stop>
+              <slot name="position" :part="part" />
+            </td>
+            <td
+              v-for="cp in columnParameters"
+              :key="cp.id"
+              :class="[cellPad, 'text-slate-600']"
+            >
+              {{ columnValue(part, cp) }}
+            </td>
+            <td :class="cellPad">
+              <div class="flex flex-col gap-1">
+                <span
+                  v-for="v in otherParameters(part)"
+                  :key="v.id"
+                  class="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                >
+                  {{ v.parameter?.name }}: {{ v.value }}
+                </span>
+                <span v-if="!otherParameters(part).length" class="text-slate-300"
+                  >—</span
+                >
+              </div>
+            </td>
+            <td :class="[cellPad, 'text-slate-500']">{{ part.location || '—' }}</td>
+            <td v-if="hasActions" :class="cellPad" @click.stop>
+              <slot name="actions" :part="part" />
+            </td>
+          </tr>
+          <tr v-if="hasExpanded && expandedPartIds.has(part.id)" class="border-t-0">
+            <!-- No background here: the slot content owns its own ground, so
+                 it can pick one that never matches a row (see
+                 AlternativesPanel — slate-50 would collide with even rows). -->
+            <td :colspan="columnCount" class="p-0">
+              <slot name="expanded" :part="part" />
+            </td>
+          </tr>
+        </template>
       </tbody>
     </table>
 
@@ -155,9 +163,26 @@ const props = withDefaults(
     emptyText?: string;
     // ID of the currently selected part (highlighted row)
     selectedPartId?: number | null;
+    // IDs of the parts whose #expanded slot row is open. A set rather than a
+    // single id because consumers open several at once — the alternatives
+    // panel starts expanded on every part that has one.
+    expandedPartIds?: Set<number>;
+    // Tighter rows and a smaller thumbnail. For the BOM views, where a
+    // revision can run to hundreds of parts and each one may carry an
+    // expanded alternative strip — at the default spacing only a handful fit
+    // on screen. The parts catalogue keeps the roomier default.
+    dense?: boolean;
   }>(),
-  { columnParameters: () => [], selectedPartId: null },
+  {
+    columnParameters: () => [],
+    selectedPartId: null,
+    expandedPartIds: () => new Set<number>(),
+    dense: false,
+  },
 );
+
+const cellPad = computed(() => (props.dense ? 'px-3 py-1.5' : 'p-4'));
+const thumbSize = computed(() => (props.dense ? 'h-8 w-8' : 'h-12 w-12'));
 
 const emit = defineEmits<{
   clickRow: [part: Part];
@@ -247,10 +272,12 @@ const sortedParts = computed<Part[]>(() => {
 // Optional columns: each renders only when the consumer fills its slot.
 // `qty` and `position` carry BOM-line data — how many of the part a
 // sub-product revision uses, and where it sits on that sub-product — which a
-// plain stock listing has no notion of.
+// plain stock listing has no notion of. `expanded` isn't a column (it renders
+// as a full-width row via colspan) so it doesn't add to columnCount.
 const hasQty = computed(() => !!slots.qty);
 const hasPosition = computed(() => !!slots.position);
 const hasActions = computed(() => !!slots.actions);
+const hasExpanded = computed(() => !!slots.expanded);
 
 // Fixed columns: image, code, name, category, price, stock, other
 // parameters, location. Drives the empty row's colspan, so it has to track
