@@ -173,6 +173,41 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   res.json(Array.from(map.values()));
 });
 
+// GET /api/product-revisions/:revId/part-alternatives — every alternative
+// link across every sub-product revision in this product revision's BOM, in
+// one query. The BOM panel's flattened product-level view opens with every
+// sub-product in the composition at once; fetching links per sub-product
+// (GET /sub-products/:spId/revisions/:revId/part-alternatives) would mean N
+// requests on every product page load, so this aggregates the same way
+// GET /:revId/bom already does for parts.
+router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const result = await query<{
+    id: number;
+    subProductRevisionId: number;
+    partId: number;
+    alternatePartId: number;
+    alternateInUse: boolean;
+  }>(
+    `SELECT pa.id,
+            pa.sub_product_revision_id AS "subProductRevisionId",
+            pa.part_id AS "partId",
+            pa.alternate_part_id AS "alternatePartId",
+            pa.alternate_in_use AS "alternateInUse"
+     FROM part_alternatives pa
+     JOIN product_revision_sub_products prsp
+       ON prsp.sub_product_revision_id = pa.sub_product_revision_id
+     WHERE prsp.product_revision_id = $1
+     ORDER BY pa.id`,
+    [revId],
+  );
+  res.json(result.rows);
+});
+
 // PATCH /api/product-revisions/:revId — update status, change_notes, label
 router.patch('/:revId', requireAuth, async (req, res) => {
   const revId = Number(req.params.revId);

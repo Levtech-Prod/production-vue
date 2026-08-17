@@ -10,6 +10,8 @@ import {
   subProductPayloadSchema,
   newSubProductRevisionSchema,
   replaceRevisionPartsSchema,
+  createPartAlternativeSchema,
+  setPartAlternativeInUseSchema,
 } from '../schemas/subProducts.schema.js';
 import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 import {
@@ -506,6 +508,18 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
          WHERE sub_product_revision_id = $2`,
         [newRevision.id, data.duplicateFromId],
       );
+
+      // Alternative-part links (see migration 021) are per-revision too —
+      // carry them forward the same way, so the new revision starts with the
+      // same links and can then diverge independently.
+      await client.query(
+        `INSERT INTO part_alternatives
+           (sub_product_revision_id, part_id, alternate_part_id, created_by)
+         SELECT $1, part_id, alternate_part_id, created_by
+         FROM part_alternatives
+         WHERE sub_product_revision_id = $2`,
+        [newRevision.id, data.duplicateFromId],
+      );
     }
 
     // Explicitly provided parts are inserted (and override duplicated ones
@@ -799,6 +813,352 @@ router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
     [revId],
   );
   res.json(result.rows);
+});
+
+// GET /api/sub-products/:spId/revisions/:revId/part-alternatives — every
+// alternative link recorded on this revision. Thin rows (ids only) — the
+// frontend already holds the full parts catalog and resolves name/code/image
+// from there, same as it does for mount_position and every other BOM-line
+// field. Same convention as GET .../revisions/:revId/parts: only revId is
+// actually used to scope the query.
+router.get('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const result = await query<{
+    id: number;
+    partId: number;
+    alternatePartId: number;
+    alternateInUse: boolean;
+  }>(
+    `SELECT id,
+            part_id AS "partId",
+            alternate_part_id AS "alternatePartId",
+            alternate_in_use AS "alternateInUse"
+     FROM part_alternatives
+     WHERE sub_product_revision_id = $1
+     ORDER BY id`,
+    [revId],
+  );
+  res.json(result.rows);
+});
+
+// POST /api/sub-products/:spId/revisions/:revId/part-alternatives — SET this
+// part's alternative on this one revision. A part carries at most one (see
+// migration 021's unique index), so this replaces whatever was there rather
+// than adding to a list: posting a different alternate for a part that
+// already has one drops the old link. Directional — it does NOT also make the
+// reverse link appear on the alternate part's own row.
+router.post('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req, res) => {
+  const spId = Number(req.params.spId);
+  const revId = Number(req.params.revId);
+  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const data = createPartAlternativeSchema.parse(req.body);
+  if (data.partId === data.alternatePartId) {
+    return res.status(400).json({ code: ErrorCodes.PART_ALTERNATIVE_SAME_PART });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const rev = await client.query<{
+      subProductName: string;
+      productId: number | null;
+      revLabel: string;
+    }>(
+      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
+       FROM sub_product_revisions spr
+       JOIN sub_products sp ON sp.id = spr.sub_product_id
+       WHERE spr.id = $1 AND spr.sub_product_id = $2`,
+      [revId, spId],
+    );
+    if (rev.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+
+    const names = await client.query<{ id: number; name: string }>(
+      `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
+      [[data.partId, data.alternatePartId]],
+    );
+    if (names.rowCount !== 2) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
+    }
+    const nameById = new Map(names.rows.map((r) => [r.id, r.name]));
+
+    // Whatever this part currently points at — read before the delete, with
+    // the alternate's name joined in so the audit entry can say what was
+    // replaced without a second lookup.
+    const previous = await client.query<{
+      id: number;
+      alternatePartId: number;
+      alternatePartName: string;
+      alternateInUse: boolean;
+    }>(
+      `SELECT pa.id,
+              pa.alternate_part_id AS "alternatePartId",
+              pa.alternate_in_use AS "alternateInUse",
+              p.name AS "alternatePartName"
+       FROM part_alternatives pa
+       JOIN parts p ON p.id = pa.alternate_part_id
+       WHERE pa.sub_product_revision_id = $1 AND pa.part_id = $2`,
+      [revId, data.partId],
+    );
+    const before = previous.rows[0];
+
+    // Re-posting the alternate that is already set: nothing changed, so skip
+    // the write and the audit entry rather than logging a no-op change.
+    if (before?.alternatePartId === data.alternatePartId) {
+      await client.query('COMMIT');
+      return res.json({
+        id: before.id,
+        partId: data.partId,
+        alternatePartId: data.alternatePartId,
+        alternateInUse: before.alternateInUse,
+      });
+    }
+
+    if (before) {
+      await client.query(`DELETE FROM part_alternatives WHERE id = $1`, [before.id]);
+    }
+
+    // A brand-new link is fitted straight away: you only reach for an
+    // alternative when the revision is actually being built with it, so
+    // making the user set it a second time is a step with one sensible
+    // answer. Swapping the alternative of an EXISTING link carries the flag
+    // over instead — if the revision was on the BOM part, changing which part
+    // is the standby shouldn't silently substitute it.
+    const inUse = before?.alternateInUse ?? true;
+
+    // The unique index on (revision, part_id) makes this safe: the delete
+    // above cleared the only row that could have collided.
+    const inserted = await client.query<{ id: number }>(
+      `INSERT INTO part_alternatives
+         (sub_product_revision_id, part_id, alternate_part_id, alternate_in_use, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [revId, data.partId, data.alternatePartId, inUse, req.user?.id ?? null],
+    );
+
+    if (rev.rows[0].productId) {
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(
+        client,
+        'product',
+        rev.rows[0].productId,
+        'updated',
+        {
+          events: [
+            {
+              type: 'part_alternative',
+              // Swapping one alternate for another is a change, not an add —
+              // `from` carries what it used to be so the log reads as a swap.
+              tag: before ? 'changed' : 'added',
+              label: nameById.get(data.partId),
+              scope: [
+                { type: 'sub_product', label: rev.rows[0].subProductName },
+                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
+              ],
+              from: before ? before.alternatePartName : null,
+              to: nameById.get(data.alternatePartId),
+            },
+          ],
+        },
+        actor,
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      id: inserted.rows[0].id,
+      partId: data.partId,
+      alternatePartId: data.alternatePartId,
+      alternateInUse: inUse,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// PATCH /api/sub-products/:spId/revisions/:revId/part-alternatives/:id —
+// switch which half of the pair this revision is actually built with. Its own
+// route rather than a field on POST: swapping the fitted part is a different
+// act from choosing which part is the standby, and reads as its own line in
+// the change log.
+router.patch('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  const id = Number(req.params.id);
+  if (!revId || !id || Number.isNaN(revId) || Number.isNaN(id)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+  const data = setPartAlternativeInUseSchema.parse(req.body);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const updated = await client.query<{
+      partId: number;
+      alternatePartId: number;
+      partName: string;
+      alternatePartName: string;
+    }>(
+      `UPDATE part_alternatives pa
+       SET alternate_in_use = $1
+       FROM parts p, parts ap
+       WHERE pa.id = $2
+         AND pa.sub_product_revision_id = $3
+         AND p.id = pa.part_id
+         AND ap.id = pa.alternate_part_id
+       RETURNING pa.part_id AS "partId",
+                 pa.alternate_part_id AS "alternatePartId",
+                 p.name AS "partName",
+                 ap.name AS "alternatePartName"`,
+      [data.alternateInUse, id, revId],
+    );
+    if (updated.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PART_ALTERNATIVE_NOT_FOUND });
+    }
+    const row = updated.rows[0];
+
+    const rev = await client.query<{
+      subProductName: string;
+      productId: number | null;
+      revLabel: string;
+    }>(
+      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
+       FROM sub_product_revisions spr
+       JOIN sub_products sp ON sp.id = spr.sub_product_id
+       WHERE spr.id = $1`,
+      [revId],
+    );
+
+    if (rev.rows[0]?.productId) {
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(
+        client,
+        'product',
+        rev.rows[0].productId,
+        'updated',
+        {
+          events: [
+            {
+              type: 'part_alternative',
+              tag: 'changed',
+              label: row.partName,
+              scope: [
+                { type: 'sub_product', label: rev.rows[0].subProductName },
+                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
+              ],
+              // Named parts rather than a boolean, so the log says which part
+              // the revision is now built with.
+              from: data.alternateInUse ? row.partName : row.alternatePartName,
+              to: data.alternateInUse ? row.alternatePartName : row.partName,
+            },
+          ],
+        },
+        actor,
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      id,
+      partId: row.partId,
+      alternatePartId: row.alternatePartId,
+      alternateInUse: data.alternateInUse,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/sub-products/:spId/revisions/:revId/part-alternatives/:id — unlink.
+router.delete('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  const id = Number(req.params.id);
+  if (!revId || !id || Number.isNaN(revId) || Number.isNaN(id)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existing = await client.query<{ partId: number; alternatePartId: number }>(
+      `DELETE FROM part_alternatives
+       WHERE id = $1 AND sub_product_revision_id = $2
+       RETURNING part_id AS "partId", alternate_part_id AS "alternatePartId"`,
+      [id, revId],
+    );
+    if (existing.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.PART_ALTERNATIVE_NOT_FOUND });
+    }
+    const { partId, alternatePartId } = existing.rows[0];
+
+    const rev = await client.query<{
+      subProductName: string;
+      productId: number | null;
+      revLabel: string;
+    }>(
+      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
+       FROM sub_product_revisions spr
+       JOIN sub_products sp ON sp.id = spr.sub_product_id
+       WHERE spr.id = $1`,
+      [revId],
+    );
+
+    if (rev.rows[0]?.productId) {
+      const names = await client.query<{ id: number; name: string }>(
+        `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
+        [[partId, alternatePartId]],
+      );
+      const nameById = new Map(names.rows.map((r) => [r.id, r.name]));
+      const actor = await resolveActor(client, req.user?.id);
+      await logAudit(
+        client,
+        'product',
+        rev.rows[0].productId,
+        'updated',
+        {
+          events: [
+            {
+              type: 'part_alternative',
+              tag: 'removed',
+              label: nameById.get(partId) ?? String(partId),
+              scope: [
+                { type: 'sub_product', label: rev.rows[0].subProductName },
+                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
+              ],
+              from: nameById.get(alternatePartId) ?? String(alternatePartId),
+            },
+          ],
+        },
+        actor,
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ id, deleted: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 export default router;
