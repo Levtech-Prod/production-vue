@@ -32,7 +32,6 @@
           :active-product-rev-id="activeProductRevId"
           :selection="selection"
           :revisions-mode="revisionsMode"
-          :rev-panel-view="revPanelView"
           :membership-map="membershipMap"
           :composing-revision="composingRevision"
           :compose-selection="composeSelection"
@@ -40,7 +39,6 @@
           :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
-          @update:rev-panel-view="revPanelView = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
@@ -436,7 +434,6 @@ const {
   activeProductRevId,
   selection,
   revisionsMode,
-  revPanelView,
   composingRevision,
   composeSelection,
   membershipMap,

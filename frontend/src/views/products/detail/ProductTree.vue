@@ -208,41 +208,6 @@
         </div>
       </div>
 
-      <!-- ── Revisions mode: pick which of its two views to show ─────────── -->
-      <div
-        v-if="revisionsMode"
-        class="shrink-0 border-b border-slate-100 px-2 py-1.5"
-      >
-        <div class="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
-          <button
-            v-for="view in revViews"
-            :key="view.key"
-            type="button"
-            class="flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
-            :class="
-              revPanelView === view.key
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            "
-            @click="emit('update:revPanelView', view.key)"
-          >
-            <component :is="view.icon" class="h-3.5 w-3.5" />
-            {{ t(view.labelKey) }}
-          </button>
-        </div>
-      </div>
-
-      <!-- ── Changelog: the revision history itself ──────────────────────── -->
-      <RevisionTimeline
-        v-if="revisionsMode && revPanelView === 'changelog'"
-        :detail="detail"
-        :active-product-rev-id="activeProductRevId"
-        :is-archived="isArchived"
-        @set-active-rev="onTimelineRevision"
-        @start-new-revision="emit('start-new-revision')"
-      />
-
-      <template v-else>
         <!-- ── Sub-products section label (fixed) ──────────────────────────── -->
         <div
           class="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-1.5"
@@ -468,7 +433,6 @@
             </li>
           </ul>
         </div>
-      </template>
     </template>
   </div>
 </template>
@@ -478,8 +442,6 @@ import { computed } from 'vue';
 import {
   Check,
   GitBranch,
-  History,
-  Layers,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -490,7 +452,6 @@ import {
   X,
 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import RevisionTimeline from './revisions/RevisionTimeline.vue';
 import { linkedRevOf } from './revisionHelpers.ts';
 import { statusDot } from '../../../utils/statusColors.ts';
 import type {
@@ -499,15 +460,13 @@ import type {
   DetailSubProduct,
   SubProductRevision,
 } from '../../../types/products.ts';
-import type { Selection, ComposeSelection, RevPanelView } from './types.ts';
+import type { Selection, ComposeSelection } from './types.ts';
 
 const props = defineProps<{
   detail: ProductDetail;
   activeProductRevId: number | null;
   selection: Selection;
   revisionsMode: boolean;
-  /** Which of Revisions mode's two views to show. Ignored in normal mode. */
-  revPanelView: RevPanelView;
   /** productRevisionId -> Set<subProductRevisionId>, derived once by the page. */
   membershipMap: Map<number, Set<number>>;
   /** True while the user is actively building a new product revision. */
@@ -521,7 +480,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:collapsed', v: boolean): void;
-  (e: 'update:revPanelView', v: RevPanelView): void;
   (e: 'select', sel: Selection): void;
   (e: 'toggle-revisions-mode'): void;
   (e: 'toggle-compose', spId: number, revId: number): void;
@@ -545,25 +503,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const revViews = [
-  { key: 'changelog' as RevPanelView, labelKey: 'changelog', icon: History },
-  { key: 'composition' as RevPanelView, labelKey: 'composition', icon: Layers },
-];
-
-// Revision chips and the sub-product CRUD toolbar belong to the composition
-// view; the changelog has the timeline and its own footer button instead.
-const showCompositionTools = computed(
-  () => props.revisionsMode && props.revPanelView === 'composition',
-);
-
-// Picking a revision in the timeline scopes the right panel to that revision.
-// Without resetting the selection, a sub-product chosen under the previous
-// revision would stay selected and the panels would show a revision the
-// timeline is no longer pointing at.
-function onTimelineRevision(revId: number) {
-  emit('set-active-rev', revId);
-  emit('select', { type: 'product' });
-}
+const showCompositionTools = computed(() => props.revisionsMode);
 
 // ── Membership lookups ───────────────────────────────────────────────────────
 
