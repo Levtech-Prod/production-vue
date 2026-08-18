@@ -292,6 +292,7 @@ const messages = {
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
     errors_download_failed: 'Failed to download file',
+    errors_save_failed: 'Failed to save the file',
 
     // Firmware (per sub-product revision)
     firmware: 'Firmware',
@@ -415,6 +416,11 @@ const messages = {
     bom_main_product: 'Main product',
     bom_sub_rev_scope: '{name} · {label}',
     view_sub_product_parts: 'View parts of this sub-product',
+    export_pdf: 'Export PDF',
+    export_bom_pdf: 'Export BOM as PDF',
+    exporting: 'Exporting…',
+    generated_at: 'Generated: {date}',
+    page_x_of_y: 'Page {current} / {total}',
 
     // Product revisions section
     product_revisions_title: 'Product revisions',
@@ -1006,6 +1012,7 @@ const messages = {
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
     errors_download_failed: 'Nem sikerült letölteni a fájlt',
+    errors_save_failed: 'Nem sikerült menteni a fájlt',
 
     // Firmware (altermék revíziónként)
     firmware: 'Firmware',
@@ -1131,6 +1138,11 @@ const messages = {
     bom_main_product: 'Fő termék',
     bom_sub_rev_scope: '{name} · {label}',
     view_sub_product_parts: 'Az altermék alkatrészeinek megtekintése',
+    export_pdf: 'PDF exportálás',
+    export_bom_pdf: 'Anyagjegyzék exportálása PDF-be',
+    exporting: 'Exportálás…',
+    generated_at: 'Készült: {date}',
+    page_x_of_y: '{current}. / {total}. oldal',
 
     // Termékrevíziók szekció
     product_revisions_title: 'Termékrevíziók',

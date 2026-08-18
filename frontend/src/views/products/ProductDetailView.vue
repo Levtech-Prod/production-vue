@@ -165,6 +165,7 @@
             <BomPanel
               v-else
               :mode="panelScope.kind === 'product' ? 'product' : 'subRev'"
+              :product-name="detail.name"
               :sp-id="panelScope.kind === 'spRev' ? panelScope.spId : undefined"
               :rev-id="panelScope.kind === 'spRev' ? panelScope.revId : undefined"
               :bom="bom"
