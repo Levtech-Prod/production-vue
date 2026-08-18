@@ -2,28 +2,29 @@
   <div class="flex min-h-0 flex-1 flex-col">
     <div class="shrink-0 border-b border-slate-100 px-4 py-3">
       <div class="flex items-center justify-between gap-2">
-        <h3 class="min-w-0 truncate font-semibold text-slate-700">
-          {{ t('bom_title') }}
-        </h3>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex min-w-0 items-center gap-2">
+          <h3 class="shrink-0 font-semibold text-slate-700">
+            {{ t('bom_title') }}
+          </h3>
           <span
             v-if="headerChip"
-            class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
+            class="min-w-0 truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
+            :title="headerChip"
           >
             {{ headerChip }}
           </span>
-          <button
-            v-if="canExport"
-            type="button"
-            class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:pointer-events-none disabled:opacity-60"
-            :title="t('export_bom_pdf')"
-            :disabled="exporting"
-            @click="exportPdf"
-          >
-            <FileDown class="h-3.5 w-3.5" />
-            {{ exporting ? t('exporting') : t('export_pdf') }}
-          </button>
         </div>
+        <button
+          v-if="canExport"
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:pointer-events-none disabled:opacity-60"
+          :title="t('export_bom_pdf')"
+          :disabled="exporting"
+          @click="exportPdf"
+        >
+          <FileDown class="h-3.5 w-3.5" />
+          {{ exporting ? t('exporting') : t('export_pdf') }}
+        </button>
       </div>
     </div>
 
@@ -47,7 +48,9 @@
             <span class="font-semibold text-slate-700">
               {{ revisionPartOf(part.id)?.quantity ?? '—' }}
             </span>
-            <span class="text-slate-400"> {{ revisionPartOf(part.id)?.unit || '' }}</span>
+            <span class="text-slate-400">
+              {{ revisionPartOf(part.id)?.unit || '' }}</span
+            >
           </span>
         </template>
         <template #position="{ part }">
@@ -70,7 +73,11 @@
               <Link2 class="h-4 w-4" />
               <span
                 class="h-1.5 w-1.5 rounded-full"
-                :class="altParts.alternateInUse(revId, part.id) ? 'bg-emerald-500' : 'bg-blue-500'"
+                :class="
+                  altParts.alternateInUse(revId, part.id)
+                    ? 'bg-emerald-500'
+                    : 'bg-blue-500'
+                "
               ></span>
             </button>
           </div>
@@ -159,7 +166,9 @@
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{
                     catalogById.get(part.id)
-                      ? Math.round(Number(catalogById.get(part.id)?.totalQuantity ?? 0))
+                      ? Math.round(
+                          Number(catalogById.get(part.id)?.totalQuantity ?? 0),
+                        )
                       : '—'
                   }}
                 </td>
@@ -175,7 +184,9 @@
                 </td>
                 <td class="w-px px-3 py-2">
                   <button
-                    v-if="altParts.hasAlternate(part.subProductRevisionId, part.id)"
+                    v-if="
+                      altParts.hasAlternate(part.subProductRevisionId, part.id)
+                    "
                     type="button"
                     class="inline-flex items-center gap-1 rounded-lg px-1.5 py-1"
                     :class="
@@ -190,7 +201,10 @@
                     <span
                       class="h-1.5 w-1.5 rounded-full"
                       :class="
-                        altParts.alternateInUse(part.subProductRevisionId, part.id)
+                        altParts.alternateInUse(
+                          part.subProductRevisionId,
+                          part.id,
+                        )
                           ? 'bg-emerald-500'
                           : 'bg-blue-500'
                       "
@@ -201,8 +215,15 @@
               <tr v-if="expandedFlatKeys.has(`${part.id}-${i}`)">
                 <td :colspan="FLAT_COLUMNS" class="p-0">
                   <AlternativesPanel
-                    :alternate="altParts.alternateFor(part.subProductRevisionId, part.id)"
-                    :in-use="altParts.alternateInUse(part.subProductRevisionId, part.id)"
+                    :alternate="
+                      altParts.alternateFor(part.subProductRevisionId, part.id)
+                    "
+                    :in-use="
+                      altParts.alternateInUse(
+                        part.subProductRevisionId,
+                        part.id,
+                      )
+                    "
                     :quantity="part.quantity"
                     :unit="part.unit"
                     :mount-position="part.mountPosition"
@@ -306,7 +327,10 @@ const catalogById = computed(() => {
 // which revision it came from.
 const flatParts = computed(() =>
   props.bom.flatMap((sp) =>
-    sp.parts.map((part) => ({ ...part, subProductRevisionId: sp.subProductRevisionId })),
+    sp.parts.map((part) => ({
+      ...part,
+      subProductRevisionId: sp.subProductRevisionId,
+    })),
   ),
 );
 
@@ -322,7 +346,8 @@ const isEmptyProductBom = computed(
 // Export covers the flattened main-product BOM only: the sub-product revision
 // view is the parts table, which has its own columns and its own owner.
 const canExport = computed(
-  () => props.mode === 'product' && !props.loading && flatParts.value.length > 0,
+  () =>
+    props.mode === 'product' && !props.loading && flatParts.value.length > 0,
 );
 
 // In 'product' mode headerChip is the product revision's label (see
@@ -342,7 +367,8 @@ watch(
     if (props.revId == null) return;
     const seeded = new Set(expandedPartIds.value);
     for (const part of partRows.value) {
-      if (props.altParts.hasAlternate(props.revId, part.id)) seeded.add(part.id);
+      if (props.altParts.hasAlternate(props.revId, part.id))
+        seeded.add(part.id);
     }
     expandedPartIds.value = seeded;
   },
