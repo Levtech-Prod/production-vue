@@ -26,6 +26,16 @@
       >
         <Pencil class="h-3.5 w-3.5" /> {{ t('edit_revision') }}
       </button>
+      <!-- Product revisions only: sub-product revisions are deleted from the
+           tree, where the whole list of them is in view. -->
+      <button
+        v-if="isProductScope && revision && isAdmin && !isArchived"
+        type="button"
+        class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-red-300 hover:text-red-600"
+        @click="onDelete"
+      >
+        <Trash2 class="h-3.5 w-3.5" /> {{ t('delete_product_revision') }}
+      </button>
     </div>
     <p v-if="subtitle" class="mt-0.5 font-mono text-xs text-slate-400">
       {{ subtitle }}
@@ -153,7 +163,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Pencil, Star } from 'lucide-vue-next';
+import { Pencil, Star, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import { formatDate } from '../../../utils/formatters.ts';
 import { linkedRevOf } from './revisionHelpers.ts';
@@ -174,6 +184,8 @@ const props = defineProps<{
   membershipMap: Map<number, Set<number>>;
   docsSummary: RevisionDocuments['summary'];
   isArchived: boolean;
+  /** Deleting a product revision is admin-only. */
+  isAdmin: boolean;
 }>();
 
 // Edit emits mirror the tree's names and payloads, so both entry points land on
@@ -181,6 +193,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', sel: Selection): void;
   (e: 'edit-product-rev', rev: ProductRevision): void;
+  (e: 'delete-product-rev', rev: ProductRevision): void;
   (e: 'edit-sp-revision', sp: DetailSubProduct, rev: SubProductRevision): void;
 }>();
 
@@ -199,6 +212,11 @@ function onEdit() {
     (r) => r.id === props.activeProductRevId,
   );
   if (rev) emit('edit-product-rev', rev);
+}
+
+function onDelete() {
+  const rev = props.detail.revisions.find((r) => r.id === props.activeProductRevId);
+  if (rev) emit('delete-product-rev', rev);
 }
 
 /** The sub-product the selection points at, when it points at one. */
