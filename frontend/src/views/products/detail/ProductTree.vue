@@ -139,6 +139,14 @@
             >
               <Pencil class="h-3 w-3" />
             </span>
+            <span
+              v-if="isAdmin && !isArchived"
+              class="-mr-1 rounded-full p-0.5 hover:bg-white/25"
+              :title="t('delete_product_revision')"
+              @click.stop="emit('delete-product-rev', rev)"
+            >
+              <Trash2 class="h-3 w-3" />
+            </span>
           </button>
 
           <button
@@ -151,14 +159,14 @@
           </button>
         </div>
 
-        <!-- Composition-view actions: both filled, side by side. The changelog
-             view has its own "Add new revision" in the timeline footer. -->
+        <!-- The two revision actions, side by side: start a new revision or
+             edit the selected one's composition. Both are replaced by the
+             composing toolbar below while either is in progress. -->
         <div
-          v-if="!isArchived && showCompositionTools"
+          v-if="!isArchived && showCompositionTools && !composingRevision"
           class="ml-2 mt-1.5 flex items-center gap-1.5"
         >
           <button
-            v-if="!composingRevision"
             type="button"
             class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-blue-600"
             :disabled="!hasSubProducts"
@@ -167,12 +175,16 @@
           >
             <Plus class="h-3.5 w-3.5" /> {{ t('add_new_revision') }}
           </button>
+          <!-- Same checkboxes as composing a new revision, but saved onto the
+               revision that is already selected. -->
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-            @click="emit('new-sub-product')"
+            class="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"
+            :disabled="activeProductRevId == null"
+            :title="activeProductRevId == null ? t('edit_composition_disabled_hint') : ''"
+            @click="emit('start-edit-composition')"
           >
-            <Plus class="h-3.5 w-3.5" /> {{ t('new_sub_product') }}
+            <ListChecks class="h-3.5 w-3.5" /> {{ t('edit_composition') }}
           </button>
         </div>
 
@@ -183,24 +195,27 @@
           v-if="composingRevision"
           class="ml-2 mt-1.5 flex flex-nowrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5"
         >
-          <span class="shrink-0 whitespace-nowrap text-xs text-slate-500">
+          <span class="min-w-0 truncate text-xs text-slate-500">
+            <span v-if="editingComposition" class="font-medium text-blue-700">
+              {{ t('editing_composition_of', { label: activeRevLabel }) }} ·
+            </span>
             {{ t('n_selected', { n: composedCount }) }}
           </span>
           <div class="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
               class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              :disabled="composedCount === 0"
+              :disabled="composedCount === 0 || (editingComposition && !composeDirty)"
               @click="emit('save-composition')"
             >
               <Save class="h-3.5 w-3.5" />
-              {{ t('save_as_new_revision') }}
+              {{ editingComposition ? t('save_composition_changes') : t('save_as_new_revision') }}
             </button>
             <button
               type="button"
               class="grid shrink-0 place-items-center rounded-lg border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
               :title="t('cancel')"
-              @click="emit('cancel-new-revision')"
+              @click="emit('cancel-composing')"
             >
               <X class="h-3.5 w-3.5" />
             </button>
@@ -216,8 +231,15 @@
             class="text-[11px] font-semibold uppercase tracking-wide text-slate-400"
           >
             {{ t('sub_products') }}
-            <span v-if="detail.subProducts.length"></span>
           </h3>
+          <button
+            v-if="!isArchived && showCompositionTools"
+            type="button"
+            class="inline-flex shrink-0 items-center gap-1 rounded-lg bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-700"
+            @click="emit('new-sub-product')"
+          >
+            <Plus class="h-3 w-3" /> {{ t('new_sub_product') }}
+          </button>
         </div>
 
         <!-- ── Sub-products list (this is the part that scrolls) ───────────── -->
@@ -373,7 +395,9 @@
                     :disabled="!composingRevision"
                     :title="
                       composingRevision
-                        ? t('compose_check_hint')
+                        ? editingComposition
+                          ? t('compose_edit_hint')
+                          : t('compose_check_hint')
                         : t('compose_disabled_hint')
                     "
                     @click="emit('toggle-compose', sp.id, rev.id)"
@@ -442,6 +466,7 @@ import { computed } from 'vue';
 import {
   Check,
   GitBranch,
+  ListChecks,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -469,9 +494,14 @@ const props = defineProps<{
   revisionsMode: boolean;
   /** productRevisionId -> Set<subProductRevisionId>, derived once by the page. */
   membershipMap: Map<number, Set<number>>;
-  /** True while the user is actively building a new product revision. */
+  /** True while the compose checkboxes are interactive. */
   composingRevision: boolean;
+  /** Which revision is being composed: null = a new one, otherwise the
+   *  existing revision whose composition is being edited. */
+  composeTargetRevId: number | null;
   composeSelection: ComposeSelection;
+  /** Whether the in-progress composition differs from what it started as. */
+  composeDirty: boolean;
   isArchived: boolean;
   collapsed: boolean;
   /** Sub-product general-info editing is restricted to admins. */
@@ -495,9 +525,11 @@ const emit = defineEmits<{
   (e: 'delete-sub-product', sp: DetailSubProduct): void;
   (e: 'set-active-rev', revId: number): void;
   (e: 'edit-product-rev', rev: ProductRevision): void;
+  (e: 'delete-product-rev', rev: ProductRevision): void;
   (e: 'set-default-revision'): void;
   (e: 'start-new-revision'): void;
-  (e: 'cancel-new-revision'): void;
+  (e: 'start-edit-composition'): void;
+  (e: 'cancel-composing'): void;
   (e: 'save-composition'): void;
 }>();
 
@@ -535,6 +567,10 @@ const canSetDefault = computed(
 
 const composedCount = computed(
   () => Object.keys(props.composeSelection).length,
+);
+
+const editingComposition = computed(
+  () => props.composingRevision && props.composeTargetRevId != null,
 );
 
 // A revision has nothing to compose without at least one sub-product to

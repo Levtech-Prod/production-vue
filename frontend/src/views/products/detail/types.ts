@@ -21,6 +21,16 @@ export type PanelScope =
  *  sub-product revision per sub-product (spId -> spRevId). */
 export type ComposeSelection = Record<number, number>;
 
+/** One sub-product's difference between two compositions, for the
+ *  "save these changes?" summary. */
+export interface CompositionChange {
+  spId: number;
+  name: string;
+  kind: 'added' | 'removed' | 'changed';
+  from: string | null;
+  to: string | null;
+}
+
 /** Payload for editing an existing (product or sub-product) revision. */
 export interface EditRevisionPayload {
   label: string;

@@ -345,16 +345,16 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
     );
     const newRevision = newRevResult.rows[0];
 
-    // A product's first-ever revision has nothing to be "default" instead
-    // of — make it the default automatically. (There's no delete endpoint
-    // for product revisions, so revisionNumber === 1 reliably means this is
-    // still the product's only revision, not a renumbered one.)
-    if (newRevision.revisionNumber === 1) {
-      await client.query(
-        `UPDATE products SET default_revision_id = $1 WHERE id = $2`,
-        [newRevision.id, productId],
-      );
-    }
+    // A product with no default revision has nothing for this one to be
+    // "default" instead of — make it the default automatically. Keyed on the
+    // product's current default rather than revisionNumber === 1: revisions
+    // can be deleted, so the first-ever number is no longer a reliable
+    // stand-in for "this is the only one".
+    await client.query(
+      `UPDATE products SET default_revision_id = $1
+       WHERE id = $2 AND default_revision_id IS NULL`,
+      [newRevision.id, productId],
+    );
 
     // When duplicating, copy the sub-product-revision links from the source.
     // The source must belong to THIS product — same ownership check

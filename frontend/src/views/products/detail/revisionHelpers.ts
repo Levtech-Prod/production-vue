@@ -1,4 +1,5 @@
 import type { DetailSubProduct, SubProductRevision } from '../../../types/products.ts';
+import type { CompositionChange, ComposeSelection } from './types.ts';
 
 /** Newest revision first. Copies — the source array stays in API order. */
 export function newestFirst<T extends { revisionNumber: number }>(
@@ -41,4 +42,38 @@ export function linkedRevOf(
   const matches = sp.revisions.filter((r) => set.has(r.id));
   if (matches.length === 0) return null;
   return matches.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a));
+}
+
+/**
+ * What changed between two compositions, one entry per affected sub-product.
+ * Labels rather than ids: the only consumer is the "save these changes?"
+ * summary, which names revisions the way the tree does.
+ */
+export function diffComposition(
+  subProducts: readonly DetailSubProduct[],
+  before: ComposeSelection,
+  after: ComposeSelection,
+): CompositionChange[] {
+  const changes: CompositionChange[] = [];
+  for (const sp of subProducts) {
+    const was = before[sp.id];
+    const now = after[sp.id];
+    if (was === now) continue;
+    const labelOf = (revId: number | undefined) =>
+      sp.revisions.find((r) => r.id === revId)?.label ?? '—';
+    if (was == null) {
+      changes.push({ spId: sp.id, name: sp.name, kind: 'added', from: null, to: labelOf(now) });
+    } else if (now == null) {
+      changes.push({ spId: sp.id, name: sp.name, kind: 'removed', from: labelOf(was), to: null });
+    } else {
+      changes.push({
+        spId: sp.id,
+        name: sp.name,
+        kind: 'changed',
+        from: labelOf(was),
+        to: labelOf(now),
+      });
+    }
+  }
+  return changes;
 }
