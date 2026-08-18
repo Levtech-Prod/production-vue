@@ -68,6 +68,9 @@ export const productRevisionsApi = {
   ) {
     return api.patch<ProductRevision>(`/product-revisions/${revId}`, payload);
   },
+  delete(revId: number) {
+    return api.delete(`/product-revisions/${revId}`);
+  },
   setSubProducts(revId: number, subProductRevisionIds: number[]) {
     return api.patch(`/product-revisions/${revId}/sub-products`, {
       subProductRevisionIds,
