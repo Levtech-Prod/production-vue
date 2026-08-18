@@ -5,12 +5,25 @@
         <h3 class="min-w-0 truncate font-semibold text-slate-700">
           {{ t('bom_title') }}
         </h3>
-        <span
-          v-if="headerChip"
-          class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
-        >
-          {{ headerChip }}
-        </span>
+        <div class="flex shrink-0 items-center gap-2">
+          <span
+            v-if="headerChip"
+            class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500"
+          >
+            {{ headerChip }}
+          </span>
+          <button
+            v-if="canExport"
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:pointer-events-none disabled:opacity-60"
+            :title="t('export_bom_pdf')"
+            :disabled="exporting"
+            @click="exportPdf"
+          >
+            <FileDown class="h-3.5 w-3.5" />
+            {{ exporting ? t('exporting') : t('export_pdf') }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -208,10 +221,11 @@
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Link2 } from 'lucide-vue-next';
+import { FileDown, Link2 } from 'lucide-vue-next';
 import PartsTable from '../../../parts/PartsTable.vue';
 import AlternativesPanel from './AlternativesPanel.vue';
 import { useRevisionPartRows } from './composables/useRevisionPartRows.ts';
+import { useBomPdfExport } from './composables/useBomPdfExport.ts';
 import { usePartsStore } from '../../../../stores/partsStore.ts';
 import type { UseAlternativeParts } from './composables/useAlternativeParts.ts';
 import type { Part } from '../../../../types/parts.ts';
@@ -222,6 +236,8 @@ import type {
 
 const props = defineProps<{
   mode: 'product' | 'subRev';
+  /** Titles the exported PDF and seeds its suggested file name. */
+  productName: string;
   // Only meaningful in 'subRev' mode — the product-level flattened view below
   // carries its own subProductRevisionId per row (see flatParts) instead.
   spId?: number;
@@ -302,6 +318,21 @@ const FLAT_COLUMNS = 9;
 const isEmptyProductBom = computed(
   () => props.mode === 'product' && flatParts.value.length === 0,
 );
+
+// Export covers the flattened main-product BOM only: the sub-product revision
+// view is the parts table, which has its own columns and its own owner.
+const canExport = computed(
+  () => props.mode === 'product' && !props.loading && flatParts.value.length > 0,
+);
+
+// In 'product' mode headerChip is the product revision's label (see
+// useBomAndParts.bomHeaderChip), which is exactly what the export wants —
+// and canExport already restricts this to that mode.
+const { exporting, exportPdf } = useBomPdfExport(() => ({
+  productName: props.productName,
+  revisionLabel: props.headerChip,
+  rows: flatParts.value,
+}));
 
 // Seeded, not computed: a row the user collapses by hand stays collapsed.
 // `linkVersion` is what fires this when a fetch resolves.
