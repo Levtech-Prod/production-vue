@@ -11,6 +11,8 @@
   "dependencies": {
     "@vitejs/plugin-vue": "latest",
     "axios": "latest",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-vue-next": "^1.0.0",
     "pinia": "latest",
     "vue": "latest",

@@ -14,7 +14,7 @@
         :active-product-rev-id="activeProductRevId"
         :default-revision-label="defaultRevisionLabel"
         :is-archived="isArchived"
-        @set-active-revision="setActiveRevision"
+        @set-active-revision="onSetActiveRevision"
         @show-history="historyOpen = true"
       />
 
@@ -32,15 +32,15 @@
           :active-product-rev-id="activeProductRevId"
           :selection="selection"
           :revisions-mode="revisionsMode"
-          :rev-panel-view="revPanelView"
           :membership-map="membershipMap"
           :composing-revision="composingRevision"
+          :compose-target-rev-id="composeTargetRevId"
           :compose-selection="composeSelection"
+          :compose-dirty="composeDirty"
           :is-archived="isArchived"
           :is-admin="isAdmin"
           :collapsed="treeCollapsed"
           @update:collapsed="treeCollapsed = $event"
-          @update:rev-panel-view="revPanelView = $event"
           @select="onSelect"
           @toggle-revisions-mode="toggleRevisionsMode"
           @toggle-compose="toggleCompose"
@@ -50,12 +50,14 @@
           @edit-sp-revision="openEditSpRevision"
           @delete-sp-revision="openDeleteRevConfirm"
           @delete-sub-product="openDeleteSubProductConfirm"
-          @set-active-rev="setActiveRevision"
+          @set-active-rev="onSetActiveRevision"
           @edit-product-rev="openEditProductRevision"
+          @delete-product-rev="openDeleteProductRevConfirm"
           @set-default-revision="onSetDefaultRevision"
           @start-new-revision="startNewRevision"
-          @cancel-new-revision="cancelNewRevision"
-          @save-composition="composeModalOpen = true"
+          @start-edit-composition="startEditComposition"
+          @cancel-composing="cancelComposing"
+          @save-composition="onSaveCompositionClick"
         />
 
         <!-- ── Right side panel ─────────────────────────────────────────── -->
@@ -89,8 +91,10 @@
             :membership-map="membershipMap"
             :docs-summary="docs.summary"
             :is-archived="isArchived"
+            :is-admin="isAdmin"
             @select="onSelect"
             @edit-product-rev="openEditProductRevision"
+            @delete-product-rev="openDeleteProductRevConfirm"
             @edit-sp-revision="openEditSpRevision"
           />
 
@@ -149,6 +153,8 @@
             <PartsEditorPanel
               v-if="revisionsMode && selection.type === 'subProduct'"
               :key="selection.spRevId"
+              :sp-id="selection.spId"
+              :rev-id="selection.spRevId"
               :sp-name="
                 spRevInfo(selection.spId, selection.spRevId).sp?.name ?? ''
               "
@@ -159,15 +165,20 @@
               :loading="contentLoading"
               :saving="partsSaving"
               :can-edit="!isArchived"
+              :alt-parts="altParts"
               @update="onPartsUpdate"
             />
             <BomPanel
               v-else
               :mode="panelScope.kind === 'product' ? 'product' : 'subRev'"
+              :product-name="detail.name"
+              :sp-id="panelScope.kind === 'spRev' ? panelScope.spId : undefined"
+              :rev-id="panelScope.kind === 'spRev' ? panelScope.revId : undefined"
               :bom="bom"
               :parts="parts"
               :loading="contentLoading"
               :header-chip="bomHeaderChip"
+              :alt-parts="altParts"
               @select="
                 onSelect({
                   type: 'subProduct',
@@ -220,8 +231,18 @@
     <EditRevisionModal
       v-model="editModalOpen"
       :revision="editTarget?.rev ?? null"
+      :composition-hint="editTarget?.kind === 'productRev'"
       :saving="modalSaving"
       @saved="onEditRevisionSaved"
+    />
+    <DeleteConfirmModal
+      :target="productRevToDelete"
+      title-key="delete_product_revision"
+      message-key="confirmations.delete_product_revision_msg"
+      :label="(r) => r.label"
+      :loading="productRevDeleting"
+      @confirm="confirmDeleteProductRevision"
+      @cancel="cancelDeleteProductRevConfirm"
     />
     <DeleteConfirmModal
       :target="revToDelete"
@@ -241,6 +262,30 @@
       @confirm="confirmDeleteSubProduct"
       @cancel="cancelDeleteSubProductConfirm"
     />
+    <!-- Saving an edited composition: the diff, before anything is written. -->
+    <ConfirmModal
+      :visible="compositionConfirmVisible"
+      :title="t('confirm_revision_changes')"
+      :message="compositionConfirmMessage"
+      :confirm-text="t('save')"
+      :cancel-text="t('cancel')"
+      :loading="modalSaving"
+      variant="primary"
+      @confirm="saveCompositionChanges"
+      @cancel="compositionConfirmVisible = false"
+    />
+
+    <!-- Switching revisions with unsaved compose checkboxes. -->
+    <ConfirmModal
+      :visible="pendingRevSwitchId != null"
+      :title="t('discard_composition_changes')"
+      :message="t('confirmations.discard_composition_changes_msg')"
+      :confirm-text="t('discard')"
+      :cancel-text="t('cancel')"
+      @confirm="confirmRevSwitch"
+      @cancel="pendingRevSwitchId = null"
+    />
+
     <ComposeRevisionModal
       v-if="detail"
       v-model="composeModalOpen"
@@ -384,12 +429,14 @@ import ChangeLogModal from '../../components/ChangeLogModal.vue';
 import FileNameModal from '../../components/modal/FileNameModal.vue';
 import DocumentLinkModal from './detail/documents/DocumentLinkModal.vue';
 import DocumentTypeFormModal from './detail/documents/DocumentTypeFormModal.vue';
+import { diffComposition } from './detail/revisionHelpers.ts';
 import { useRevisionSelection } from './detail/composables/useRevisionSelection.ts';
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
 import { useFirmwares } from './detail/firmware/composables/useFirmwares.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
+import { useAlternativeParts } from './detail/bom/composables/useAlternativeParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
@@ -429,9 +476,11 @@ const {
   activeProductRevId,
   selection,
   revisionsMode,
-  revPanelView,
   composingRevision,
+  composeTargetRevId,
   composeSelection,
+  composeBaseline,
+  composeDirty,
   membershipMap,
   revisionLabel,
   defaultRevisionLabel,
@@ -439,9 +488,12 @@ const {
   onSelect,
   toggleRevisionsMode,
   startNewRevision,
-  cancelNewRevision,
+  startEditComposition,
+  cancelComposing,
+  stopComposing,
   toggleCompose,
   dropFromComposition,
+  adoptSavedLink,
   spRevInfo,
   applyDefaults,
   resetForProductChange,
@@ -585,6 +637,13 @@ const {
   dropRevision: dropPartsRevision,
 } = useBomAndParts(selection, panelScope, spRevInfo, revisionLabel);
 
+// Alternative-part links (see migration 021): shared across the BOM tab's
+// views so the cache survives switching revisions/tabs, same reasoning as
+// useBomAndParts above. reactive() (matching `fw` above) so `altParts.saving`
+// unwraps to a plain boolean wherever it's read through the prop, instead of
+// staying a Ref once it's nested inside this plain object.
+const altParts = reactive(useAlternativeParts());
+
 // Leaving Revisions mode takes the Overview tab with it — without this the
 // active tab would point at a tab that is no longer rendered, leaving the
 // panel blank.
@@ -606,10 +665,26 @@ watch(panelScope, (scope) => {
   void loadDocs(scope);
   if (scope.kind === 'spRev') {
     void fw.load(scope);
+    void altParts.ensureLoaded(scope.spId, scope.revId);
   } else {
     // No firmware to show at product scope; fall back rather than render blank.
     documentsView.value = 'documents';
   }
+});
+
+// Product-level BOM lists parts across every linked sub-product revision, so
+// its alternative links are batched in one request keyed by the product
+// revision (see ensureLoadedForProductRevision) instead of looping
+// ensureLoaded per sub-product — that would mean N requests on every product
+// page load. Only fires for the flattened product-level view: `bom` is only
+// populated when panelScope.kind === 'product' (see useBomAndParts).
+watch(bom, (list) => {
+  const scope = panelScope.value;
+  if (list.length === 0 || scope?.kind !== 'product') return;
+  void altParts.ensureLoadedForProductRevision(
+    scope.revId,
+    list.map((sp) => sp.subProductRevisionId),
+  );
 });
 
 // ── Set default revision ──────────────────────────────────────────────────────
@@ -636,6 +711,86 @@ async function onSetDefaultRevision() {
 const composeModalOpen = ref(false);
 const modalSaving = ref(false);
 
+const compositionConfirmVisible = ref(false);
+
+// Composing a new revision needs a label and a document source, so it opens
+// the compose modal; editing an existing one only needs a confirmation.
+function onSaveCompositionClick() {
+  if (composeTargetRevId.value == null) composeModalOpen.value = true;
+  else compositionConfirmVisible.value = true;
+}
+
+const compositionChanges = computed(() =>
+  diffComposition(
+    detail.value?.subProducts ?? [],
+    composeBaseline.value,
+    composeSelection.value,
+  ),
+);
+
+const compositionConfirmMessage = computed(() => {
+  const lines = compositionChanges.value.map((c) =>
+    c.kind === 'added'
+      ? t('change_line_added', { name: c.name, to: c.to })
+      : c.kind === 'removed'
+        ? t('change_line_removed', { name: c.name, from: c.from })
+        : t('change_line_changed', { name: c.name, from: c.from, to: c.to }),
+  );
+  return `${t('confirmations.save_composition_changes_msg')}\n\n${lines.join('\n')}`;
+});
+
+async function saveCompositionChanges() {
+  const revId = composeTargetRevId.value;
+  if (revId == null) return;
+  modalSaving.value = true;
+  try {
+    const linkedIds = Object.values(composeSelection.value);
+    await productRevisionsApi.setSubProducts(revId, linkedIds);
+    // The membership changed: cached comparisons describe the old one, and the
+    // selected sub-product revision may no longer be part of this revision.
+    compareRefresh.value++;
+    const linked = new Set(linkedIds);
+    if (
+      selection.value.type === 'subProduct' &&
+      !linked.has(selection.value.spRevId)
+    ) {
+      selection.value = { type: 'product' };
+    }
+    notify.showToast(t('success.update_revision'), 'success');
+    compositionConfirmVisible.value = false;
+    stopComposing();
+    await reload();
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.update_revision_failed'),
+      'error',
+    );
+  } finally {
+    modalSaving.value = false;
+  }
+}
+
+// Switching revisions mid-compose would leave the checkboxes describing a
+// revision that is no longer the one being edited — confirm first.
+const pendingRevSwitchId = ref<number | null>(null);
+
+function onSetActiveRevision(id: number) {
+  if (composingRevision.value && composeDirty.value) {
+    pendingRevSwitchId.value = id;
+    return;
+  }
+  if (composingRevision.value) cancelComposing();
+  setActiveRevision(id);
+}
+
+function confirmRevSwitch() {
+  const id = pendingRevSwitchId.value;
+  pendingRevSwitchId.value = null;
+  if (id == null) return;
+  cancelComposing();
+  setActiveRevision(id);
+}
+
 async function onSaveComposition(payload: {
   label: string;
   changeNotes: string | null;
@@ -659,9 +814,8 @@ async function onSaveComposition(payload: {
     notify.showToast(t('success.save_revision'), 'success');
     composeModalOpen.value = false;
     await reload();
+    stopComposing();
     activeProductRevId.value = newRev.id;
-    composingRevision.value = false;
-    composeSelection.value = {};
   } catch (err: any) {
     notify.showToast(
       translateApiError(err, { t, te }, 'errors.save_revision_failed'),
@@ -713,6 +867,52 @@ async function onEditRevisionSaved(payload: EditRevisionPayload) {
   } finally {
     modalSaving.value = false;
   }
+}
+
+// ── Delete a product revision (with confirmation) ───────────────────────────
+
+const {
+  target: productRevToDelete,
+  busy: productRevDeleting,
+  open: openProductRevDeleteTarget,
+  confirm: confirmDeleteProductRevision,
+  cancel: cancelDeleteProductRevConfirm,
+} = useConfirmDelete<{ revId: number; label: string }>(async (target) => {
+  try {
+    await productRevisionsApi.delete(target.revId);
+    dropDocsCacheKey(
+      docsKeyFor({
+        kind: 'product',
+        productId: productId.value,
+        revId: target.revId,
+      }),
+    );
+    compareRefresh.value++;
+    notify.showToast(t('revision_deleted'), 'success');
+    cancelDeleteProductRevConfirm(); // close the modal right away, reload runs after
+    // Nothing left to edit if its composition was the one open for editing.
+    if (composeTargetRevId.value === target.revId) stopComposing();
+    await reload();
+    // The deleted revision may have been the active one — re-pick the default.
+    // Not while composing: there the active revision is deliberately none.
+    if (
+      !composingRevision.value &&
+      !detail.value?.revisions.some((r) => r.id === activeProductRevId.value)
+    ) {
+      applyDefaults();
+    }
+    return true;
+  } catch (err: any) {
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.delete_revision_failed'),
+      'error',
+    );
+    return false;
+  }
+});
+
+function openDeleteProductRevConfirm(rev: ProductRevision) {
+  openProductRevDeleteTarget({ revId: rev.id, label: rev.label });
 }
 
 // ── Delete a sub-product revision (with confirmation) ───────────────────────
@@ -872,6 +1072,11 @@ async function onSubProductSaved(
         addToRevisionId,
         Array.from(new Set([...existing, newRev.id])),
       );
+      // Added straight into the revision whose composition is open for
+      // editing: adopt the link so saving that composition can't undo it.
+      if (addToRevisionId === composeTargetRevId.value) {
+        adoptSavedLink(res.data.id, newRev.id);
+      }
       notify.showToast(t('success.save_sub_product'), 'success');
       subProductModalOpen.value = false;
       await reload();

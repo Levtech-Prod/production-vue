@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, pool } from '../db.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { releaseStoredFile, unlinkStoredFile } from '../services/documentFiles.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 import { setRevisionSubProductsSchema } from '../schemas/subProducts.schema.js';
@@ -171,6 +172,37 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   }
 
   res.json(Array.from(map.values()));
+});
+
+// Every alternative link across the whole BOM in one query — the flattened
+// product view opens every sub-product at once, so per-sub-product fetching
+// would be N requests per page load.
+router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const result = await query<{
+    id: number;
+    subProductRevisionId: number;
+    partId: number;
+    alternatePartId: number;
+    alternateInUse: boolean;
+  }>(
+    `SELECT pa.id,
+            pa.sub_product_revision_id AS "subProductRevisionId",
+            pa.part_id AS "partId",
+            pa.alternate_part_id AS "alternatePartId",
+            pa.alternate_in_use AS "alternateInUse"
+     FROM part_alternatives pa
+     JOIN product_revision_sub_products prsp
+       ON prsp.sub_product_revision_id = pa.sub_product_revision_id
+     WHERE prsp.product_revision_id = $1
+     ORDER BY pa.id`,
+    [revId],
+  );
+  res.json(result.rows);
 });
 
 // PATCH /api/product-revisions/:revId — update status, change_notes, label
@@ -362,6 +394,96 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
       [revId],
     );
     res.json(result.rows);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/product-revisions/:revId — remove a product revision entirely.
+// Admin-only: this drops the revision's composition and its document rows for
+// good. Two states a product must never be left in are refused up front: no
+// default revision, and no revisions at all.
+router.delete('/:revId', requireAuth, requireAdmin, async (req, res) => {
+  const revId = Number(req.params.revId);
+  if (!revId || Number.isNaN(revId)) {
+    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Guards read inside the transaction, so a concurrent "set as default"
+    // can't slip between the check and the delete.
+    const info = await client.query<{
+      productId: number;
+      label: string;
+      isDefault: boolean;
+    }>(
+      `SELECT pr.product_id AS "productId", pr.label,
+         (p.default_revision_id IS NOT DISTINCT FROM pr.id) AS "isDefault"
+       FROM product_revisions pr
+       JOIN products p ON p.id = pr.product_id
+       WHERE pr.id = $1
+       FOR UPDATE OF pr`,
+      [revId],
+    );
+    const revision = info.rows[0];
+    if (!revision) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
+    }
+    if (revision.isDefault) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: ErrorCodes.REVISION_IS_DEFAULT });
+    }
+
+    const siblings = await client.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM product_revisions WHERE product_id = $1`,
+      [revision.productId],
+    );
+    if ((siblings.rows[0]?.count ?? 0) <= 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: ErrorCodes.REVISION_LAST_REMAINING });
+    }
+
+    // Read the document rows' files before the cascade takes them away.
+    const files = await client.query<{ storedFileId: number }>(
+      `SELECT DISTINCT stored_file_id AS "storedFileId"
+       FROM product_revision_documents
+       WHERE product_revision_id = $1`,
+      [revId],
+    );
+
+    // Cascades (see schema.sql) remove the sub-product links and the document
+    // rows; the physical files are shared with other revisions, so they are
+    // released one by one below rather than deleted with them.
+    await client.query(`DELETE FROM product_revisions WHERE id = $1`, [revId]);
+
+    const orphanKeys: string[] = [];
+    for (const row of files.rows) {
+      const key = await releaseStoredFile(client, row.storedFileId);
+      if (key) orphanKeys.push(key);
+    }
+
+    const actor = await resolveActor(client, req.user?.id);
+    await logAudit(
+      client,
+      'product',
+      revision.productId,
+      'updated',
+      { events: [{ type: 'revision', tag: 'removed', label: revision.label }] },
+      actor,
+    );
+
+    await client.query('COMMIT');
+    // Post-commit: an unlink cannot be rolled back.
+    for (const key of orphanKeys) unlinkStoredFile(key);
+
+    res.json({ id: revId, deleted: true });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

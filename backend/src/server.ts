@@ -70,10 +70,23 @@ app.use('/api', documentRoutes);
 app.use('/api', documentTypeRoutes);
 app.use('/api', firmwareRoutes);
 
+/** What actually went wrong, for the dev-only `details` below. Includes the
+ *  `pg` fields: a failing query says far more through code/detail/constraint
+ *  than through its message. */
+function errorDetails(err: unknown): Record<string, unknown> {
+  if (!err || typeof err !== 'object') return { message: String(err) };
+  const e = err as Record<string, unknown>;
+  const details: Record<string, unknown> = {};
+  for (const key of ['message', 'code', 'detail', 'constraint', 'table', 'column']) {
+    if (e[key] != null) details[key] = e[key];
+  }
+  return details;
+}
+
 app.use(
   (
     err: unknown,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
@@ -105,8 +118,18 @@ app.use(
       return res.status(503).json({ code: ErrorCodes.BNR_RATE_UNAVAILABLE });
     }
 
-    console.error(err);
-    res.status(400).json({ code: ErrorCodes.REQUEST_FAILED });
+    // Nothing above recognised it, so this is a bug or an outage, not a bad
+    // request — 500, not the 400 this used to send. A 400 sent the next person
+    // hunting through their own payload while the real cause (a schema
+    // mismatch, a crashed query) sat only in the server log.
+    console.error(`${req.method} ${req.originalUrl}`, err);
+    res.status(500).json({
+      code: ErrorCodes.REQUEST_FAILED,
+      // Never in production (the Dockerfile sets NODE_ENV): the cause can name
+      // tables, columns and constraints. In development it saves reading the
+      // server log to find out what a failed call actually hit.
+      ...(process.env.NODE_ENV !== 'production' ? { details: errorDetails(err) } : {}),
+    });
   },
 );
 

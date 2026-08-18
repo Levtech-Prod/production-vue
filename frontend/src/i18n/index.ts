@@ -74,6 +74,24 @@ const messages = {
     // Where a part sits on a sub-product — per BOM line, unlike `location`,
     // which is the warehouse spot of the part itself.
     mount_position: 'Position',
+    // The one part that can substitute a BOM part — scoped to a single
+    // sub-product REVISION, directional (see migration 021).
+    alternative_part: 'Alternative',
+    no_alternative: 'No alternative set',
+    view_alternative: 'Show / set alternative',
+    in_this_bom: 'Fitted',
+    standby: 'Standby',
+    built_with: 'Built with',
+    // The two halves of the "which one is actually built" switch.
+    use_main_part: 'Main',
+    use_alternative: 'Alternative',
+    same_qty_as_main: 'Same quantity as the main part — the alternative replaces it',
+    use_main_part_hint: 'This revision is built with the BOM part',
+    use_alternative_hint: 'This revision is built with the alternative',
+    add_alternative: 'Add alternative',
+    replace_alternative: 'Replace alternative',
+    remove_alternative: 'Remove alternative',
+    pcs: 'pcs',
     password: 'Password',
     already_registered: 'Already registered?',
     create_user_description: 'Create admin or client user',
@@ -162,6 +180,7 @@ const messages = {
     event_sub_product_revision: 'Sub-product revision',
     event_product_revision: 'Product revision',
     event_part: 'Part',
+    event_part_alternative: 'Alternative part',
     event_revision: 'Revision',
     event_parameter: 'Parameter',
     date: 'Date',
@@ -273,6 +292,7 @@ const messages = {
     errors_upload_document_failed: 'Failed to upload document',
     errors_delete_document_failed: 'Failed to delete document',
     errors_download_failed: 'Failed to download file',
+    errors_save_failed: 'Failed to save the file',
 
     // Firmware (per sub-product revision)
     firmware: 'Firmware',
@@ -396,6 +416,11 @@ const messages = {
     bom_main_product: 'Main product',
     bom_sub_rev_scope: '{name} · {label}',
     view_sub_product_parts: 'View parts of this sub-product',
+    export_pdf: 'Export PDF',
+    export_bom_pdf: 'Export BOM as PDF',
+    exporting: 'Exporting…',
+    generated_at: 'Generated: {date}',
+    page_x_of_y: 'Page {current} / {total}',
 
     // Product revisions section
     product_revisions_title: 'Product revisions',
@@ -439,7 +464,8 @@ const messages = {
       'Add at least one sub-product before creating a revision.',
     save_as_new_revision: 'Save as new revision',
     compose_check_hint: 'Include this revision in the new product revision',
-    compose_disabled_hint: 'Click "Add new revision" to edit the composition',
+    compose_disabled_hint:
+      'Click "Add new revision" or "Edit composition" to change this',
     compose_summary:
       'The new product revision will link {count} sub-product revision(s).',
     edit_revision: 'Edit revision',
@@ -450,7 +476,22 @@ const messages = {
       'Select a sub-product revision on the left to edit its parts.',
     no_parts_found: 'No matching parts.',
     delete_revision: 'Delete revision',
+    delete_product_revision: 'Delete product revision',
     revision_deleted: 'Revision deleted.',
+    edit_composition: 'Edit composition',
+    edit_composition_disabled_hint: 'Select a product revision first.',
+    editing_composition_of: 'Editing {label}',
+    save_composition_changes: 'Save composition',
+    compose_edit_hint: 'Include this revision in the product revision being edited',
+    composition_edited_in_tree:
+      'The linked sub-product revisions are edited in the tree: Revision mode → Edit composition.',
+    discard: 'Discard',
+    discard_composition_changes: 'Discard composition changes?',
+    confirm_revision_changes: 'Save changes?',
+    change_line_changed: '{name}: {from} → {to}',
+    change_line_added: '{name}: added ({to})',
+    change_line_removed: '{name}: removed ({from})',
+    change_line_updated: '{name}: updated',
     delete_sub_product: 'Delete sub-product',
     sub_product_deleted: 'Sub-product deleted.',
     status: 'Status',
@@ -564,6 +605,10 @@ const messages = {
       INVALID_SUB_PRODUCT_ID: 'Invalid sub-product id',
       SUB_PRODUCT_UPDATE_FAILED: 'Failed to update sub-product',
       REVISION_NOT_FOUND: 'Revision not found',
+      REVISION_IS_DEFAULT:
+        'This is the default revision. Set another revision as default before deleting it.',
+      REVISION_LAST_REMAINING:
+        "This is the product's only revision, so it cannot be deleted.",
       FIRMWARE_NOT_FOUND: 'Firmware version not found',
       FIRMWARE_NAME_ALREADY_EXISTS:
         'A firmware version with this name already exists on this revision',
@@ -575,6 +620,8 @@ const messages = {
       COMPARE_INVALID_PARAMS: 'Invalid comparison parameters',
       INVALID_PRODUCT_TYPE: 'The selected product type is not valid',
       INVALID_SUB_PRODUCT_TYPE: 'The selected sub-product type is not valid',
+      PART_ALTERNATIVE_SAME_PART: 'A part cannot be an alternative of itself',
+      PART_ALTERNATIVE_NOT_FOUND: 'Alternative link not found',
       // Products module — frontend-only fallbacks
       load_products_failed: 'Failed to load products',
       load_product_failed: 'Failed to load the product',
@@ -696,6 +743,13 @@ const messages = {
         'Are you sure you want to re-activate this product?\nIts SKU "{sku}" is already used by another active product, so a number will automatically be appended to it (e.g. "{sku}-2").',
       delete_revision_msg:
         'Are you sure you want to delete this revision? It will be removed from every product revision that includes it',
+      delete_product_revision_msg:
+        'Are you sure you want to delete this product revision? Its composition and its document list are removed. Files shared with other revisions are kept',
+      save_revision_changes_msg: 'The following changes will be saved:',
+      save_composition_changes_msg:
+        'The following changes to this revision will be saved:',
+      discard_composition_changes_msg:
+        'You have unsaved composition changes. Switching revisions will discard them.',
       delete_sub_product_msg:
         'Are you sure you want to delete this sub-product? All of its revisions, parts and documents will be removed, and it will be removed from every product revision that includes it',
       remove_part_msg:
@@ -769,6 +823,21 @@ const messages = {
     currency: 'Pénznem',
     location: 'Helyszín',
     mount_position: 'Pozíció',
+    alternative_part: 'Alternatíva',
+    no_alternative: 'Nincs beállított alternatíva',
+    view_alternative: 'Alternatíva megjelenítése / beállítása',
+    in_this_bom: 'Beépítve',
+    standby: 'Tartalék',
+    built_with: 'Ezzel készül',
+    use_main_part: 'Fő',
+    use_alternative: 'Alternatíva',
+    same_qty_as_main: 'Ugyanaz a mennyiség, mint a fő alkatrésznél – az alternatíva helyettesíti',
+    use_main_part_hint: 'Ez a revízió a BOM-alkatrésszel készül',
+    use_alternative_hint: 'Ez a revízió az alternatívával készül',
+    add_alternative: 'Alternatíva hozzáadása',
+    replace_alternative: 'Alternatíva cseréje',
+    remove_alternative: 'Alternatíva eltávolítása',
+    pcs: 'db',
     password: 'Jelszó',
     already_registered: 'Már regisztrált?',
     create_user_description: 'Admin vagy ügyfél felhasználó létrehozása',
@@ -857,6 +926,7 @@ const messages = {
     event_sub_product_revision: 'Altermék revízió',
     event_product_revision: 'Termék revízió',
     event_part: 'Alkatrész',
+    event_part_alternative: 'Alternatív alkatrész',
     event_revision: 'Revízió',
     event_parameter: 'Paraméter',
     date: 'Dátum',
@@ -969,6 +1039,7 @@ const messages = {
     errors_upload_document_failed: 'Nem sikerült feltölteni a dokumentumot',
     errors_delete_document_failed: 'Nem sikerült törölni a dokumentumot',
     errors_download_failed: 'Nem sikerült letölteni a fájlt',
+    errors_save_failed: 'Nem sikerült menteni a fájlt',
 
     // Firmware (altermék revíziónként)
     firmware: 'Firmware',
@@ -1094,6 +1165,11 @@ const messages = {
     bom_main_product: 'Fő termék',
     bom_sub_rev_scope: '{name} · {label}',
     view_sub_product_parts: 'Az altermék alkatrészeinek megtekintése',
+    export_pdf: 'PDF exportálás',
+    export_bom_pdf: 'Anyagjegyzék exportálása PDF-be',
+    exporting: 'Exportálás…',
+    generated_at: 'Készült: {date}',
+    page_x_of_y: '{current}. / {total}. oldal',
 
     // Termékrevíziók szekció
     product_revisions_title: 'Termékrevíziók',
@@ -1138,7 +1214,7 @@ const messages = {
     save_as_new_revision: 'Mentés új revízióként',
     compose_check_hint: 'Ez a revízió kerüljön az új termékrevízióba',
     compose_disabled_hint:
-      'Kattints az "Új revízió hozzáadása" gombra a szerkesztéshez',
+      'Kattints az "Új revízió hozzáadása" vagy az "Összeállítás szerkesztése" gombra a módosításhoz',
     compose_summary:
       'Az új termékrevízió {count} altermék-revíziót fog tartalmazni.',
     edit_revision: 'Revízió szerkesztése',
@@ -1149,6 +1225,22 @@ const messages = {
       'Válassz altermék-revíziót bal oldalon az alkatrészek szerkesztéséhez.',
     no_parts_found: 'Nincs találat.',
     delete_revision: 'Revízió törlése',
+    delete_product_revision: 'Termékrevízió törlése',
+    edit_composition: 'Összeállítás szerkesztése',
+    edit_composition_disabled_hint: 'Előbb válassz ki egy termékrevíziót.',
+    editing_composition_of: '{label} szerkesztése',
+    save_composition_changes: 'Összeállítás mentése',
+    compose_edit_hint:
+      'Ez a revízió része legyen a szerkesztett termékrevíziónak',
+    composition_edited_in_tree:
+      'A kapcsolt altermék-revíziók a fastruktúrában szerkeszthetők: Revízió mód → Összeállítás szerkesztése.',
+    discard: 'Elvetés',
+    discard_composition_changes: 'Elveted az összeállítás módosításait?',
+    confirm_revision_changes: 'Mentsük a módosításokat?',
+    change_line_changed: '{name}: {from} → {to}',
+    change_line_added: '{name}: hozzáadva ({to})',
+    change_line_removed: '{name}: eltávolítva ({from})',
+    change_line_updated: '{name}: módosítva',
     revision_deleted: 'Revízió törölve.',
     delete_sub_product: 'Altermék törlése',
     sub_product_deleted: 'Altermék törölve.',
@@ -1257,6 +1349,10 @@ const messages = {
       INVALID_SUB_PRODUCT_ID: 'Érvénytelen altermék-azonosító',
       SUB_PRODUCT_UPDATE_FAILED: 'Nem sikerült módosítani az alterméket',
       REVISION_NOT_FOUND: 'A revízió nem található',
+      REVISION_IS_DEFAULT:
+        'Ez az alapértelmezett revízió. Törlés előtt állíts be másikat alapértelmezettként.',
+      REVISION_LAST_REMAINING:
+        'Ez a termék egyetlen revíziója, ezért nem törölhető.',
       FIRMWARE_NOT_FOUND: 'A firmware verzió nem található',
       FIRMWARE_NAME_ALREADY_EXISTS:
         'Ezen a revízión már létezik ilyen nevű firmware verzió',
@@ -1268,6 +1364,8 @@ const messages = {
       COMPARE_INVALID_PARAMS: 'Érvénytelen összehasonlítási paraméterek',
       INVALID_PRODUCT_TYPE: 'A kiválasztott terméktípus érvénytelen',
       INVALID_SUB_PRODUCT_TYPE: 'A kiválasztott altermék-típus érvénytelen',
+      PART_ALTERNATIVE_SAME_PART: 'Egy alkatrész nem lehet önmaga alternatívája',
+      PART_ALTERNATIVE_NOT_FOUND: 'Az alternatíva-kapcsolat nem található',
       // Products module — frontend fallbackok
       load_products_failed: 'Nem sikerült betölteni a termékeket',
       load_product_failed: 'Nem sikerült betölteni a terméket',
@@ -1388,6 +1486,13 @@ const messages = {
         'Biztosan vissza szeretnéd állítani ezt a terméket aktív állapotba?\nA(z) "{sku}" SKU-t már egy másik aktív termék használja, ezért a rendszer automatikusan egy sorszámot fűz hozzá (pl. "{sku}-2").',
       delete_revision_msg:
         'Biztosan törölni szeretnéd ezt a revíziót? Minden termékrevízióból eltávolításra kerül, amely tartalmazza',
+      delete_product_revision_msg:
+        'Biztosan törölni szeretnéd ezt a termékrevíziót? Az összeállítása és a dokumentumlistája törlődik. A más revíziókkal közös fájlok megmaradnak',
+      save_revision_changes_msg: 'A következő módosítások kerülnek mentésre:',
+      save_composition_changes_msg:
+        'A revízió következő módosításai kerülnek mentésre:',
+      discard_composition_changes_msg:
+        'Az összeállításban nem mentett módosítások vannak. A revízióváltás elveti ezeket.',
       delete_sub_product_msg:
         'Biztosan törölni szeretnéd ezt az alterméket? Minden revíziója, alkatrésze és dokumentuma törlődik, és eltávolításra kerül minden termékrevízióból, amely tartalmazza',
       remove_part_msg: 'Biztosan eltávolítod ezt az alkatrészt a revízióból',

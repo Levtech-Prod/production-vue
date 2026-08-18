@@ -38,7 +38,7 @@
     <div class="overflow-visible rounded-lg border border-slate-300 bg-white">
       <table class="w-full text-left text-sm">
         <thead
-          class="border-b border-slate-300 bg-blue-50 text-[11px] uppercase tracking-wide text-slate-600"
+          class="border-b border-slate-300 table-head text-[11px] tracking-wide"
         >
           <tr>
             <th

@@ -29,6 +29,8 @@
         v-else
         :parts="currentRows"
         :empty-text="t('no_parts_in_revision')"
+        :expanded-part-ids="expandedPartIds"
+        dense
       >
         <template #qty="{ part }">
           <div class="flex items-center gap-1.5">
@@ -60,6 +62,28 @@
         <template #actions="{ part }">
           <div class="flex items-center justify-center gap-1.5">
             <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-lg px-1.5 py-1"
+              :class="
+                expandedPartIds.has(part.id)
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'text-slate-400 hover:bg-blue-50 hover:text-blue-600'
+              "
+              :title="t('view_alternative')"
+              @click="toggleExpanded(part.id)"
+            >
+              <Link2 class="h-4 w-4" />
+              <!-- A dot rather than a count: a part carries at most one
+                   alternate. It turns emerald when the revision is built with
+                   that alternate instead of this row, so a collapsed row
+                   still shows it is being substituted. -->
+              <span
+                v-if="altParts.hasAlternate(revId, part.id)"
+                class="h-1.5 w-1.5 rounded-full"
+                :class="altParts.alternateInUse(revId, part.id) ? 'bg-emerald-500' : 'bg-blue-500'"
+              ></span>
+            </button>
+            <button
               v-if="canEdit"
               type="button"
               class="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
@@ -70,6 +94,21 @@
               <Trash2 class="h-4 w-4" />
             </button>
           </div>
+        </template>
+        <template #expanded="{ part }">
+          <AlternativesPanel
+            :alternate="altParts.alternateFor(revId, part.id)"
+            :in-use="altParts.alternateInUse(revId, part.id)"
+            :quantity="revisionPartOf(part.id)?.quantity"
+            :unit="revisionPartOf(part.id)?.unit"
+            :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :editable="canEdit"
+            :candidates="altCandidatesFor(part.id)"
+            :saving="altParts.saving"
+            @remove="() => removeAlternative(part.id)"
+            @add="(altPartId) => setAlternative(part.id, altPartId)"
+            @set-in-use="(inUse) => setAlternateInUse(part.id, inUse)"
+          />
         </template>
       </PartsTable>
 
@@ -170,14 +209,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, toRef } from 'vue';
+import { computed, nextTick, ref, toRef, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
-import { Check, Plus, Search, Trash2, X } from 'lucide-vue-next';
+import { Check, Link2, Plus, Search, Trash2, X } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ConfirmModal from '../../../components/notification/ConfirmModal.vue';
 import PartsTable from '../../parts/PartsTable.vue';
+import AlternativesPanel from './bom/AlternativesPanel.vue';
 import { usePartsStore } from '../../../stores/partsStore.ts';
 import { useRevisionPartRows } from './bom/composables/useRevisionPartRows.ts';
+import type { UseAlternativeParts } from './bom/composables/useAlternativeParts.ts';
 import type { Part } from '../../../types/parts.ts';
 import type {
   RevisionPart,
@@ -185,12 +226,15 @@ import type {
 } from '../../../types/products.ts';
 
 const props = defineProps<{
+  spId: number;
+  revId: number;
   spName: string;
   revLabel: string;
   parts: RevisionPart[];
   loading: boolean;
   saving: boolean;
   canEdit: boolean;
+  altParts: UseAlternativeParts;
 }>();
 
 const emit = defineEmits<{ update: [parts: RevisionPartInput[]] }>();
@@ -214,13 +258,19 @@ function revisionPartOf(partId: number): RevisionPart | undefined {
   return props.parts.find((p) => p.id === partId);
 }
 
+// Ids of parts currently in this revision's BOM — excludes them from the "add
+// part" list below. Deliberately NOT used to mark the alternate: the alternate
+// is a catalog part rather than a BOM row, so it is essentially never in this
+// set. Which part is actually fitted comes from the link's own
+// `alternate_in_use` flag instead (see migration 021).
+const inBomIds = computed(() => new Set(props.parts.map((p) => p.id)));
+
 const search = ref('');
 
 const availableParts = computed(() => {
-  const used = new Set(props.parts.map((p) => p.id));
   const q = search.value.trim().toLowerCase();
   return allParts.value.filter((p) => {
-    if (used.has(p.id)) return false;
+    if (inBomIds.value.has(p.id)) return false;
     if (!q) return true;
     return p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
   });
@@ -315,5 +365,63 @@ function confirmRemove() {
     toInputs(props.parts).filter((p) => p.partId !== target.id),
   );
   removeTarget.value = null;
+}
+
+// ── Alternative part (see migration 021) — one per part, per sub-product
+// REVISION, so every call takes both props.spId and props.revId. The link
+// icon in the Actions column opens a secondary row under the part (rendered
+// via PartsTable's #expanded slot) where the alternate is managed. ────────
+
+// Parts whose panel is open. Seeded below from whichever parts already have
+// an alternate, and then owned by the user: once they collapse or open a row
+// by hand, that choice survives until the revision or the links change.
+const expandedPartIds = ref<Set<number>>(new Set());
+
+function toggleExpanded(partId: number) {
+  const next = new Set(expandedPartIds.value);
+  if (next.has(partId)) next.delete(partId);
+  else next.add(partId);
+  expandedPartIds.value = next;
+}
+
+// Auto-expand: a part that has an alternate opens by default, so the
+// substitution is visible without hunting for it. Re-seeded whenever the
+// revision's parts or its links change (switching revisions remounts this
+// panel via its :key, so this covers arrival of both fetches).
+watch(
+  [() => props.revId, currentRows, () => props.altParts.linkVersion],
+  () => {
+    const seeded = new Set(expandedPartIds.value);
+    for (const part of currentRows.value) {
+      if (props.altParts.hasAlternate(props.revId, part.id)) seeded.add(part.id);
+    }
+    expandedPartIds.value = seeded;
+  },
+  { immediate: true },
+);
+
+// Catalog parts this row could be set to: anything but itself and whatever
+// it already points at.
+function altCandidatesFor(partId: number): Part[] {
+  const current = props.altParts.alternateFor(props.revId, partId);
+  return allParts.value.filter((p) => p.id !== partId && p.id !== current?.id);
+}
+
+async function setAlternative(partId: number, alternatePartId: number) {
+  // Replaces whatever was set — see the POST route's replace semantics.
+  await props.altParts.link(props.spId, props.revId, partId, alternatePartId);
+}
+
+async function removeAlternative(partId: number) {
+  const linkId = props.altParts.linkIdFor(props.revId, partId);
+  if (linkId == null) return;
+  await props.altParts.unlink(props.spId, props.revId, linkId);
+}
+
+// Which half of the pair this revision is actually built with.
+async function setAlternateInUse(partId: number, inUse: boolean) {
+  const linkId = props.altParts.linkIdFor(props.revId, partId);
+  if (linkId == null) return;
+  await props.altParts.setInUse(props.spId, props.revId, linkId, inUse);
 }
 </script>

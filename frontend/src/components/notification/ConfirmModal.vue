@@ -9,6 +9,9 @@ defineProps<{
   confirmText?: string;
   cancelText?: string;
   loading?: boolean;
+  /** Colour of the confirm button. Defaults to the destructive red this
+   *  dialog was written for; 'primary' is for confirming a plain save. */
+  variant?: 'danger' | 'primary';
 }>();
 
 const emit = defineEmits<{
@@ -51,7 +54,12 @@ const { t } = useI18n();
 
             <button
               type="button"
-              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+              class="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+              :class="
+                variant === 'primary'
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-red-600 hover:bg-red-700'
+              "
               :disabled="loading"
               @click="$emit('confirm')"
             >

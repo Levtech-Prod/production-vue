@@ -40,7 +40,7 @@
       {{ t('no_parts_selected') }}
     </div>
     <table v-else class="w-full text-left text-sm">
-      <thead class="bg-blue-50 text-xs uppercase text-black">
+      <thead class="table-head text-xs">
         <tr>
           <th class="px-4 py-2">{{ t('name') }}</th>
           <th class="w-28 px-4 py-2">{{ t('quantity') }} <span class="text-red-500">*</span></th>

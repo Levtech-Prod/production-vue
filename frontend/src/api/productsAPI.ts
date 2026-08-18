@@ -19,6 +19,9 @@ import type {
   RevisionDocuments,
   LinkableDocuments,
   BomSubProduct,
+  PartAlternative,
+  ProductRevisionPartAlternative,
+  CreatePartAlternativeInput,
 } from '../types/products.ts';
 import type { PanelScope } from '../views/products/detail/types.ts';
 
@@ -65,6 +68,9 @@ export const productRevisionsApi = {
   ) {
     return api.patch<ProductRevision>(`/product-revisions/${revId}`, payload);
   },
+  delete(revId: number) {
+    return api.delete(`/product-revisions/${revId}`);
+  },
   setSubProducts(revId: number, subProductRevisionIds: number[]) {
     return api.patch(`/product-revisions/${revId}/sub-products`, {
       subProductRevisionIds,
@@ -77,6 +83,14 @@ export const productRevisionsApi = {
   },
   getBom(revId: number) {
     return api.get<BomSubProduct[]>(`/product-revisions/${revId}/bom`);
+  },
+  // One request for every sub-product revision's alternate links across the
+  // whole BOM (see migration 021) — avoids the N per-sub-product requests
+  // subProductsApi.getPartAlternatives would mean for the product-level view.
+  getPartAlternatives(revId: number) {
+    return api.get<ProductRevisionPartAlternative[]>(
+      `/product-revisions/${revId}/part-alternatives`,
+    );
   },
 };
 
@@ -121,6 +135,28 @@ export const subProductsApi = {
     return api.get<ComparePartsResult>('/sub-products/revisions/compare', {
       params: { a, b },
     });
+  },
+  // Part alternatives are scoped to one revision (see migration 021).
+  getPartAlternatives(spId: number, revId: number) {
+    return api.get<PartAlternative[]>(
+      `/sub-products/${spId}/revisions/${revId}/part-alternatives`,
+    );
+  },
+  linkPartAlternative(spId: number, revId: number, payload: CreatePartAlternativeInput) {
+    return api.post<PartAlternative>(
+      `/sub-products/${spId}/revisions/${revId}/part-alternatives`,
+      payload,
+    );
+  },
+  unlinkPartAlternative(spId: number, revId: number, id: number) {
+    return api.delete(`/sub-products/${spId}/revisions/${revId}/part-alternatives/${id}`);
+  },
+  /** Switch which half of the pair the revision is built with. */
+  setPartAlternativeInUse(spId: number, revId: number, id: number, alternateInUse: boolean) {
+    return api.patch<PartAlternative>(
+      `/sub-products/${spId}/revisions/${revId}/part-alternatives/${id}`,
+      { alternateInUse },
+    );
   },
 };
 

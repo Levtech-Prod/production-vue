@@ -18,7 +18,7 @@
          content (DocumentTypesSection.vue) needs to render an IconPicker
          popover that can escape this box. -->
     <table class="w-full table-fixed text-left text-sm">
-      <thead class="bg-blue-50 text-xs uppercase text-black">
+      <thead class="table-head text-xs">
         <tr>
           <th class="w-auto rounded-tl-2xl p-4">{{ t('name') }}</th>
           <th class="w-40 rounded-tr-2xl p-4">{{ t('actions') }}</th>

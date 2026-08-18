@@ -530,3 +530,55 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_firmware_files_storage_key
 
 CREATE INDEX IF NOT EXISTS idx_firmware_files_firmware_id
   ON firmware_files(firmware_id);
+
+-- ===========================================================================
+-- Part alternatives (see migration 021)
+-- ---------------------------------------------------------------------------
+-- A part linked to ONE alternative part, scoped to one sub-product REVISION —
+-- a link belongs to exactly one revision, the same way quantity, unit and
+-- mount_position do. Duplicating a revision copies its links forward, same as
+-- those fields; after that each revision's links are edited independently.
+--
+-- One alternate per part per revision, enforced by the unique index on
+-- (sub_product_revision_id, part_id) — not a collection. Replacing a part's
+-- alternate is a delete + insert on that pair.
+--
+-- Directional: `part_id` is the row being viewed, `alternate_part_id` is what
+-- was linked to it. Linking A -> B does NOT make B show A as its alternative.
+-- The unique index covers (revision, part_id) alone, so A and B may each
+-- carry one independently. `CHECK (part_id <> alternate_part_id)` rules out
+-- linking to itself.
+--
+-- CASCADEs on part_id/alternate_part_id (unlike sub_product_revision_parts,
+-- which has no ON DELETE and so blocks deleting a part that's actually in a
+-- BOM): a stray alternative link isn't a data-integrity risk the way an
+-- orphaned BOM line would be, and that BOM protection already stands on its
+-- own regardless of what this table does.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS part_alternatives (
+  id                      SERIAL PRIMARY KEY,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
+  part_id                 INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+  alternate_part_id       INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+  -- Which of the pair this revision is actually built with. FALSE = the BOM
+  -- line is fitted and the alternate is an approved standby; TRUE = this
+  -- revision ships with the alternate instead. The BOM itself cannot answer
+  -- this, since the alternate is a catalog part rather than a BOM row.
+  -- DEFAULT FALSE guards the backfill in migration 021; the route creates new
+  -- links with TRUE, since adding an alternative means you are using it.
+  alternate_in_use        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by              INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_part_alternatives_not_self CHECK (part_id <> alternate_part_id)
+);
+
+-- The cardinality rule itself, and the lookup index for "this revision's
+-- links" since it leads with sub_product_revision_id.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_part_alternatives_one_per_part
+  ON part_alternatives(sub_product_revision_id, part_id);
+-- Both FKs cascade on delete, so each wants its own index.
+CREATE INDEX IF NOT EXISTS idx_part_alternatives_part_id
+  ON part_alternatives(part_id);
+CREATE INDEX IF NOT EXISTS idx_part_alternatives_alternate_part_id
+  ON part_alternatives(alternate_part_id);

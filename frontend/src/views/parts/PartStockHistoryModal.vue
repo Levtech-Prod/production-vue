@@ -83,7 +83,7 @@
           <!-- Table (stock tab) -->
           <div v-if="activeTab === 'stock'" class="flex-1 overflow-y-auto min-h-0">
             <table class="w-full text-left text-sm">
-              <thead class="bg-blue-50 text-xs uppercase text-black sticky top-0 z-10">
+              <thead class="table-head text-xs sticky top-0 z-10">
                 <tr>
                   <th
                     class="cursor-pointer select-none p-4 hover:bg-blue-100"

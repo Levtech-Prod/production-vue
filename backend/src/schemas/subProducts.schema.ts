@@ -43,3 +43,20 @@ export const replaceRevisionPartsSchema = z.object({
 export const setRevisionSubProductsSchema = z.object({
   subProductRevisionIds: z.array(z.number()),
 });
+
+/** Set `partId`'s alternative part, scoped to one sub-product revision (see
+ *  migration 021). A part holds at most one, so posting this replaces any
+ *  existing link. Directional — this alone does not also make `partId` show
+ *  up as an alternative of `alternatePartId`. */
+export const createPartAlternativeSchema = z.object({
+  partId: z.number().int().positive(),
+  alternatePartId: z.number().int().positive(),
+});
+export type CreatePartAlternativeInput = z.input<typeof createPartAlternativeSchema>;
+
+/** Switch which half of the pair this revision is actually built with — the
+ *  BOM line itself (false) or its alternate (true). */
+export const setPartAlternativeInUseSchema = z.object({
+  alternateInUse: z.boolean(),
+});
+export type SetPartAlternativeInUseInput = z.input<typeof setPartAlternativeInUseSchema>;

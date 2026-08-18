@@ -8,3 +8,9 @@ body { @apply bg-slate-50 text-slate-900 antialiased; }
 .btn-secondary { @apply rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50; }
 .card { @apply rounded-2xl border border-slate-300 bg-white shadow-sm; }
 .badge { @apply inline-flex rounded-full px-2 py-1 text-xs font-semibold; }
+/* Every data-table header in the app. One class rather than the same utility
+   string repeated across nine tables, so the weight of the header is a single
+   decision — the pale bg-blue-50/text-black it replaced left columns hard to
+   pick out. Deliberately carries no text SIZE: most tables want text-xs, the
+   alternatives strip wants 9px, and only the colour is shared. */
+.table-head { @apply bg-blue-100 uppercase text-blue-900; }
