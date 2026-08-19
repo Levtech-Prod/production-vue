@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <div v-if="loading" class="py-8 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </div>
@@ -105,18 +105,15 @@
 
       <!-- Main product BOM: every part across all linked sub-products,
            flattened into a single, uncategorized table. -->
-      <div v-else class="overflow-x-auto">
+      <div v-else>
         <table class="w-full text-left text-sm">
-          <thead class="table-head text-xs">
+          <thead class="table-head sticky top-0 z-10 text-xs">
             <tr>
               <th class="w-px px-4 py-2"></th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
               <th class="w-48 px-3 py-2">{{ t('name') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('price_per_piece') }}
-              </th>
-              <th class="w-px whitespace-nowrap px-3 py-2">
-                {{ t('total_quantity') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('quantity') }}
@@ -160,17 +157,6 @@
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
                   {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
-                </td>
-                <!-- Stock, not a BOM figure — the BOM payload has none, so it
-                     comes from the catalogue like price and location. -->
-                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
-                  {{
-                    catalogById.get(part.id)
-                      ? Math.round(
-                          Number(catalogById.get(part.id)?.totalQuantity ?? 0),
-                        )
-                      : '—'
-                  }}
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2">
                   <span class="font-semibold">{{ part.quantity }}</span>
@@ -335,7 +321,7 @@ const flatParts = computed(() =>
 );
 
 // Drives the expanded row's colspan, so it must track the header above.
-const FLAT_COLUMNS = 9;
+const FLAT_COLUMNS = 8;
 
 // An empty product BOM skips the table (and its column headers) in favor of
 // a plain centered message, matching how DocumentsPanel shows its empty state.
