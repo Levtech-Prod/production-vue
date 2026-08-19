@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <div v-if="loading" class="py-8 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </div>
@@ -105,9 +105,9 @@
 
       <!-- Main product BOM: every part across all linked sub-products,
            flattened into a single, uncategorized table. -->
-      <div v-else class="overflow-x-auto">
+      <div v-else>
         <table class="w-full text-left text-sm">
-          <thead class="table-head text-xs">
+          <thead class="table-head sticky top-0 z-10 text-xs">
             <tr>
               <th class="w-px px-4 py-2"></th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
