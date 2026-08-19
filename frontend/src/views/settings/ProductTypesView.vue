@@ -1,10 +1,6 @@
 <template>
   <div>
-    <div>
-      <h1 class="text-3xl font-bold">{{ t('product_types_settings_title') }}</h1>
-    </div>
-
-    <div class="mt-6 flex flex-col gap-6">
+    <div class="flex flex-col gap-6">
       <TypeManagerSection
         :title="t('product_types_section_title')"
         :add-label="t('add_product_type')"

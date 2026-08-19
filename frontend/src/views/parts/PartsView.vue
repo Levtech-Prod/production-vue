@@ -1,10 +1,5 @@
 <template>
   <div>
-    <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <h1 class="text-3xl font-bold">{{ t('parts') }}</h1>
-    </div>
-
     <!-- Categories cards section -->
     <CategoryCards
       :categories="categories"

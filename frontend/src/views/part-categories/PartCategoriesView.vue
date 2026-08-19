@@ -1,10 +1,7 @@
 <template>
   <div>
     <!-- Page header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-3xl font-bold">{{ t('part_categories_title') }}</h1>
-      </div>
+    <div class="flex items-center justify-end">
       <button
         class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
         @click="openAdd"
@@ -15,7 +12,7 @@
     </div>
 
     <!-- Table card -->
-    <div class="card mt-6 overflow-hidden">
+    <div class="card mt-4 overflow-hidden">
       <!-- Search bar -->
       <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
         <div class="relative flex-1 max-w-sm">

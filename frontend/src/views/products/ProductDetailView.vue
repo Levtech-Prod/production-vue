@@ -1,14 +1,7 @@
 <template>
   <div>
     <!-- Back link -->
-    <RouterLink
-      to="/products"
-      class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
-    >
-      <ChevronLeft class="h-4 w-4" /> {{ t('products') }}
-    </RouterLink>
-
-    <div v-if="detail" class="mt-3">
+    <div v-if="detail">
       <ProductOverviewCard
         :detail="detail"
         :active-product-rev-id="activeProductRevId"
@@ -408,7 +401,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, FileText, Info, List, GitCompare } from 'lucide-vue-next';
+import { FileText, Info, List, GitCompare } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';

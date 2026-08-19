@@ -1,10 +1,6 @@
 <template>
   <div>
-    <div class="flex items-center justify-between">
-      <h1 class="text-3xl font-bold">{{ t('products') }}</h1>
-    </div>
-
-    <div class="card mt-6 overflow-hidden">
+    <div class="card overflow-hidden">
       <!-- Toolbar -->
       <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
 
