@@ -1,20 +1,10 @@
 <template>
-  <div>
-    <!-- Page header -->
-    <div class="flex items-center justify-end">
-      <button
-        class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 active:bg-blue-800 transition-colors"
-        @click="openAdd"
+  <div class="flex h-full flex-col">
+    <div class="card flex min-h-0 flex-1 flex-col overflow-hidden">
+      <!-- Search bar + Add -->
+      <div
+        class="flex shrink-0 items-center gap-3 border-b border-slate-100 px-4 py-3"
       >
-        <Plus class="h-4 w-4" />
-        {{ t('add_part_category') }}
-      </button>
-    </div>
-
-    <!-- Table card -->
-    <div class="card mt-4 overflow-hidden">
-      <!-- Search bar -->
-      <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
         <div class="relative flex-1 max-w-sm">
           <Search
             class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -29,153 +19,178 @@
           {{ filteredCategories.length }} / {{ categories.length }}
           {{ t('category') }}
         </span>
+
+        <button
+          class="ml-auto inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
+          @click="openAdd"
+        >
+          <Plus class="h-4 w-4" />
+          {{ t('add_part_category') }}
+        </button>
       </div>
 
-      <table class="w-full text-left text-sm">
-        <thead class="table-head text-xs">
-          <tr>
-            <th class="w-8 px-3 py-2"></th>
-            <th class="px-3 py-2">{{ t('name') }}</th>
-            <th class="px-3 py-2">{{ t('image') }}</th>
-            <th class="px-3 py-2">{{ t('description') }}</th>
-            <th class="px-3 py-2 text-right">{{ t('actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="filteredCategories.length === 0">
-            <td colspan="5" class="py-12 text-center text-sm text-slate-400">
-              <template v-if="searchQuery">
-                {{ t('no_search_results') }}: "{{ searchQuery }}".
-              </template>
-              <template v-else>
-                {{ t('no_categories_msg') }}
-              </template>
-            </td>
-          </tr>
-          <template v-for="category in filteredCategories" :key="category.id">
-            <!-- Category row (click to expand the parameters section) -->
-            <tr
-              class="cursor-pointer border-t border-slate-200 transition-colors"
-              :class="
-                isExpanded(category.id)
-                  ? 'bg-blue-50 hover:bg-blue-100'
-                  : 'even:bg-slate-50 hover:bg-slate-200'
-              "
-              @click="toggleExpand(category)"
-            >
-              <td class="px-3 py-2">
-                <ClipboardList
-                  class="h-4 w-4 transition-colors"
-                  :class="isExpanded(category.id) ? 'text-blue-600' : 'text-slate-400'"
-                />
+      <!-- Scroll region: the header row sticks to the top of it. -->
+      <div class="min-h-0 flex-1 overflow-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="table-head sticky top-0 z-10 text-xs">
+            <tr>
+              <th class="w-8 px-3 py-2"></th>
+              <th class="px-3 py-2">{{ t('name') }}</th>
+              <th class="px-3 py-2">{{ t('image') }}</th>
+              <th class="px-3 py-2">{{ t('description') }}</th>
+              <th class="px-3 py-2 text-right">{{ t('actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="filteredCategories.length === 0">
+              <td colspan="5" class="py-12 text-center text-sm text-slate-400">
+                <template v-if="searchQuery">
+                  {{ t('no_search_results') }}: "{{ searchQuery }}".
+                </template>
+                <template v-else>
+                  {{ t('no_categories_msg') }}
+                </template>
               </td>
-              <td class="px-3 py-2 font-semibold">{{ category.name }}</td>
-              <td class="px-3 py-2">
-                <button
-                  v-if="category.image"
-                  type="button"
-                  class="block"
-                  :title="t('view_image')"
-                  @click.stop="openImagePreview(category)"
-                >
-                  <img
-                    :src="category.image"
-                    class="h-8 w-8 rounded-md border object-cover transition-transform hover:scale-105"
-                    :alt="category.name"
+            </tr>
+            <template v-for="category in filteredCategories" :key="category.id">
+              <!-- Category row (click to expand the parameters section) -->
+              <tr
+                class="cursor-pointer border-t border-slate-200 transition-colors"
+                :class="
+                  isExpanded(category.id)
+                    ? 'bg-blue-50 hover:bg-blue-100'
+                    : 'even:bg-slate-50 hover:bg-slate-200'
+                "
+                @click="toggleExpand(category)"
+              >
+                <td class="px-3 py-2">
+                  <ClipboardList
+                    class="h-4 w-4 transition-colors"
+                    :class="
+                      isExpanded(category.id)
+                        ? 'text-blue-600'
+                        : 'text-slate-400'
+                    "
                   />
-                </button>
-                <span v-else class="text-slate-300">—</span>
-              </td>
-              <td class="px-3 py-2 text-slate-500">
-                {{ category.description || '—' }}
-              </td>
-              <td class="px-3 py-2">
-                <div class="flex items-center justify-end gap-1">
+                </td>
+                <td class="px-3 py-2 font-semibold">{{ category.name }}</td>
+                <td class="px-3 py-2">
                   <button
+                    v-if="category.image"
                     type="button"
-                    class="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
-                    :title="t('change_log')"
-                    @click.stop="openHistory(category)"
+                    class="block"
+                    :title="t('view_image')"
+                    @click.stop="openImagePreview(category)"
                   >
-                    <Clock class="h-4 w-4" />
+                    <img
+                      :src="category.image"
+                      class="h-8 w-8 rounded-md border object-cover transition-transform hover:scale-105"
+                      :alt="category.name"
+                    />
                   </button>
-
-                  <button
-                    type="button"
-                    class="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"
-                    :title="t('edit')"
-                    @click.stop="openEdit(category)"
-                  >
-                    <Pencil class="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    class="rounded-lg p-1.5 text-red-600 hover:bg-red-50"
-                    :title="t('delete')"
-                    @click.stop="openDeleteConfirm(category)"
-                  >
-                    <Trash2 class="h-4 w-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-
-            <!-- Expanded parameters section -->
-            <tr v-if="isExpanded(category.id)" class="bg-white">
-              <td class="border-b border-slate-200 p-0"></td>
-              <td colspan="4" class="border-b border-slate-200 px-3 pb-3">
-                <PartCategoryParameterList
-                  :ref="paramListRefFor(category.id)"
-                  v-model="editStates[category.id].params"
-                />
-
-                <div
-                  v-if="editStates[category.id].error || editStates[category.id].errors.length"
-                  class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-                >
-                  <p
-                    v-if="editStates[category.id].error"
-                    :class="{ 'mb-1 font-medium': editStates[category.id].errors.length }"
-                  >
-                    {{ editStates[category.id].error }}
-                  </p>
-                  <ul
-                    v-if="editStates[category.id].errors.length"
-                    class="list-disc space-y-0.5 pl-5"
-                  >
-                    <li
-                      v-for="(msg, i) in editStates[category.id].errors"
-                      :key="i"
+                  <span v-else class="text-slate-300">—</span>
+                </td>
+                <td class="px-3 py-2 text-slate-500">
+                  {{ category.description || '—' }}
+                </td>
+                <td class="px-3 py-2">
+                  <div class="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      class="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                      :title="t('change_log')"
+                      @click.stop="openHistory(category)"
                     >
-                      {{ msg }}
-                    </li>
-                  </ul>
-                </div>
+                      <Clock class="h-4 w-4" />
+                    </button>
 
-                <div class="mt-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-60"
-                    :disabled="!rowDirty(category.id)"
-                    @click="resetParams(category.id)"
+                    <button
+                      type="button"
+                      class="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50"
+                      :title="t('edit')"
+                      @click.stop="openEdit(category)"
+                    >
+                      <Pencil class="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      class="rounded-lg p-1.5 text-red-600 hover:bg-red-50"
+                      :title="t('delete')"
+                      @click.stop="openDeleteConfirm(category)"
+                    >
+                      <Trash2 class="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Expanded parameters section -->
+              <tr v-if="isExpanded(category.id)" class="bg-white">
+                <td class="border-b border-slate-200 p-0"></td>
+                <td colspan="4" class="border-b border-slate-200 px-3 pb-3">
+                  <PartCategoryParameterList
+                    :ref="paramListRefFor(category.id)"
+                    v-model="editStates[category.id].params"
+                  />
+
+                  <div
+                    v-if="
+                      editStates[category.id].error ||
+                      editStates[category.id].errors.length
+                    "
+                    class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
                   >
-                    {{ t('cancel') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60"
-                    :disabled="editStates[category.id].saving || !rowDirty(category.id)"
-                    @click="saveParams(category)"
-                  >
-                    {{ editStates[category.id].saving ? t('saving') : t('save') }}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+                    <p
+                      v-if="editStates[category.id].error"
+                      :class="{
+                        'mb-1 font-medium':
+                          editStates[category.id].errors.length,
+                      }"
+                    >
+                      {{ editStates[category.id].error }}
+                    </p>
+                    <ul
+                      v-if="editStates[category.id].errors.length"
+                      class="list-disc space-y-0.5 pl-5"
+                    >
+                      <li
+                        v-for="(msg, i) in editStates[category.id].errors"
+                        :key="i"
+                      >
+                        {{ msg }}
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div class="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      class="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 disabled:opacity-60"
+                      :disabled="!rowDirty(category.id)"
+                      @click="resetParams(category.id)"
+                    >
+                      {{ t('cancel') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60"
+                      :disabled="
+                        editStates[category.id].saving || !rowDirty(category.id)
+                      "
+                      @click="saveParams(category)"
+                    >
+                      {{
+                        editStates[category.id].saving ? t('saving') : t('save')
+                      }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Modal -->
@@ -240,15 +255,19 @@ import type {
 import CategoryFormModal from './PartCategoryModal.vue';
 import PartCategoryParameterList from './PartCategoryParamsList.vue';
 import ChangeLogModal from '../../components/ChangeLogModal.vue';
-import { Pencil, Trash2, Plus, Search, ClipboardList, Clock } from 'lucide-vue-next';
+import {
+  Pencil,
+  Trash2,
+  Plus,
+  Search,
+  ClipboardList,
+  Clock,
+} from 'lucide-vue-next';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
-import {
-  localizeZodIssues,
-  extractZodIssues,
-} from '../../utils/zodErrors.ts';
+import { localizeZodIssues, extractZodIssues } from '../../utils/zodErrors.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import { useI18n } from 'vue-i18n';
 
@@ -446,10 +465,7 @@ function isExpanded(id: number): boolean {
 // open row rather than collecting them all into a single array ref.
 function setParamListRef(id: number, el: unknown) {
   if (el) {
-    paramListRefs.set(
-      id,
-      el as InstanceType<typeof PartCategoryParameterList>,
-    );
+    paramListRefs.set(id, el as InstanceType<typeof PartCategoryParameterList>);
   } else {
     paramListRefs.delete(id);
   }

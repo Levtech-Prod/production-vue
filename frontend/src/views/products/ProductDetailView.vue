@@ -1,7 +1,6 @@
 <template>
-  <div>
-    <!-- Back link -->
-    <div v-if="detail">
+  <div class="flex flex-col lg:h-full">
+    <div v-if="detail" class="flex flex-col lg:min-h-0 lg:flex-1">
       <ProductOverviewCard
         :detail="detail"
         :active-product-rev-id="activeProductRevId"
@@ -13,7 +12,7 @@
 
       <!-- Main grid: structure tree + right panel -->
       <div
-        class="mt-4 grid h-[75vh] items-stretch gap-4 transition-[grid-template-columns] duration-200"
+        class="mt-4 grid items-stretch gap-4 transition-[grid-template-columns] duration-200 lg:min-h-0 lg:flex-1"
         :class="
           treeCollapsed
             ? 'lg:grid-cols-[3.25rem_1fr]'
@@ -166,7 +165,9 @@
               :mode="panelScope.kind === 'product' ? 'product' : 'subRev'"
               :product-name="detail.name"
               :sp-id="panelScope.kind === 'spRev' ? panelScope.spId : undefined"
-              :rev-id="panelScope.kind === 'spRev' ? panelScope.revId : undefined"
+              :rev-id="
+                panelScope.kind === 'spRev' ? panelScope.revId : undefined
+              "
               :bom="bom"
               :parts="parts"
               :loading="contentLoading"
@@ -503,7 +504,13 @@ const activeTab = ref<RightPanelTab>(DEFAULT_TAB);
 // left panel is showing revisions. Normal mode keeps the three tabs it had.
 const tabs = computed(() => [
   ...(revisionsMode.value
-    ? [{ key: 'overview' as RightPanelTab, labelKey: 'tab_overview', icon: Info }]
+    ? [
+        {
+          key: 'overview' as RightPanelTab,
+          labelKey: 'tab_overview',
+          icon: Info,
+        },
+      ]
     : []),
   {
     key: 'documents' as RightPanelTab,
@@ -609,10 +616,15 @@ const firmwareContext = computed(() => {
 });
 
 const firmwareScopeKey = computed(() => firmwareContext.value?.key ?? '');
-const firmwareRevisionLabel = computed(() => firmwareContext.value?.label ?? '');
+const firmwareRevisionLabel = computed(
+  () => firmwareContext.value?.label ?? '',
+);
 const firmwareTitle = computed(() =>
   firmwareContext.value
-    ? t('firmware_for', { name: firmwareContext.value.name, label: firmwareContext.value.label })
+    ? t('firmware_for', {
+        name: firmwareContext.value.name,
+        label: firmwareContext.value.label,
+      })
     : t('firmware'),
 );
 

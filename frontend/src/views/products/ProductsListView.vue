@@ -1,15 +1,22 @@
 <template>
-  <div>
-    <div class="card overflow-hidden">
+  <div class="flex h-full flex-col">
+    <div class="card flex min-h-0 flex-1 flex-col overflow-hidden">
       <!-- Toolbar -->
-      <div class="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
-
+      <div
+        class="flex shrink-0 flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3"
+      >
         <!-- Status tab filter -->
-        <div class="flex overflow-hidden rounded-lg border border-slate-200 text-sm font-medium">
+        <div
+          class="flex overflow-hidden rounded-lg border border-slate-200 text-sm font-medium"
+        >
           <button
             type="button"
             class="px-4 py-2 transition-colors"
-            :class="filterStatus === 'active' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            :class="
+              filterStatus === 'active'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-slate-600 hover:bg-slate-50'
+            "
             @click="filterStatus = 'active'"
           >
             {{ t('status_active') }}
@@ -17,7 +24,11 @@
           <button
             type="button"
             class="border-l border-slate-200 px-4 py-2 transition-colors"
-            :class="filterStatus === 'archived' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            :class="
+              filterStatus === 'archived'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-slate-600 hover:bg-slate-50'
+            "
             @click="filterStatus = 'archived'"
           >
             {{ t('status_archived') }}
@@ -41,24 +52,26 @@
           <Search
             class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
           />
-          <input
-            v-model="filterSku"
-            class="input !pl-9"
-            placeholder="SKU"
-          />
+          <input v-model="filterSku" class="input !pl-9" placeholder="SKU" />
         </div>
 
         <!-- Type filter -->
         <select v-model="filterType" class="input max-w-xs flex-1">
           <option value="">{{ t('type') }}: {{ t('all') }}</option>
-          <option v-for="type in uniqueTypes" :key="type" :value="type">{{ type }}</option>
+          <option v-for="type in uniqueTypes" :key="type" :value="type">
+            {{ type }}
+          </option>
         </select>
 
         <button
           v-if="filterName || filterSku || filterType"
           type="button"
           class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
-          @click="filterName = ''; filterSku = ''; filterType = ''"
+          @click="
+            filterName = '';
+            filterSku = '';
+            filterType = '';
+          "
         >
           <X class="h-4 w-4" />
           {{ t('clear_filters') }}
@@ -77,151 +90,186 @@
         </button>
       </div>
 
-      <table class="w-full text-left text-sm">
-        <thead class="table-head text-xs">
-          <!-- Sort row -->
-          <tr>
-            <th class="p-4">{{ t('image') }}</th>
-            <th class="p-4">
-              <button
-                class="inline-flex items-center gap-1 hover:text-slate-700"
-                @click="toggleSort('sku')"
-              >
-                SKU
-                <ChevronUp v-if="sortKey === 'sku' && sortDir === 'asc'" class="h-3 w-3" />
-                <ChevronDown v-else-if="sortKey === 'sku' && sortDir === 'desc'" class="h-3 w-3" />
-                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
-              </button>
-            </th>
-            <th class="p-4">
-              <button
-                class="inline-flex items-center gap-1 hover:text-slate-700"
-                @click="toggleSort('name')"
-              >
-                {{ t('name') }}
-                <ChevronUp v-if="sortKey === 'name' && sortDir === 'asc'" class="h-3 w-3" />
-                <ChevronDown v-else-if="sortKey === 'name' && sortDir === 'desc'" class="h-3 w-3" />
-                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
-              </button>
-            </th>
-            <th class="p-4">
-              <button
-                class="inline-flex items-center gap-1 hover:text-slate-700"
-                @click="toggleSort('type')"
-              >
-                {{ t('type') }}
-                <ChevronUp v-if="sortKey === 'type' && sortDir === 'asc'" class="h-3 w-3" />
-                <ChevronDown v-else-if="sortKey === 'type' && sortDir === 'desc'" class="h-3 w-3" />
-                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
-              </button>
-            </th>
-            <th class="p-4">
-              <button
-                class="inline-flex items-center gap-1 hover:text-slate-700"
-                @click="toggleSort('revisions')"
-              >
-                {{ t('revisions') }}
-                <ChevronUp v-if="sortKey === 'revisions' && sortDir === 'asc'" class="h-3 w-3" />
-                <ChevronDown v-else-if="sortKey === 'revisions' && sortDir === 'desc'" class="h-3 w-3" />
-                <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
-              </button>
-            </th>
-            <th class="p-4">{{ t('actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="filtered.length === 0">
-            <td colspan="6" class="py-12 text-center text-sm text-slate-400">
-              <template v-if="filterName || filterSku || filterType">{{ t('no_search_results') }}.</template>
-              <template v-else-if="filterStatus === 'archived'">{{ t('no_archived_products_msg') }}</template>
-              <template v-else>{{ t('no_products_msg') }}</template>
-            </td>
-          </tr>
-          <tr
-            v-for="product in filtered"
-            :key="product.id"
-            class="cursor-pointer border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
-            :class="{ 'opacity-60': product.status === 'archived' }"
-            @click="openDetail(product.id)"
-          >
-            <td class="p-4">
-              <img
-                v-if="product.image"
-                :src="product.image"
-                class="h-12 w-12 rounded-lg border border-slate-200 object-cover"
-                :alt="product.name"
-              />
-              <div
-                v-else
-                class="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
-              >
-                ▣
-              </div>
-            </td>
-            <td class="p-4 font-mono text-xs text-slate-600">{{ product.sku }}</td>
-            <td class="p-4 font-semibold">{{ product.name }}</td>
-            <td class="p-4 text-slate-500">{{ product.type || '—' }}</td>
-            <td class="p-4">
-              <div class="flex flex-wrap gap-1.5">
-                <RevisionChip
-                  v-for="rev in product.revisions"
-                  :key="rev.id"
-                  :label="rev.label"
-                  :status="rev.status"
-                  :highlight="rev.id === highlightedRevisionId(product)"
+      <!-- Scroll region: the sort/header row sticks to the top of it. -->
+      <div class="min-h-0 flex-1 overflow-auto">
+        <table class="w-full text-left text-sm">
+          <thead class="table-head sticky top-0 z-10 text-xs">
+            <!-- Sort row -->
+            <tr>
+              <th class="p-4">{{ t('image') }}</th>
+              <th class="p-4">
+                <button
+                  class="inline-flex items-center gap-1 hover:text-slate-700"
+                  @click="toggleSort('sku')"
+                >
+                  SKU
+                  <ChevronUp
+                    v-if="sortKey === 'sku' && sortDir === 'asc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronDown
+                    v-else-if="sortKey === 'sku' && sortDir === 'desc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+                </button>
+              </th>
+              <th class="p-4">
+                <button
+                  class="inline-flex items-center gap-1 hover:text-slate-700"
+                  @click="toggleSort('name')"
+                >
+                  {{ t('name') }}
+                  <ChevronUp
+                    v-if="sortKey === 'name' && sortDir === 'asc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronDown
+                    v-else-if="sortKey === 'name' && sortDir === 'desc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+                </button>
+              </th>
+              <th class="p-4">
+                <button
+                  class="inline-flex items-center gap-1 hover:text-slate-700"
+                  @click="toggleSort('type')"
+                >
+                  {{ t('type') }}
+                  <ChevronUp
+                    v-if="sortKey === 'type' && sortDir === 'asc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronDown
+                    v-else-if="sortKey === 'type' && sortDir === 'desc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+                </button>
+              </th>
+              <th class="p-4">
+                <button
+                  class="inline-flex items-center gap-1 hover:text-slate-700"
+                  @click="toggleSort('revisions')"
+                >
+                  {{ t('revisions') }}
+                  <ChevronUp
+                    v-if="sortKey === 'revisions' && sortDir === 'asc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronDown
+                    v-else-if="sortKey === 'revisions' && sortDir === 'desc'"
+                    class="h-3 w-3"
+                  />
+                  <ChevronsUpDown v-else class="h-3 w-3 opacity-40" />
+                </button>
+              </th>
+              <th class="p-4">{{ t('actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="filtered.length === 0">
+              <td colspan="6" class="py-12 text-center text-sm text-slate-400">
+                <template v-if="filterName || filterSku || filterType"
+                  >{{ t('no_search_results') }}.</template
+                >
+                <template v-else-if="filterStatus === 'archived'">{{
+                  t('no_archived_products_msg')
+                }}</template>
+                <template v-else>{{ t('no_products_msg') }}</template>
+              </td>
+            </tr>
+            <tr
+              v-for="product in filtered"
+              :key="product.id"
+              class="cursor-pointer border-t border-slate-100 even:bg-slate-50 transition-colors hover:bg-slate-200"
+              :class="{ 'opacity-60': product.status === 'archived' }"
+              @click="openDetail(product.id)"
+            >
+              <td class="p-4">
+                <img
+                  v-if="product.image"
+                  :src="product.image"
+                  class="h-12 w-12 rounded-lg border border-slate-200 object-cover"
+                  :alt="product.name"
                 />
-                <span v-if="!product.revisions.length" class="text-slate-300">—</span>
-              </div>
-            </td>
-            <td class="p-4" @click.stop>
-              <div class="flex items-center gap-2">
-                <!-- Edit: only for active products -->
-                <button
-                  v-if="product.status === 'active'"
-                  type="button"
-                  class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
-                  :title="t('edit')"
-                  @click="openModal(product)"
+                <div
+                  v-else
+                  class="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-300"
                 >
-                  <Pencil class="h-4 w-4" />
-                </button>
+                  ▣
+                </div>
+              </td>
+              <td class="p-4 font-mono text-xs text-slate-600">
+                {{ product.sku }}
+              </td>
+              <td class="p-4 font-semibold">{{ product.name }}</td>
+              <td class="p-4 text-slate-500">{{ product.type || '—' }}</td>
+              <td class="p-4">
+                <div class="flex flex-wrap gap-1.5">
+                  <RevisionChip
+                    v-for="rev in product.revisions"
+                    :key="rev.id"
+                    :label="rev.label"
+                    :status="rev.status"
+                    :highlight="rev.id === highlightedRevisionId(product)"
+                  />
+                  <span v-if="!product.revisions.length" class="text-slate-300"
+                    >—</span
+                  >
+                </div>
+              </td>
+              <td class="p-4" @click.stop>
+                <div class="flex items-center gap-2">
+                  <!-- Edit: only for active products -->
+                  <button
+                    v-if="product.status === 'active'"
+                    type="button"
+                    class="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+                    :title="t('edit')"
+                    @click="openModal(product)"
+                  >
+                    <Pencil class="h-4 w-4" />
+                  </button>
 
-                <!-- Open detail -->
-                <button
-                  type="button"
-                  class="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-                  :title="t('open')"
-                  @click="openDetail(product.id)"
-                >
-                  <Eye class="h-4 w-4" />
-                </button>
+                  <!-- Open detail -->
+                  <button
+                    type="button"
+                    class="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                    :title="t('open')"
+                    @click="openDetail(product.id)"
+                  >
+                    <Eye class="h-4 w-4" />
+                  </button>
 
-                <!-- Archive: only for active products -->
-                <button
-                  v-if="product.status === 'active'"
-                  type="button"
-                  class="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
-                  :title="t('archive')"
-                  @click="promptArchive(product)"
-                >
-                  <Archive class="h-4 w-4" />
-                </button>
+                  <!-- Archive: only for active products -->
+                  <button
+                    v-if="product.status === 'active'"
+                    type="button"
+                    class="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+                    :title="t('archive')"
+                    @click="promptArchive(product)"
+                  >
+                    <Archive class="h-4 w-4" />
+                  </button>
 
-                <!-- Re-activate: only for archived products -->
-                <button
-                  v-if="product.status === 'archived'"
-                  type="button"
-                  class="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
-                  :title="t('activate')"
-                  @click="promptActivate(product)"
-                >
-                  <ArchiveRestore class="h-4 w-4" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                  <!-- Re-activate: only for archived products -->
+                  <button
+                    v-if="product.status === 'archived'"
+                    type="button"
+                    class="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                    :title="t('activate')"
+                    @click="promptActivate(product)"
+                  >
+                    <ArchiveRestore class="h-4 w-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <ProductModal
@@ -259,7 +307,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { Pencil, Eye, ChevronUp, ChevronDown, ChevronsUpDown, Archive, ArchiveRestore, Search, X, Plus } from 'lucide-vue-next';
+import {
+  Pencil,
+  Eye,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Archive,
+  ArchiveRestore,
+  Search,
+  X,
+  Plus,
+} from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
@@ -267,7 +326,11 @@ import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useProductsStore } from '../../stores/productsStore.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
-import type { ProductSummary, ProductPayload, ProductStatus } from '../../types/products.ts';
+import type {
+  ProductSummary,
+  ProductPayload,
+  ProductStatus,
+} from '../../types/products.ts';
 
 const { t, te } = useI18n();
 const router = useRouter();
@@ -286,7 +349,8 @@ const sortDir = ref<SortDir>('asc');
 
 function toggleSort(key: SortKey) {
   if (sortKey.value === key) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : (sortKey.value = null, 'asc');
+    sortDir.value =
+      sortDir.value === 'asc' ? 'desc' : ((sortKey.value = null), 'asc');
   } else {
     sortKey.value = key;
     sortDir.value = 'asc';
@@ -323,7 +387,9 @@ const productsByStatus = computed(() =>
 );
 
 const uniqueTypes = computed(() => {
-  const types = productsByStatus.value.map((p) => p.type).filter((v): v is string => !!v);
+  const types = productsByStatus.value
+    .map((p) => p.type)
+    .filter((v): v is string => !!v);
   return [...new Set(types)].sort();
 });
 
@@ -344,9 +410,14 @@ const filtered = computed(() => {
 function highlightedRevisionId(product: ProductSummary): number | null {
   if (!product.revisions.length) return null;
   const { defaultRevisionId, revisions } = product;
-  if (defaultRevisionId != null && revisions.some((r) => r.id === defaultRevisionId))
+  if (
+    defaultRevisionId != null &&
+    revisions.some((r) => r.id === defaultRevisionId)
+  )
     return defaultRevisionId;
-  return revisions.reduce((a, b) => (b.revisionNumber > a.revisionNumber ? b : a)).id;
+  return revisions.reduce((a, b) =>
+    b.revisionNumber > a.revisionNumber ? b : a,
+  ).id;
 }
 
 // ---- Product modal ----------------------------------------------------------
@@ -380,7 +451,11 @@ async function onSaved(payload: ProductPayload) {
     modalOpen.value = false;
     await store.fetchList();
   } catch (err: any) {
-    saveError.value = translateApiError(err, { t, te }, 'errors.save_product_failed');
+    saveError.value = translateApiError(
+      err,
+      { t, te },
+      'errors.save_product_failed',
+    );
   } finally {
     saving.value = false;
   }
@@ -396,21 +471,37 @@ const archiving = ref(false);
 // the SKU on the backend (resolveSkuConflictOnReactivate) when another active
 // product has since taken it — surface that here so the user isn't left
 // wondering why the SKU looks different.
-function statusChangeMessage(status: ProductStatus, previousSku: string, updatedSku: string): string {
+function statusChangeMessage(
+  status: ProductStatus,
+  previousSku: string,
+  updatedSku: string,
+): string {
   if (status === 'archived') return t('success.archive_product');
   return updatedSku === previousSku
     ? t('success.activate_product')
-    : t('success.activate_product_sku_changed', { oldSku: previousSku, newSku: updatedSku });
+    : t('success.activate_product_sku_changed', {
+        oldSku: previousSku,
+        newSku: updatedSku,
+      });
 }
 
 // Shared status-change handler — updates store, shows toast, swallows errors.
-async function changeStatus(product: ProductSummary, status: ProductStatus): Promise<boolean> {
+async function changeStatus(
+  product: ProductSummary,
+  status: ProductStatus,
+): Promise<boolean> {
   try {
     const updated = await store.setProductStatus(product.id, status);
-    notify.showToast(statusChangeMessage(status, product.sku, updated.sku), 'success');
+    notify.showToast(
+      statusChangeMessage(status, product.sku, updated.sku),
+      'success',
+    );
     return true;
   } catch (err: any) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.set_product_status_failed'), 'error');
+    notify.showToast(
+      translateApiError(err, { t, te }, 'errors.set_product_status_failed'),
+      'error',
+    );
     return false;
   }
 }
@@ -440,7 +531,8 @@ const activating = ref(false);
 // (resolveSkuConflictOnReactivate). Used to warn the user up front.
 function hasActiveSkuConflict(product: ProductSummary): boolean {
   return products.value.some(
-    (p) => p.id !== product.id && p.status === 'active' && p.sku === product.sku,
+    (p) =>
+      p.id !== product.id && p.status === 'active' && p.sku === product.sku,
   );
 }
 

@@ -1,6 +1,6 @@
 <template>
   <header
-    class="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-6 backdrop-blur"
+    class="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-6 backdrop-blur"
   >
     <!-- On a detail page the left slot is the way back to the list it came
          from; on a top-level page it is that page's heading. Views therefore
