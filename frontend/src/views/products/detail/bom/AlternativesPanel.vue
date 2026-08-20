@@ -81,6 +81,7 @@
               <th class="w-20 px-2 py-0.5 font-semibold">{{ t('total_quantity') }}</th>
               <th class="w-20 px-2 py-0.5 font-semibold">{{ t('quantity') }}</th>
               <th class="w-24 px-2 py-0.5 font-semibold">{{ t('mount_position') }}</th>
+              <th class="w-32 px-2 py-0.5 font-semibold">{{ t('notes') }}</th>
               <th class="px-2 py-0.5 font-semibold">{{ t('other_parameters') }}</th>
               <th class="w-24 px-2 py-0.5 font-semibold">{{ t('location') }}</th>
               <th class="w-14 px-2 py-0.5"></th>
@@ -131,6 +132,12 @@
                 :title="t('same_qty_as_main')"
               >
                 {{ mountPosition || '—' }}
+              </td>
+              <td
+                class="max-w-0 truncate px-2 py-1 text-[11px] text-slate-500"
+                :title="notes || t('same_qty_as_main')"
+              >
+                {{ notes || '—' }}
               </td>
               <!-- One line, unlike the stacked chips upstairs: several
                    parameters would make this taller than its own row. -->
@@ -246,6 +253,7 @@ withDefaults(
     quantity?: number | string | null;
     unit?: string | null;
     mountPosition?: string | null;
+    notes?: string | null;
   }>(),
   {
     alternate: undefined,
@@ -256,6 +264,7 @@ withDefaults(
     quantity: null,
     unit: null,
     mountPosition: null,
+    notes: null,
   },
 );
 

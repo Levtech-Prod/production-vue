@@ -73,6 +73,16 @@
             @change="onPositionChange(part.id, $event)"
           />
         </template>
+        <template #notes="{ part }">
+          <input
+            type="text"
+            class="input !w-48 !py-1 text-sm"
+            :value="revisionPartOf(part.id)?.notes ?? ''"
+            :disabled="!canEdit || saving"
+            :title="t('notes')"
+            @change="onNotesChange(part.id, $event)"
+          />
+        </template>
         <template #actions="{ part }">
           <div class="flex items-center justify-center gap-1.5">
             <button
@@ -116,6 +126,7 @@
             :quantity="revisionPartOf(part.id)?.quantity"
             :unit="revisionPartOf(part.id)?.unit"
             :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :notes="revisionPartOf(part.id)?.notes"
             :editable="canEdit"
             :candidates="altCandidatesFor(part.id)"
             :saving="altParts.saving"
@@ -241,23 +252,32 @@ function onQtyChange(partId: number, e: Event) {
   }
   // Keep the field showing what is actually being saved.
   input.value = String(qty);
+  updateLine(partId, { quantity: qty });
+}
+
+/** Re-send the whole part set with one line changed; the parent persists it. */
+function updateLine(partId: number, patch: Partial<RevisionPartInput>) {
+  if (!revisionPartOf(partId)) return;
   emit(
     'update',
     toInputs(props.parts).map((p) =>
-      p.partId === partId ? { ...p, quantity: qty } : p,
+      p.partId === partId ? { ...p, ...patch } : p,
     ),
   );
 }
 
+// Blank clears the value rather than storing '', so the change log and the
+// revision compare read it as unset.
+function textValue(e: Event): string | null {
+  return (e.target as HTMLInputElement).value.trim() || null;
+}
+
 function onPositionChange(partId: number, e: Event) {
-  if (!revisionPartOf(partId)) return;
-  const value = (e.target as HTMLInputElement).value.trim();
-  emit(
-    'update',
-    toInputs(props.parts).map((p) =>
-      p.partId === partId ? { ...p, mountPosition: value || null } : p,
-    ),
-  );
+  updateLine(partId, { mountPosition: textValue(e) });
+}
+
+function onNotesChange(partId: number, e: Event) {
+  updateLine(partId, { notes: textValue(e) });
 }
 
 // Add flow: the modal stages a whole batch and hands it over in one go, so
