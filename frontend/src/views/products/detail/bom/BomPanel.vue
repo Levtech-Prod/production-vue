@@ -54,7 +54,14 @@
           </span>
         </template>
         <template #position="{ part }">
-          <span class="text-slate-500">{{ mountPositionOf(part.id) }}</span>
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.mountPosition || '—'
+          }}</span>
+        </template>
+        <template #notes="{ part }">
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.notes || '—'
+          }}</span>
         </template>
         <template v-if="revId != null" #actions="{ part }">
           <div class="flex items-center justify-center">
@@ -89,6 +96,7 @@
             :quantity="revisionPartOf(part.id)?.quantity"
             :unit="revisionPartOf(part.id)?.unit"
             :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :notes="revisionPartOf(part.id)?.notes"
             :editable="false"
           />
         </template>
@@ -121,6 +129,7 @@
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('mount_position') }}
               </th>
+              <th class="w-px whitespace-nowrap px-3 py-2">{{ t('notes') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('location') }}
               </th>
@@ -164,6 +173,9 @@
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ part.mountPosition || '—' }}
+                </td>
+                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
+                  {{ part.notes || '—' }}
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ catalogById.get(part.id)?.location || '—' }}
@@ -213,6 +225,7 @@
                     :quantity="part.quantity"
                     :unit="part.unit"
                     :mount-position="part.mountPosition"
+                    :notes="part.notes"
                     :editable="false"
                   />
                 </td>
@@ -265,15 +278,11 @@ const { t } = useI18n();
 // (Also loads the catalog on mount, which the main-product view reuses below.)
 const { rows: partRows } = useRevisionPartRows(toRef(props, 'parts'));
 
-// Mount position and quantity live on the BOM line, not on the catalog part
-// the table rows are built from, so they are looked up from the revision's
-// own payload.
+// Quantity, mount position and notes live on the BOM line, not on the catalog
+// part the table rows are built from, so they are looked up from the
+// revision's own payload.
 function revisionPartOf(partId: number): RevisionPart | undefined {
   return props.parts.find((p) => p.id === partId);
-}
-
-function mountPositionOf(partId: number): string {
-  return revisionPartOf(partId)?.mountPosition || '—';
 }
 
 // Sets rather than single ids: every part with an alternative opens by default.
@@ -321,7 +330,7 @@ const flatParts = computed(() =>
 );
 
 // Drives the expanded row's colspan, so it must track the header above.
-const FLAT_COLUMNS = 8;
+const FLAT_COLUMNS = 9;
 
 // An empty product BOM skips the table (and its column headers) in favor of
 // a plain centered message, matching how DocumentsPanel shows its empty state.
