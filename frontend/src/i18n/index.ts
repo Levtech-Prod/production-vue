@@ -475,6 +475,8 @@ const messages = {
     parts_select_hint:
       'Select a sub-product revision on the left to edit its parts.',
     no_parts_found: 'No matching parts.',
+    add_parts: 'Add parts',
+    add_n_parts: 'Add {n} part(s)',
     delete_revision: 'Delete revision',
     delete_product_revision: 'Delete product revision',
     revision_deleted: 'Revision deleted.',
@@ -1224,6 +1226,8 @@ const messages = {
     parts_select_hint:
       'Válassz altermék-revíziót bal oldalon az alkatrészek szerkesztéséhez.',
     no_parts_found: 'Nincs találat.',
+    add_parts: 'Alkatrészek hozzáadása',
+    add_n_parts: '{n} alkatrész hozzáadása',
     delete_revision: 'Revízió törlése',
     delete_product_revision: 'Termékrevízió törlése',
     edit_composition: 'Összeállítás szerkesztése',
