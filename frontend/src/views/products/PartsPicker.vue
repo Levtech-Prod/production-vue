@@ -68,7 +68,7 @@
               step="1"
               class="input !py-1"
               required
-              @keydown="(e) => ['.', ',', 'e', 'E', '+', '-'].includes(e.key) && e.preventDefault()"
+              @keydown="blockNonIntegerKeys"
               @input="row.quantity = Math.trunc(row.quantity)"
             />
             <p v-if="rowErrors[i]" class="mt-1 text-xs text-red-500">{{ rowErrors[i] }}</p>
@@ -106,6 +106,7 @@ import { partsApi } from '../../api/partsAPI.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import { useRequiredFieldValidation } from '../../composables/useRequiredFieldValidation.ts';
+import { blockNonIntegerKeys } from '../../utils/numberInput.ts';
 import type { Part } from '../../types/parts.ts';
 import type { SelectedPart } from '../../types/products.ts';
 
