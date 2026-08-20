@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <div v-if="loading" class="py-8 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </div>
@@ -54,7 +54,14 @@
           </span>
         </template>
         <template #position="{ part }">
-          <span class="text-slate-500">{{ mountPositionOf(part.id) }}</span>
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.mountPosition || '—'
+          }}</span>
+        </template>
+        <template #notes="{ part }">
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.notes || '—'
+          }}</span>
         </template>
         <template v-if="revId != null" #actions="{ part }">
           <div class="flex items-center justify-center">
@@ -89,6 +96,7 @@
             :quantity="revisionPartOf(part.id)?.quantity"
             :unit="revisionPartOf(part.id)?.unit"
             :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :notes="revisionPartOf(part.id)?.notes"
             :editable="false"
           />
         </template>
@@ -105,9 +113,9 @@
 
       <!-- Main product BOM: every part across all linked sub-products,
            flattened into a single, uncategorized table. -->
-      <div v-else class="overflow-x-auto">
+      <div v-else>
         <table class="w-full text-left text-sm">
-          <thead class="table-head text-xs">
+          <thead class="table-head sticky top-0 z-10 text-xs">
             <tr>
               <th class="w-px px-4 py-2"></th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
@@ -116,14 +124,12 @@
                 {{ t('price_per_piece') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
-                {{ t('total_quantity') }}
-              </th>
-              <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('quantity') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('mount_position') }}
               </th>
+              <th class="w-px whitespace-nowrap px-3 py-2">{{ t('notes') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('location') }}
               </th>
@@ -161,23 +167,15 @@
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
                   {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
                 </td>
-                <!-- Stock, not a BOM figure — the BOM payload has none, so it
-                     comes from the catalogue like price and location. -->
-                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
-                  {{
-                    catalogById.get(part.id)
-                      ? Math.round(
-                          Number(catalogById.get(part.id)?.totalQuantity ?? 0),
-                        )
-                      : '—'
-                  }}
-                </td>
                 <td class="w-px whitespace-nowrap px-3 py-2">
                   <span class="font-semibold">{{ part.quantity }}</span>
                   <span class="text-slate-400"> {{ part.unit || '' }}</span>
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ part.mountPosition || '—' }}
+                </td>
+                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
+                  {{ part.notes || '—' }}
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ catalogById.get(part.id)?.location || '—' }}
@@ -227,6 +225,7 @@
                     :quantity="part.quantity"
                     :unit="part.unit"
                     :mount-position="part.mountPosition"
+                    :notes="part.notes"
                     :editable="false"
                   />
                 </td>
@@ -279,15 +278,11 @@ const { t } = useI18n();
 // (Also loads the catalog on mount, which the main-product view reuses below.)
 const { rows: partRows } = useRevisionPartRows(toRef(props, 'parts'));
 
-// Mount position and quantity live on the BOM line, not on the catalog part
-// the table rows are built from, so they are looked up from the revision's
-// own payload.
+// Quantity, mount position and notes live on the BOM line, not on the catalog
+// part the table rows are built from, so they are looked up from the
+// revision's own payload.
 function revisionPartOf(partId: number): RevisionPart | undefined {
   return props.parts.find((p) => p.id === partId);
-}
-
-function mountPositionOf(partId: number): string {
-  return revisionPartOf(partId)?.mountPosition || '—';
 }
 
 // Sets rather than single ids: every part with an alternative opens by default.

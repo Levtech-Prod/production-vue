@@ -12,9 +12,22 @@
           {{ spName }} · {{ revLabel }}
         </span>
       </h3>
-      <span v-if="saving" class="shrink-0 text-xs text-slate-400">{{
-        t('saving')
-      }}</span>
+      <div class="flex shrink-0 items-center gap-3">
+        <span v-if="saving" class="text-xs text-slate-400">{{
+          t('saving')
+        }}</span>
+        <button
+          v-if="canEdit"
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:pointer-events-none disabled:opacity-60"
+          :title="t('add_parts')"
+          :disabled="saving || allPartsLoading"
+          @click="addOpen = true"
+        >
+          <Plus class="h-3.5 w-3.5" />
+          {{ t('add_part') }}
+        </button>
+      </div>
     </div>
 
     <div class="flex-1 overflow-y-auto">
@@ -42,6 +55,7 @@
               :value="revisionPartOf(part.id)?.quantity ?? ''"
               :disabled="!canEdit || saving"
               :title="t('quantity')"
+              @keydown="blockNonIntegerKeys"
               @change="onQtyChange(part.id, $event)"
             />
             <span class="w-8 truncate text-xs text-slate-400">
@@ -57,6 +71,16 @@
             :disabled="!canEdit || saving"
             :title="t('mount_position')"
             @change="onPositionChange(part.id, $event)"
+          />
+        </template>
+        <template #notes="{ part }">
+          <input
+            type="text"
+            class="input !w-48 !py-1 text-sm"
+            :value="revisionPartOf(part.id)?.notes ?? ''"
+            :disabled="!canEdit || saving"
+            :title="t('notes')"
+            @change="onNotesChange(part.id, $event)"
           />
         </template>
         <template #actions="{ part }">
@@ -102,6 +126,7 @@
             :quantity="revisionPartOf(part.id)?.quantity"
             :unit="revisionPartOf(part.id)?.unit"
             :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :notes="revisionPartOf(part.id)?.notes"
             :editable="canEdit"
             :candidates="altCandidatesFor(part.id)"
             :saving="altParts.saving"
@@ -111,88 +136,18 @@
           />
         </template>
       </PartsTable>
-
-      <!-- ── Add parts ─────────────────────────────────────────────────── -->
-      <div v-if="canEdit" class="border-t-4 border-slate-100">
-        <div class="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
-          <span
-            class="text-xs font-semibold uppercase tracking-wide text-slate-400"
-          >
-            {{ t('add_part') }}
-          </span>
-        </div>
-        <div class="px-4 pb-3">
-          <div class="relative max-w-sm">
-            <Search
-              class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              v-model="search"
-              type="text"
-              class="input w-full !py-1.5 !pl-8 text-sm"
-              :placeholder="t('search_parts_placeholder')"
-            />
-          </div>
-        </div>
-
-        <div
-          v-if="allPartsLoading"
-          class="py-6 text-center text-sm text-slate-400"
-        >
-          {{ t('loading') }}
-        </div>
-        <PartsTable
-          v-else
-          :parts="availableParts"
-          :empty-text="t('no_parts_found')"
-        >
-          <template #actions="{ part }">
-            <!-- Quantity entry after clicking add -->
-            <div
-              v-if="addingPartId === part.id"
-              class="flex items-center gap-1.5"
-            >
-              <input
-                :ref="(el) => setQtyInputRef(el, part.id)"
-                v-model.number="addQty"
-                type="number"
-                min="0"
-                step="1"
-                class="input !w-20 !py-1 text-right text-sm"
-                @keyup.enter="confirmAdd(part)"
-                @keyup.esc="addingPartId = null"
-              />
-              <button
-                type="button"
-                class="rounded-lg bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:opacity-40"
-                :title="t('add_part')"
-                :disabled="saving || !(addQty > 0)"
-                @click="confirmAdd(part)"
-              >
-                <Check class="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                :title="t('cancel')"
-                @click="addingPartId = null"
-              >
-                <X class="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <button
-              v-else
-              type="button"
-              class="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-40"
-              :disabled="saving"
-              @click="startAdd(part)"
-            >
-              <Plus class="h-3.5 w-3.5" /> {{ t('add') }}
-            </button>
-          </template>
-        </PartsTable>
-      </div>
     </div>
+
+    <!-- Add parts: the catalog list lives in a modal so it never pushes the
+         revision's own table off screen. -->
+    <AddPartsModal
+      v-if="canEdit"
+      v-model="addOpen"
+      :parts="availableParts"
+      :loading="allPartsLoading"
+      :saving="saving"
+      @add="onAddParts"
+    />
 
     <!-- Remove part confirmation -->
     <ConfirmModal
@@ -209,15 +164,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, toRef, watch } from 'vue';
-import type { ComponentPublicInstance } from 'vue';
-import { Check, Link2, Plus, Search, Trash2, X } from 'lucide-vue-next';
+import { computed, ref, toRef, watch } from 'vue';
+import { Link2, Plus, Trash2 } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import ConfirmModal from '../../../components/notification/ConfirmModal.vue';
+import AddPartsModal from './AddPartsModal.vue';
 import PartsTable from '../../parts/PartsTable.vue';
 import AlternativesPanel from './bom/AlternativesPanel.vue';
 import { usePartsStore } from '../../../stores/partsStore.ts';
 import { useRevisionPartRows } from './bom/composables/useRevisionPartRows.ts';
+import { blockNonIntegerKeys } from '../../../utils/numberInput.ts';
 import type { UseAlternativeParts } from './bom/composables/useAlternativeParts.ts';
 import type { Part } from '../../../types/parts.ts';
 import type {
@@ -265,16 +221,11 @@ function revisionPartOf(partId: number): RevisionPart | undefined {
 // `alternate_in_use` flag instead (see migration 021).
 const inBomIds = computed(() => new Set(props.parts.map((p) => p.id)));
 
-const search = ref('');
-
-const availableParts = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return allParts.value.filter((p) => {
-    if (inBomIds.value.has(p.id)) return false;
-    if (!q) return true;
-    return p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
-  });
-});
+// Catalog parts not yet in this revision — the pool the add modal picks from.
+// Searching within it is the modal's own business.
+const availableParts = computed(() =>
+  allParts.value.filter((p) => !inBomIds.value.has(p.id)),
+);
 
 // ── Mutations (each emits the full new part set; parent persists it) ────────
 
@@ -290,64 +241,61 @@ function toInputs(parts: RevisionPart[]): RevisionPartInput[] {
 
 function onQtyChange(partId: number, e: Event) {
   const input = e.target as HTMLInputElement;
-  const qty = Number(input.value);
+  // Truncated, not just parsed: the keydown guard blocks a typed decimal but
+  // not a pasted one, and quantities here are whole numbers.
+  const qty = Math.trunc(Number(input.value));
   const current = revisionPartOf(partId);
   if (!current) return;
   if (!Number.isFinite(qty) || qty <= 0) {
     input.value = String(current.quantity);
     return;
   }
+  // Keep the field showing what is actually being saved.
+  input.value = String(qty);
+  updateLine(partId, { quantity: qty });
+}
+
+/** Re-send the whole part set with one line changed; the parent persists it. */
+function updateLine(partId: number, patch: Partial<RevisionPartInput>) {
+  if (!revisionPartOf(partId)) return;
   emit(
     'update',
     toInputs(props.parts).map((p) =>
-      p.partId === partId ? { ...p, quantity: qty } : p,
+      p.partId === partId ? { ...p, ...patch } : p,
     ),
   );
+}
+
+// Blank clears the value rather than storing '', so the change log and the
+// revision compare read it as unset.
+function textValue(e: Event): string | null {
+  return (e.target as HTMLInputElement).value.trim() || null;
 }
 
 function onPositionChange(partId: number, e: Event) {
-  if (!revisionPartOf(partId)) return;
-  const value = (e.target as HTMLInputElement).value.trim();
-  emit(
-    'update',
-    toInputs(props.parts).map((p) =>
-      p.partId === partId ? { ...p, mountPosition: value || null } : p,
-    ),
-  );
+  updateLine(partId, { mountPosition: textValue(e) });
 }
 
-// Add flow: click Add → enter quantity → confirm.
-const addingPartId = ref<number | null>(null);
-const addQty = ref(1);
-const qtyInputs = new Map<number, HTMLInputElement>();
-
-function setQtyInputRef(
-  el: Element | ComponentPublicInstance | null,
-  partId: number,
-) {
-  if (el instanceof HTMLInputElement) qtyInputs.set(partId, el);
-  else qtyInputs.delete(partId);
+function onNotesChange(partId: number, e: Event) {
+  updateLine(partId, { notes: textValue(e) });
 }
 
-function startAdd(part: Part) {
-  addingPartId.value = part.id;
-  addQty.value = 1;
-  void nextTick(() => qtyInputs.get(part.id)?.select());
-}
+// Add flow: the modal stages a whole batch and hands it over in one go, so
+// this is a single update rather than one save per part.
+const addOpen = ref(false);
 
-function confirmAdd(part: Part) {
-  if (!(addQty.value > 0)) return;
+function onAddParts(rows: { partId: number; quantity: number }[]) {
+  if (rows.length === 0) return;
   emit('update', [
     ...toInputs(props.parts),
-    {
-      partId: part.id,
-      quantity: addQty.value,
+    ...rows.map((row) => ({
+      partId: row.partId,
+      quantity: row.quantity,
       unit: null,
       notes: null,
       mountPosition: null,
-    },
+    })),
   ]);
-  addingPartId.value = null;
 }
 
 // Remove flow with confirmation.

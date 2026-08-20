@@ -1,10 +1,17 @@
 <template>
   <router-view v-if="isAuthPage" />
-  <div v-else class="min-h-screen bg-slate-100">
+  <!-- The shell is exactly one viewport tall and never scrolls itself: the
+       region below the Topbar is the scroll container. That lets a view opt
+       into filling the remaining height (h-full) and scrolling inside its own
+       panels rather than growing the page. -->
+  <div v-else class="h-screen overflow-hidden bg-slate-100">
     <Sidebar />
-    <main class="transition-all duration-200" :class="ui.sidebarCollapsed ? 'pl-20' : 'pl-64'">
+    <main
+      class="flex h-full flex-col transition-all duration-200"
+      :class="ui.sidebarCollapsed ? 'pl-20' : 'pl-64'"
+    >
       <Topbar />
-      <div class="p-6"><router-view /></div>
+      <div class="min-h-0 flex-1 overflow-y-auto p-6"><router-view /></div>
 
       <Toast />
       <AlertModal />

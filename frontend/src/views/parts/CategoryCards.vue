@@ -1,5 +1,5 @@
 <template>
-  <div class="card mt-6 overflow-hidden">
+  <div class="card overflow-hidden">
     <!-- Search bar -->
     <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
       <h2 class="text-sm font-semibold text-slate-600">
