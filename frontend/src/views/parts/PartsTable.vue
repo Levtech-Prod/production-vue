@@ -1,7 +1,12 @@
 <template>
-  <div class="overflow-x-auto">
+  <!-- No overflow-x-auto when sticky: it'd compute overflow-y to auto too,
+       trapping the sticky header in this div instead of the consumer's. -->
+  <div :class="stickyHeader ? '' : 'overflow-x-auto'">
     <table class="w-full text-left text-sm">
-      <thead class="table-head text-xs">
+      <thead
+        class="table-head text-xs"
+        :class="{ 'sticky top-0 z-10': stickyHeader }"
+      >
         <tr>
           <th :class="cellPad">{{ t('image') }}</th>
           <th :class="cellPad">{{ t('code') }}</th>
@@ -176,6 +181,8 @@ const props = withDefaults(
     // Set to 'nested' when this table is rendered inside a dialog, so its
     // image lightbox opens above that dialog rather than beside it.
     imageLayer?: ModalLayer;
+    // False by default — PartsView has no scroll container to stick against.
+    stickyHeader?: boolean;
   }>(),
   {
     columnParameters: () => [],
@@ -183,6 +190,7 @@ const props = withDefaults(
     expandedPartIds: () => new Set<number>(),
     dense: false,
     imageLayer: 'modal',
+    stickyHeader: false,
   },
 );
 

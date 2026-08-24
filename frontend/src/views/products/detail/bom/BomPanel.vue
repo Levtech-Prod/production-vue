@@ -40,6 +40,7 @@
         :empty-text="t('no_parts_in_revision')"
         :expanded-part-ids="expandedPartIds"
         dense
+        sticky-header
       >
         <!-- Filling these slots is what makes PartsTable render the columns
              at all (see its hasQty / hasPosition). -->
