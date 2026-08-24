@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <!-- ── Current parts of the revision ─────────────────────────────── -->
       <div
         v-if="loading || allPartsLoading"
@@ -44,6 +44,7 @@
         :empty-text="t('no_parts_in_revision')"
         :expanded-part-ids="expandedPartIds"
         dense
+        sticky-header
       >
         <template #qty="{ part }">
           <div class="flex items-center gap-1.5">
@@ -58,15 +59,18 @@
               @keydown="blockNonIntegerKeys"
               @change="onQtyChange(part.id, $event)"
             />
-            <span class="w-8 truncate text-xs text-slate-400">
-              {{ revisionPartOf(part.id)?.unit || '' }}
+            <span
+              v-if="revisionPartOf(part.id)?.unit"
+              class="max-w-8 truncate text-xs text-slate-400"
+            >
+              {{ revisionPartOf(part.id)?.unit }}
             </span>
           </div>
         </template>
         <template #position="{ part }">
           <input
             type="text"
-            class="input !w-32 !py-1 text-sm"
+            class="input w-24! py-1! text-sm"
             :value="revisionPartOf(part.id)?.mountPosition ?? ''"
             :disabled="!canEdit || saving"
             :title="t('mount_position')"
@@ -76,7 +80,7 @@
         <template #notes="{ part }">
           <input
             type="text"
-            class="input !w-48 !py-1 text-sm"
+            class="input w-48! py-1! text-sm"
             :value="revisionPartOf(part.id)?.notes ?? ''"
             :disabled="!canEdit || saving"
             :title="t('notes')"
@@ -104,7 +108,11 @@
               <span
                 v-if="altParts.hasAlternate(revId, part.id)"
                 class="h-1.5 w-1.5 rounded-full"
-                :class="altParts.alternateInUse(revId, part.id) ? 'bg-emerald-500' : 'bg-blue-500'"
+                :class="
+                  altParts.alternateInUse(revId, part.id)
+                    ? 'bg-emerald-500'
+                    : 'bg-blue-500'
+                "
               ></span>
             </button>
             <button
@@ -341,7 +349,8 @@ watch(
   () => {
     const seeded = new Set(expandedPartIds.value);
     for (const part of currentRows.value) {
-      if (props.altParts.hasAlternate(props.revId, part.id)) seeded.add(part.id);
+      if (props.altParts.hasAlternate(props.revId, part.id))
+        seeded.add(part.id);
     }
     expandedPartIds.value = seeded;
   },

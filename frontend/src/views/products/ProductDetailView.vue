@@ -168,6 +168,16 @@
               :rev-id="
                 panelScope.kind === 'spRev' ? panelScope.revId : undefined
               "
+              :sp-name="
+                panelScope.kind === 'spRev'
+                  ? spRevInfo(panelScope.spId, panelScope.revId).sp?.name
+                  : undefined
+              "
+              :rev-label="
+                panelScope.kind === 'spRev'
+                  ? spRevInfo(panelScope.spId, panelScope.revId).rev?.label
+                  : undefined
+              "
               :bom="bom"
               :parts="parts"
               :loading="contentLoading"

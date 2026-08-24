@@ -23,6 +23,18 @@ RUN npm run build
 
 FROM nginx:alpine AS production
 COPY --from=build /repo/frontend/dist /usr/share/nginx/html
+# `vite build` copies frontend/public/* into dist/ preserving each source
+# file's exact permission bits (Node's fs.cpSync/copyFileSync does this), and
+# Docker's COPY carries those bits into the image unchanged. If a file under
+# public/ ever ends up non-world-readable on whichever machine builds the
+# image (e.g. frontend/public/fonts/*.ttf checked out with 600 instead of
+# 644), it silently becomes unreadable here too — nginx's worker process runs
+# as the unprivileged `nginx` user (this base image's default), so it can't
+# open a root-owned 600 file and serves a 403 for that one asset while
+# everything else (freshly written by the bundler, not copied) works fine.
+# Normalizing after the copy makes the image correct regardless of what the
+# host's permissions happened to be.
+RUN chmod -R a+rX /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

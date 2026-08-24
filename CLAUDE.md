@@ -39,7 +39,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 ## Comments
 
-- Comment only what the code can't say itself: a non-obvious *why*, a trap, a decision someone would otherwise undo. Default to none.
+- **Primary rule: if the code is obvious, add no comment.** Default to zero comments. Before adding one, ask "would a reader understand this without it?" — if yes, don't add it. Only comment what the code truly can't say itself: a non-obvious *why*, a trap, a decision someone would otherwise undo.
 - Keep them short — one line where possible, two or three at most. Prefer a clearer name or a small helper over a comment explaining unclear code.
 - Don't restate the code, narrate steps, label obvious blocks, or leave TODOs and commented-out code.
 - Worth a comment: why an approach was rejected, a subtle contract (`null` vs `undefined`, ordering, locking), a workaround with its reason, a non-obvious security or performance constraint.
