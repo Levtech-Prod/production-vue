@@ -6,9 +6,7 @@ const { t } = useI18n();
 
 <template>
   <div>
-    <h1 class="text-3xl font-bold">{{ t('dashboard') }}</h1>
-    <!-- <p class="mt-2 text-slate-500">{{ t('dashboard_description') }}</p> -->
-    <div class="mt-6 grid gap-4 md:grid-cols-3">
+    <div class="grid gap-4 md:grid-cols-3">
       <div class="card p-5">
         <div class="text-sm text-slate-500">{{ t('users') }}</div>
         <div class="mt-2 text-2xl font-bold">

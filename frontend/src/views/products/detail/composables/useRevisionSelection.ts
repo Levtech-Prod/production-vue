@@ -63,10 +63,9 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
 
   function setActiveRevision(id: number) {
     if (id === activeProductRevId.value || !detail.value) return;
-    // In normal mode, keep the same sub-product selected if it has a linked
-    // revision in the new product revision; otherwise fall back to the product.
+    // Not gated to normal mode: a sub-product can be selected in either.
     const sel = selection.value;
-    if (!revisionsMode.value && sel.type === 'subProduct') {
+    if (sel.type === 'subProduct') {
       const sp = detail.value.subProducts.find((s) => s.id === sel.spId);
       const linked = sp ? linkedRevOf(sp, id) : null;
       selection.value = linked
@@ -101,6 +100,10 @@ export function useRevisionSelection(detail: ComputedRef<ProductDetail | null>) 
 
   function toggleRevisionsMode() {
     revisionsMode.value = !revisionsMode.value;
+    // Otherwise the BOM/Documents panels stay on the old sub-product selection.
+    if (!revisionsMode.value && selection.value.type === 'subProduct') {
+      selection.value = { type: 'product' };
+    }
     stopComposing();
   }
 

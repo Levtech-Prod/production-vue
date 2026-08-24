@@ -10,45 +10,89 @@
     </div>
 
     <!-- Info bar -->
-    <div class="card p-5">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <img
-          v-if="detail.image"
-          :src="detail.image"
-          class="h-24 w-24 shrink-0 rounded-xl border border-slate-200 object-cover"
-          :alt="detail.name"
-        />
-        <div
-          v-else
-          class="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-2xl text-slate-300"
-        >
-          ▣
-        </div>
-
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2">
-            <h1 class="text-2xl font-bold">{{ detail.name }}</h1>
-            <button
-              type="button"
-              class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-              :title="t('change_log')"
-              @click="emit('show-history')"
-            >
-              <Clock class="h-4 w-4" />
-            </button>
+    <div class="card p-4">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        <!-- Section 1: image + name / sku / description. The column is only
+             pinned to a fixed width once there is room for it; below xl it
+             narrows so the text doesn't sit against a wide empty gutter. -->
+        <div class="flex min-w-0 shrink-0 gap-3 sm:gap-4 lg:w-72 xl:w-96">
+          <img
+            v-if="detail.image"
+            :src="detail.image"
+            class="h-24 w-24 shrink-0 rounded-xl border border-slate-200 object-cover sm:h-32 sm:w-32 lg:h-40 lg:w-40"
+            :alt="detail.name"
+          />
+          <div
+            v-else
+            class="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-2xl text-slate-300 sm:h-32 sm:w-32 sm:text-3xl lg:h-40 lg:w-40"
+          >
+            ▣
           </div>
-          <div class="font-mono text-sm text-slate-500">{{ detail.sku }}</div>
-          <p v-if="detail.description" class="mt-2 text-sm text-slate-500">
-            {{ detail.description }}
-          </p>
+
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h1 class="truncate text-xl font-bold sm:text-2xl">{{ detail.name }}</h1>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                :title="t('change_log')"
+                @click="emit('show-history')"
+              >
+                <Clock class="h-4 w-4" />
+              </button>
+            </div>
+            <div class="mt-1 truncate font-mono text-sm text-slate-500">{{ detail.sku }}</div>
+            <p v-if="detail.description" class="mt-2 line-clamp-3 text-sm text-slate-500">
+              {{ detail.description }}
+            </p>
+          </div>
         </div>
 
-        <!-- ── Product revisions (radio switch). Editing, setting the
+        <!-- Section 2: details. Pairs sit on their own natural width rather
+             than justify-between, which spread the value to the far edge of the
+             cell. Two per row only where the middle column is wide enough (xl);
+             at lg it is a single column so both halves always fit inside. -->
+        <dl
+          class="grid min-w-0 flex-1 content-start grid-cols-1 gap-x-8 gap-y-1.5 border-t border-slate-100 pt-3 text-sm sm:grid-cols-2 lg:grid-cols-1 lg:border-t-0 lg:border-l lg:pl-4 lg:pt-0 xl:grid-cols-2 xl:gap-x-16 xl:pl-5 2xl:gap-x-24"
+        >
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('type') }}:</dt>
+            <dd class="min-w-0 font-semibold text-slate-800">{{ detail.type || '—' }}</dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('revisions') }}:</dt>
+            <dd class="min-w-0 font-semibold text-slate-800">{{ detail.revisions.length }}</dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('sub_products') }}:</dt>
+            <dd class="min-w-0 font-semibold text-slate-800">{{ detail.subProducts.length }}</dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('default_revision') }}:</dt>
+            <dd class="flex items-center gap-1 font-semibold text-slate-800">
+              <Star
+                v-if="defaultRevisionLabel !== '—'"
+                class="h-3.5 w-3.5 fill-amber-400 text-amber-400"
+              />
+              {{ defaultRevisionLabel }}
+            </dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('created_at') }}:</dt>
+            <dd class="min-w-0 font-semibold text-slate-800">{{ formatDate(detail.createdAt) }}</dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-1 gap-y-0">
+            <dt class="shrink-0 text-slate-400">{{ t('last_updated') }}:</dt>
+            <dd class="min-w-0 font-semibold text-slate-800">{{ formatDate(detail.updatedAt) }}</dd>
+          </div>
+        </dl>
+
+        <!-- Section 3: Product revisions (radio switch). Editing, setting the
              default, adding/composing revisions all live in the left
-             tree's Revisions mode instead. ── -->
+             tree's Revisions mode instead. -->
         <div
           ref="revisionsRoot"
-          class="relative w-full shrink-0 border-t border-slate-100 pt-4 lg:w-72 lg:border-t-0 lg:border-l lg:pl-4 lg:pt-0"
+          class="relative w-full shrink-0 border-t border-slate-100 pt-3 lg:w-56 lg:border-t-0 lg:border-l lg:pl-4 lg:pt-0 xl:w-72 xl:pl-5"
         >
           <h2
             class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 lg:text-right"
@@ -120,44 +164,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Stats -->
-      <dl
-        class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6"
-      >
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('type') }}</dt>
-          <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.type || '—' }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('revisions') }}</dt>
-          <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.revisions.length }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('sub_products') }}</dt>
-          <dd class="mt-0.5 font-semibold text-slate-800">{{ detail.subProducts.length }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">
-            {{ t('default_revision') }}
-          </dt>
-          <dd class="mt-0.5 flex items-center gap-1 font-semibold text-slate-800">
-            <Star
-              v-if="defaultRevisionLabel !== '—'"
-              class="h-3.5 w-3.5 fill-amber-400 text-amber-400"
-            />
-            {{ defaultRevisionLabel }}
-          </dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('created_at') }}</dt>
-          <dd class="mt-0.5 font-semibold text-slate-800">{{ formatDate(detail.createdAt) }}</dd>
-        </div>
-        <div>
-          <dt class="text-xs uppercase tracking-wide text-slate-400">{{ t('last_updated') }}</dt>
-          <dd class="mt-0.5 font-semibold text-slate-800">{{ formatDate(detail.updatedAt) }}</dd>
-        </div>
-      </dl>
     </div>
   </div>
 </template>

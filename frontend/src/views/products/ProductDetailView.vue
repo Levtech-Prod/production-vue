@@ -1,14 +1,6 @@
 <template>
-  <div>
-    <!-- Back link -->
-    <RouterLink
-      to="/products"
-      class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
-    >
-      <ChevronLeft class="h-4 w-4" /> {{ t('products') }}
-    </RouterLink>
-
-    <div v-if="detail" class="mt-3">
+  <div class="flex flex-col lg:h-full">
+    <div v-if="detail" class="flex flex-col lg:min-h-0 lg:flex-1">
       <ProductOverviewCard
         :detail="detail"
         :active-product-rev-id="activeProductRevId"
@@ -20,7 +12,7 @@
 
       <!-- Main grid: structure tree + right panel -->
       <div
-        class="mt-4 grid h-[75vh] items-stretch gap-4 transition-[grid-template-columns] duration-200"
+        class="mt-4 grid items-stretch gap-4 transition-[grid-template-columns] duration-200 lg:min-h-0 lg:flex-1"
         :class="
           treeCollapsed
             ? 'lg:grid-cols-[3.25rem_1fr]'
@@ -173,7 +165,19 @@
               :mode="panelScope.kind === 'product' ? 'product' : 'subRev'"
               :product-name="detail.name"
               :sp-id="panelScope.kind === 'spRev' ? panelScope.spId : undefined"
-              :rev-id="panelScope.kind === 'spRev' ? panelScope.revId : undefined"
+              :rev-id="
+                panelScope.kind === 'spRev' ? panelScope.revId : undefined
+              "
+              :sp-name="
+                panelScope.kind === 'spRev'
+                  ? spRevInfo(panelScope.spId, panelScope.revId).sp?.name
+                  : undefined
+              "
+              :rev-label="
+                panelScope.kind === 'spRev'
+                  ? spRevInfo(panelScope.spId, panelScope.revId).rev?.label
+                  : undefined
+              "
               :bom="bom"
               :parts="parts"
               :loading="contentLoading"
@@ -408,7 +412,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronLeft, FileText, Info, List, GitCompare } from 'lucide-vue-next';
+import { FileText, Info, List, GitCompare } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import SubProductModal from './SubProductModal.vue';
 import SubProductRevisionModal from './SubProductRevisionModal.vue';
@@ -510,7 +514,13 @@ const activeTab = ref<RightPanelTab>(DEFAULT_TAB);
 // left panel is showing revisions. Normal mode keeps the three tabs it had.
 const tabs = computed(() => [
   ...(revisionsMode.value
-    ? [{ key: 'overview' as RightPanelTab, labelKey: 'tab_overview', icon: Info }]
+    ? [
+        {
+          key: 'overview' as RightPanelTab,
+          labelKey: 'tab_overview',
+          icon: Info,
+        },
+      ]
     : []),
   {
     key: 'documents' as RightPanelTab,
@@ -616,10 +626,15 @@ const firmwareContext = computed(() => {
 });
 
 const firmwareScopeKey = computed(() => firmwareContext.value?.key ?? '');
-const firmwareRevisionLabel = computed(() => firmwareContext.value?.label ?? '');
+const firmwareRevisionLabel = computed(
+  () => firmwareContext.value?.label ?? '',
+);
 const firmwareTitle = computed(() =>
   firmwareContext.value
-    ? t('firmware_for', { name: firmwareContext.value.name, label: firmwareContext.value.label })
+    ? t('firmware_for', {
+        name: firmwareContext.value.name,
+        label: firmwareContext.value.label,
+      })
     : t('firmware'),
 );
 

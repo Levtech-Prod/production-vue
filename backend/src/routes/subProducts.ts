@@ -210,7 +210,8 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
       e.inB &&
       (String(e.inA.quantity) !== String(e.inB.quantity) ||
         (e.inA.unit ?? '') !== (e.inB.unit ?? '') ||
-        (e.inA.mountPosition ?? '') !== (e.inB.mountPosition ?? ''))
+        (e.inA.mountPosition ?? '') !== (e.inB.mountPosition ?? '') ||
+        (e.inA.notes ?? '') !== (e.inB.notes ?? ''))
     )
       status = 'changed';
     else status = 'unchanged';

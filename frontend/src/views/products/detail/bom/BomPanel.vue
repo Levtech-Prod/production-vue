@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <div class="flex-1 overflow-y-auto">
+    <div class="min-h-0 flex-1 overflow-auto">
       <div v-if="loading" class="py-8 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </div>
@@ -40,6 +40,7 @@
         :empty-text="t('no_parts_in_revision')"
         :expanded-part-ids="expandedPartIds"
         dense
+        sticky-header
       >
         <!-- Filling these slots is what makes PartsTable render the columns
              at all (see its hasQty / hasPosition). -->
@@ -54,7 +55,14 @@
           </span>
         </template>
         <template #position="{ part }">
-          <span class="text-slate-500">{{ mountPositionOf(part.id) }}</span>
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.mountPosition || '—'
+          }}</span>
+        </template>
+        <template #notes="{ part }">
+          <span class="text-slate-500">{{
+            revisionPartOf(part.id)?.notes || '—'
+          }}</span>
         </template>
         <template v-if="revId != null" #actions="{ part }">
           <div class="flex items-center justify-center">
@@ -89,6 +97,7 @@
             :quantity="revisionPartOf(part.id)?.quantity"
             :unit="revisionPartOf(part.id)?.unit"
             :mount-position="revisionPartOf(part.id)?.mountPosition"
+            :notes="revisionPartOf(part.id)?.notes"
             :editable="false"
           />
         </template>
@@ -105,9 +114,9 @@
 
       <!-- Main product BOM: every part across all linked sub-products,
            flattened into a single, uncategorized table. -->
-      <div v-else class="overflow-x-auto">
+      <div v-else>
         <table class="w-full text-left text-sm">
-          <thead class="table-head text-xs">
+          <thead class="table-head sticky top-0 z-10 text-xs">
             <tr>
               <th class="w-px px-4 py-2"></th>
               <th class="w-px whitespace-nowrap px-3 py-2">{{ t('sku') }}</th>
@@ -116,14 +125,12 @@
                 {{ t('price_per_piece') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
-                {{ t('total_quantity') }}
-              </th>
-              <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('quantity') }}
               </th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('mount_position') }}
               </th>
+              <th class="w-px whitespace-nowrap px-3 py-2">{{ t('notes') }}</th>
               <th class="w-px whitespace-nowrap px-3 py-2">
                 {{ t('location') }}
               </th>
@@ -161,23 +168,15 @@
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-700">
                   {{ catalogById.get(part.id)?.pricePerPiece ?? '—' }}
                 </td>
-                <!-- Stock, not a BOM figure — the BOM payload has none, so it
-                     comes from the catalogue like price and location. -->
-                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
-                  {{
-                    catalogById.get(part.id)
-                      ? Math.round(
-                          Number(catalogById.get(part.id)?.totalQuantity ?? 0),
-                        )
-                      : '—'
-                  }}
-                </td>
                 <td class="w-px whitespace-nowrap px-3 py-2">
                   <span class="font-semibold">{{ part.quantity }}</span>
                   <span class="text-slate-400"> {{ part.unit || '' }}</span>
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ part.mountPosition || '—' }}
+                </td>
+                <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
+                  {{ part.notes || '—' }}
                 </td>
                 <td class="w-px whitespace-nowrap px-3 py-2 text-slate-500">
                   {{ catalogById.get(part.id)?.location || '—' }}
@@ -227,6 +226,7 @@
                     :quantity="part.quantity"
                     :unit="part.unit"
                     :mount-position="part.mountPosition"
+                    :notes="part.notes"
                     :editable="false"
                   />
                 </td>
@@ -247,6 +247,7 @@ import PartsTable from '../../../parts/PartsTable.vue';
 import AlternativesPanel from './AlternativesPanel.vue';
 import { useRevisionPartRows } from './composables/useRevisionPartRows.ts';
 import { useBomPdfExport } from './composables/useBomPdfExport.ts';
+import type { BomExportRow } from './composables/useBomPdfExport.ts';
 import { usePartsStore } from '../../../../stores/partsStore.ts';
 import type { UseAlternativeParts } from './composables/useAlternativeParts.ts';
 import type { Part } from '../../../../types/parts.ts';
@@ -257,12 +258,17 @@ import type {
 
 const props = defineProps<{
   mode: 'product' | 'subRev';
-  /** Titles the exported PDF and seeds its suggested file name. */
+  /** Titles the exported PDF and seeds its suggested file name in 'product'
+   *  mode; falls back for 'subRev' mode too if spName is ever left unset. */
   productName: string;
   // Only meaningful in 'subRev' mode — the product-level flattened view below
   // carries its own subProductRevisionId per row (see flatParts) instead.
   spId?: number;
   revId?: number;
+  // Sub-product name / revision label, only meaningful in 'subRev' mode —
+  // title and subtitle the PDF export uses in place of productName/headerChip.
+  spName?: string;
+  revLabel?: string;
   bom: BomSubProduct[];
   parts: RevisionPart[];
   loading: boolean;
@@ -274,20 +280,18 @@ const emit = defineEmits<{ select: [{ spId: number; spRevId: number }] }>();
 
 const { t } = useI18n();
 
+const isProductMode = computed(() => props.mode === 'product');
+
 // Sub-product revision parts joined with the catalog so the table shows
 // category, location and parameters — same rows as the editable parts panel.
 // (Also loads the catalog on mount, which the main-product view reuses below.)
 const { rows: partRows } = useRevisionPartRows(toRef(props, 'parts'));
 
-// Mount position and quantity live on the BOM line, not on the catalog part
-// the table rows are built from, so they are looked up from the revision's
-// own payload.
+// Quantity, mount position and notes live on the BOM line, not on the catalog
+// part the table rows are built from, so they are looked up from the
+// revision's own payload.
 function revisionPartOf(partId: number): RevisionPart | undefined {
   return props.parts.find((p) => p.id === partId);
-}
-
-function mountPositionOf(partId: number): string {
-  return revisionPartOf(partId)?.mountPosition || '—';
 }
 
 // Sets rather than single ids: every part with an alternative opens by default.
@@ -340,23 +344,30 @@ const FLAT_COLUMNS = 9;
 // An empty product BOM skips the table (and its column headers) in favor of
 // a plain centered message, matching how DocumentsPanel shows its empty state.
 const isEmptyProductBom = computed(
-  () => props.mode === 'product' && flatParts.value.length === 0,
+  () => isProductMode.value && flatParts.value.length === 0,
 );
 
-// Export covers the flattened main-product BOM only: the sub-product revision
-// view is the parts table, which has its own columns and its own owner.
+// Export covers whatever BOM is currently on screen: the flattened
+// main-product view, or a single sub-product revision's parts. Both row
+// shapes (BomPart / RevisionPart) already carry exactly the fields
+// BomExportRow needs, so no reshaping is needed per mode.
+const exportRows = computed<BomExportRow[]>(() =>
+  isProductMode.value ? flatParts.value : props.parts,
+);
+
 const canExport = computed(
-  () =>
-    props.mode === 'product' && !props.loading && flatParts.value.length > 0,
+  () => !props.loading && exportRows.value.length > 0,
 );
 
-// In 'product' mode headerChip is the product revision's label (see
-// useBomAndParts.bomHeaderChip), which is exactly what the export wants —
-// and canExport already restricts this to that mode.
+// 'product' mode titles the PDF with the product name and its revision's
+// label (headerChip — see useBomAndParts.bomHeaderChip); 'subRev' mode
+// titles it with the sub-product name and that revision's label instead.
 const { exporting, exportPdf } = useBomPdfExport(() => ({
-  productName: props.productName,
-  revisionLabel: props.headerChip,
-  rows: flatParts.value,
+  productName: isProductMode.value
+    ? props.productName
+    : (props.spName ?? props.productName),
+  revisionLabel: isProductMode.value ? props.headerChip : props.revLabel,
+  rows: exportRows.value,
 }));
 
 // Seeded, not computed: a row the user collapses by hand stays collapsed.

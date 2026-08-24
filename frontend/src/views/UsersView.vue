@@ -1,7 +1,6 @@
 <template>
   <div>
-    <h1 class="text-3xl font-bold">{{ t('users') }}</h1>
-    <div class="card mt-6 overflow-hidden">
+    <div class="card overflow-hidden">
       <table class="w-full text-left text-sm">
         <thead class="table-head text-xs">
           <tr>

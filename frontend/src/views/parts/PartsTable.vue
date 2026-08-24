@@ -1,7 +1,12 @@
 <template>
-  <div class="overflow-x-auto">
+  <!-- No overflow-x-auto when sticky: it'd compute overflow-y to auto too,
+       trapping the sticky header in this div instead of the consumer's. -->
+  <div :class="stickyHeader ? '' : 'overflow-x-auto'">
     <table class="w-full text-left text-sm">
-      <thead class="table-head text-xs">
+      <thead
+        class="table-head text-xs"
+        :class="{ 'sticky top-0 z-10': stickyHeader }"
+      >
         <tr>
           <th :class="cellPad">{{ t('image') }}</th>
           <th :class="cellPad">{{ t('code') }}</th>
@@ -11,6 +16,7 @@
           <th :class="cellPad">{{ t('total_quantity') }}</th>
           <th v-if="hasQty" :class="cellPad">{{ t('quantity') }}</th>
           <th v-if="hasPosition" :class="cellPad">{{ t('mount_position') }}</th>
+          <th v-if="hasNotes" :class="cellPad">{{ t('notes') }}</th>
           <th
             v-for="cp in columnParameters"
             :key="cp.id"
@@ -98,6 +104,9 @@
             <td v-if="hasPosition" :class="cellPad" @click.stop>
               <slot name="position" :part="part" />
             </td>
+            <td v-if="hasNotes" :class="cellPad" @click.stop>
+              <slot name="notes" :part="part" />
+            </td>
             <td
               v-for="cp in columnParameters"
               :key="cp.id"
@@ -140,6 +149,7 @@
       v-model="imagePreviewOpen"
       :image="previewPart?.image"
       :title="previewPart?.name"
+      :layer="imageLayer"
     />
   </div>
 </template>
@@ -150,6 +160,7 @@ import { useI18n } from 'vue-i18n';
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-vue-next';
 import ImagePreviewModal from '../../components/modal/ImagePreviewModal.vue';
 import { formatPrice } from '../../utils/formatters.ts';
+import type { ModalLayer } from '../../utils/overlayLayers.ts';
 import type { Part } from '../../types/parts.ts';
 import type { PartCategoryParameter } from '../../types/partCategories.ts';
 
@@ -167,12 +178,19 @@ const props = withDefaults(
     // Tighter rows for the BOM views, where a revision plus its expanded
     // alternatives leaves only a handful visible at the default spacing.
     dense?: boolean;
+    // Set to 'nested' when this table is rendered inside a dialog, so its
+    // image lightbox opens above that dialog rather than beside it.
+    imageLayer?: ModalLayer;
+    // False by default — PartsView has no scroll container to stick against.
+    stickyHeader?: boolean;
   }>(),
   {
     columnParameters: () => [],
     selectedPartId: null,
     expandedPartIds: () => new Set<number>(),
     dense: false,
+    imageLayer: 'modal',
+    stickyHeader: false,
   },
 );
 
@@ -268,6 +286,7 @@ const sortedParts = computed<Part[]>(() => {
 // `expanded` is a full-width row via colspan, so it isn't in columnCount.
 const hasQty = computed(() => !!slots.qty);
 const hasPosition = computed(() => !!slots.position);
+const hasNotes = computed(() => !!slots.notes);
 const hasActions = computed(() => !!slots.actions);
 const hasExpanded = computed(() => !!slots.expanded);
 
@@ -282,6 +301,7 @@ const columnCount = computed(
     props.columnParameters.length +
     (hasQty.value ? 1 : 0) +
     (hasPosition.value ? 1 : 0) +
+    (hasNotes.value ? 1 : 0) +
     (hasActions.value ? 1 : 0),
 );
 
