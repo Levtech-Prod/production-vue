@@ -247,6 +247,7 @@ import PartsTable from '../../../parts/PartsTable.vue';
 import AlternativesPanel from './AlternativesPanel.vue';
 import { useRevisionPartRows } from './composables/useRevisionPartRows.ts';
 import { useBomPdfExport } from './composables/useBomPdfExport.ts';
+import type { BomExportRow } from './composables/useBomPdfExport.ts';
 import { usePartsStore } from '../../../../stores/partsStore.ts';
 import type { UseAlternativeParts } from './composables/useAlternativeParts.ts';
 import type { Part } from '../../../../types/parts.ts';
@@ -257,12 +258,17 @@ import type {
 
 const props = defineProps<{
   mode: 'product' | 'subRev';
-  /** Titles the exported PDF and seeds its suggested file name. */
+  /** Titles the exported PDF and seeds its suggested file name in 'product'
+   *  mode; falls back for 'subRev' mode too if spName is ever left unset. */
   productName: string;
   // Only meaningful in 'subRev' mode — the product-level flattened view below
   // carries its own subProductRevisionId per row (see flatParts) instead.
   spId?: number;
   revId?: number;
+  // Sub-product name / revision label, only meaningful in 'subRev' mode —
+  // title and subtitle the PDF export uses in place of productName/headerChip.
+  spName?: string;
+  revLabel?: string;
   bom: BomSubProduct[];
   parts: RevisionPart[];
   loading: boolean;
@@ -273,6 +279,8 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [{ spId: number; spRevId: number }] }>();
 
 const { t } = useI18n();
+
+const isProductMode = computed(() => props.mode === 'product');
 
 // Sub-product revision parts joined with the catalog so the table shows
 // category, location and parameters — same rows as the editable parts panel.
@@ -336,23 +344,30 @@ const FLAT_COLUMNS = 9;
 // An empty product BOM skips the table (and its column headers) in favor of
 // a plain centered message, matching how DocumentsPanel shows its empty state.
 const isEmptyProductBom = computed(
-  () => props.mode === 'product' && flatParts.value.length === 0,
+  () => isProductMode.value && flatParts.value.length === 0,
 );
 
-// Export covers the flattened main-product BOM only: the sub-product revision
-// view is the parts table, which has its own columns and its own owner.
+// Export covers whatever BOM is currently on screen: the flattened
+// main-product view, or a single sub-product revision's parts. Both row
+// shapes (BomPart / RevisionPart) already carry exactly the fields
+// BomExportRow needs, so no reshaping is needed per mode.
+const exportRows = computed<BomExportRow[]>(() =>
+  isProductMode.value ? flatParts.value : props.parts,
+);
+
 const canExport = computed(
-  () =>
-    props.mode === 'product' && !props.loading && flatParts.value.length > 0,
+  () => !props.loading && exportRows.value.length > 0,
 );
 
-// In 'product' mode headerChip is the product revision's label (see
-// useBomAndParts.bomHeaderChip), which is exactly what the export wants —
-// and canExport already restricts this to that mode.
+// 'product' mode titles the PDF with the product name and its revision's
+// label (headerChip — see useBomAndParts.bomHeaderChip); 'subRev' mode
+// titles it with the sub-product name and that revision's label instead.
 const { exporting, exportPdf } = useBomPdfExport(() => ({
-  productName: props.productName,
-  revisionLabel: props.headerChip,
-  rows: flatParts.value,
+  productName: isProductMode.value
+    ? props.productName
+    : (props.spName ?? props.productName),
+  revisionLabel: isProductMode.value ? props.headerChip : props.revLabel,
+  rows: exportRows.value,
 }));
 
 // Seeded, not computed: a row the user collapses by hand stays collapsed.
