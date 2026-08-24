@@ -15,7 +15,7 @@ import path from 'path';
 import uploadRoutes from './routes/uploadFiles.js';
 import documentRoutes from './routes/documents.js';
 import documentTypeRoutes from './routes/documentTypes.js';
-import firmwareRoutes from './routes/firmwares.js';
+import documentRevisionRoutes from './routes/documentRevisions.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
@@ -40,17 +40,23 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 
-// Firmware accepts every file extension, so it must never be reachable as
-// static content — an uploaded .html or .svg would otherwise be stored XSS on
-// this origin. Its folders sit inside the served product tree
-// (`.../documents/firmware/`, see uploadPaths.ts), so this matches the path
-// SEGMENT rather than a fixed prefix, and is registered BEFORE the static
-// mount so it wins. Firmware is read back only through the authenticated
-// download route in routes/firmwares.ts.
+// A revision-mode document type with no extension list accepts every file
+// extension, so its version files must never be reachable as static content —
+// an uploaded .html or .svg would otherwise be stored XSS on this origin. Their
+// folders sit inside the served product tree (`.../documents/revisions/`, see
+// uploadPaths.ts), so this matches a path SEGMENT rather than a fixed prefix,
+// and is registered BEFORE the static mount so it wins. They are read back only
+// through the authenticated download route in routes/documentRevisions.ts.
+//
+// `firmware` is still listed: files migrated from the old firmware feature keep
+// their original storage keys (migration 022), so their folders are still named
+// that way on disk.
 //
 // Segments are decoded before comparison: express.static decodes the path
-// itself, so a request for `%66irmware` would otherwise slip past this guard
+// itself, so a request for `%72evisions` would otherwise slip past this guard
 // and still resolve to the same directory.
+const UNSERVED_SEGMENTS = new Set(['revisions', 'firmware']);
+
 app.use('/uploads', (req, res, next) => {
   for (const segment of req.path.split('/')) {
     let decoded = segment;
@@ -59,7 +65,7 @@ app.use('/uploads', (req, res, next) => {
     } catch {
       // Malformed escape — compare the raw segment rather than throwing.
     }
-    if (decoded.toLowerCase() === 'firmware') return res.sendStatus(404);
+    if (UNSERVED_SEGMENTS.has(decoded.toLowerCase())) return res.sendStatus(404);
   }
   next();
 });
@@ -68,7 +74,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/api', uploadRoutes);
 app.use('/api', documentRoutes);
 app.use('/api', documentTypeRoutes);
-app.use('/api', firmwareRoutes);
+app.use('/api', documentRevisionRoutes);
 
 /** What actually went wrong, for the dev-only `details` below. Includes the
  *  `pg` fields: a failing query says far more through code/detail/constraint
