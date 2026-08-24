@@ -1,13 +1,13 @@
 import type { RevisionStatus } from '../types/products.ts';
-import type { FirmwareStatus } from '../types/firmware.ts';
+import type { DocumentRevisionStatus } from '../types/documentRevisions.ts';
 
 /**
  * One status palette for the whole product detail page.
  *
- * Product revisions and firmware name the same three lifecycle stages
+ * Product revisions and document versions name the same three lifecycle stages
  * differently, so they share the colours rather than each keeping their own
  * copy — which is exactly how `deprecated` came to be amber on the revision
- * timeline and grey in the firmware change log, on the same screen:
+ * timeline and grey in the version list, on the same screen:
  *
  *   not live yet   draft / testing        slate
  *   live           active / production    emerald
@@ -16,7 +16,7 @@ import type { FirmwareStatus } from '../types/firmware.ts';
  * The `Record<EntityStatus, …>` maps are deliberate: adding a status to either
  * union is then a compile error here until both palettes cover it.
  */
-export type EntityStatus = RevisionStatus | FirmwareStatus;
+export type EntityStatus = RevisionStatus | DocumentRevisionStatus;
 
 const DOT: Record<EntityStatus, string> = {
   draft: 'bg-slate-400',

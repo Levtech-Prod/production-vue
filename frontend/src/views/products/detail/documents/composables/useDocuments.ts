@@ -29,6 +29,7 @@ interface PendingReplace extends PendingDoc {
 
 const EMPTY: RevisionDocuments = {
   documentTypes: [],
+  revisionTypes: [],
   other: [],
   summary: { totalTypes: 0, uploaded: 0, missing: 0 },
 };
@@ -276,7 +277,6 @@ export function useDocuments(
     confirmReplace: replaceConfirm.confirm,
     cancelReplace: replaceConfirm.cancel,
 
-    deleteVisible: computed(() => deleteConfirm.target.value != null),
     deleteTarget: computed(() => deleteConfirm.target.value),
     deleteBusy: deleteConfirm.busy,
     openDeleteConfirm,

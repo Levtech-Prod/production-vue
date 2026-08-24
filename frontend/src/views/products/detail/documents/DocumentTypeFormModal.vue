@@ -1,7 +1,8 @@
 <!-- Add or edit a document type that belongs to THIS product / sub-product
-     alone. Same four fields as the settings table row
-     (settings/DocumentTypeRowForm.vue), laid out as a form rather than table
-     cells; the extension editor itself is shared between the two. -->
+     alone. The same fields as the settings table row
+     (settings/DocumentTypeRowForm.vue) laid out as a form rather than table
+     cells — plus revision mode, which only an entity-scoped card can have; the
+     extension editor itself is shared between the two. -->
 <template>
   <!-- `lg` so the icon picker can lay its whole set out in one un-scrolled
        grid (see `wide` below). -->
@@ -60,6 +61,27 @@
         {{ t('required_document_hint') }}
       </label>
 
+      <!-- Disabled once the card holds something: turning it on would hide the
+           card's documents, turning it off would strand its versions, and the
+           server refuses both. Creating a card either way is always fine. -->
+      <label
+        class="flex items-start gap-2.5 text-sm"
+        :class="modeLocked ? 'text-slate-400' : 'text-slate-600'"
+      >
+        <input
+          v-model="draft.revisionMode"
+          type="checkbox"
+          class="mt-0.5 rounded"
+          :disabled="modeLocked"
+        />
+        <span>
+          {{ t('document_revision_mode') }}
+          <span class="mt-0.5 block text-xs text-slate-400">
+            {{ modeLocked ? t('document_revision_mode_locked_hint') : t('document_revision_mode_hint') }}
+          </span>
+        </span>
+      </label>
+
       <p
         v-if="saveError"
         class="rounded-lg bg-red-50 px-3 py-3 text-sm text-red-600"
@@ -97,6 +119,8 @@ import type { DocumentTypeDraft } from '../../../../types/documentTypes.ts';
 const props = defineProps<{
   saving: boolean;
   saveError: string | null;
+  /** The card already holds documents or versions, so its mode is settled. */
+  modeLocked: boolean;
 }>();
 
 const emit = defineEmits<{ (e: 'confirm'): void }>();

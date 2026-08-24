@@ -92,15 +92,12 @@
 
           <template v-if="activeTab === 'documents' && panelScope">
             <DocumentsPanel
-              v-if="documentsView === 'documents'"
+              v-if="!openRevisionType"
               :title="docsTitle"
               :docs="docs"
               :loading="docsLoading"
               :can-edit="!isArchived"
               :can-manage-types="isAdmin"
-              :show-firmware="panelScope.kind === 'spRev'"
-              :firmware-count="fw.firmwares.length"
-              :production-firmware-name="fw.productionFirmware?.name ?? null"
               @upload-file="onUploadFile"
               @replace-file="openDocReplaceConfirm"
               @delete-doc="openDocDeleteConfirm"
@@ -108,28 +105,29 @@
               @add-type="openDocTypeModal(null)"
               @edit-type="openDocTypeModal"
               @delete-type="openDocTypeDeleteConfirm"
-              @open-firmware="documentsView = 'firmware'"
+              @open-revisions="openRevisionTypeId = $event.id"
             />
-            <FirmwarePanel
+            <DocumentRevisionPanel
               v-else
-              :key="firmwareScopeKey"
-              :title="firmwareTitle"
-              :revision-label="firmwareRevisionLabel"
-              :firmwares="fw.firmwares"
-              :selected="fw.selected"
-              :selected-id="fw.selectedId"
-              :loading="fw.loading"
-              :saving="fw.saving"
-              :uploading="fw.uploading"
+              :key="openRevisionType.id"
+              :title="revisionPanelTitle"
+              :icon-name="openRevisionType.icon"
+              :allowed-extensions="openRevisionType.allowedExtensions"
+              :revisions="rev.revisions"
+              :selected="rev.selected"
+              :selected-id="rev.selectedId"
+              :loading="rev.loading"
+              :saving="rev.saving"
+              :uploading="rev.uploading"
               :can-edit="!isArchived"
-              @back="documentsView = 'documents'"
-              @select="fw.selectedId = $event"
-              @create="fw.openCreate"
-              @edit="fw.openEdit"
-              @delete="fw.openDeleteConfirm"
-              @set-production="fw.setProduction"
-              @upload="fw.onUploadFiles"
-              @delete-file="fw.openFileDeleteConfirm"
+              @back="openRevisionTypeId = null"
+              @select="rev.selectedId = $event"
+              @create="rev.openCreate"
+              @edit="rev.openEdit"
+              @delete="rev.openDeleteConfirm"
+              @set-production="rev.setProduction"
+              @upload="rev.onUploadFiles"
+              @delete-file="rev.openFileDeleteConfirm"
             />
           </template>
 
@@ -351,40 +349,40 @@
     />
 
     <FileNameModal
-      v-model="fw.uploadModalOpen"
-      v-model:names="fw.pendingNames"
-      :files="fw.pendingFiles"
+      v-model="rev.uploadModalOpen"
+      v-model:names="rev.pendingNames"
+      :files="rev.pendingFiles"
       title-key="upload_file"
-      :uploading="fw.uploading"
-      @confirm="fw.confirmUpload"
+      :uploading="rev.uploading"
+      @confirm="rev.confirmUpload"
     />
 
-    <!-- Firmware version create / edit -->
-    <FirmwareFormModal
-      v-model="fw.formOpen"
-      :firmware="fw.editTarget"
-      :saving="fw.saving"
-      @saved="fw.save"
-    />
-
-    <DeleteConfirmModal
-      :target="fw.deleteTarget"
-      title-key="delete_firmware"
-      message-key="confirmations.delete_firmware_msg"
-      :label="(f) => f.name"
-      :loading="fw.deleteBusy"
-      @confirm="fw.confirmDelete"
-      @cancel="fw.cancelDelete"
+    <!-- Document version create / edit -->
+    <DocumentRevisionFormModal
+      v-model="rev.formOpen"
+      :revision="rev.editTarget"
+      :saving="rev.saving"
+      @saved="rev.save"
     />
 
     <DeleteConfirmModal
-      :target="fw.fileDeleteTarget"
-      title-key="delete_firmware_file"
-      message-key="confirmations.delete_firmware_file_msg"
+      :target="rev.deleteTarget"
+      title-key="delete_version"
+      message-key="confirmations.delete_version_msg"
+      :label="(r) => r.name"
+      :loading="rev.deleteBusy"
+      @confirm="rev.confirmDelete"
+      @cancel="rev.cancelDelete"
+    />
+
+    <DeleteConfirmModal
+      :target="rev.fileDeleteTarget"
+      title-key="delete_version_file"
+      message-key="confirmations.delete_version_file_msg"
       :label="(f) => f.originalName"
-      :loading="fw.fileDeleteBusy"
-      @confirm="fw.confirmFileDelete"
-      @cancel="fw.cancelFileDelete"
+      :loading="rev.fileDeleteBusy"
+      @confirm="rev.confirmFileDelete"
+      @cancel="rev.cancelFileDelete"
     />
 
     <!-- Add / edit a document type belonging to this product alone -->
@@ -393,6 +391,7 @@
       v-model:draft="docTypeDraft"
       :saving="docTypeSaving"
       :save-error="docTypeSaveError"
+      :mode-locked="docTypeModeLocked"
       @confirm="confirmDocTypeSave"
     />
 
@@ -421,8 +420,8 @@ import DeleteConfirmModal from '../../components/notification/DeleteConfirmModal
 import ProductTree from './detail/ProductTree.vue';
 import RevisionOverviewPanel from './detail/RevisionOverviewPanel.vue';
 import DocumentsPanel from './detail/documents/DocumentsPanel.vue';
-import FirmwarePanel from './detail/firmware/FirmwarePanel.vue';
-import FirmwareFormModal from './detail/firmware/FirmwareFormModal.vue';
+import DocumentRevisionPanel from './detail/documents/revisions/DocumentRevisionPanel.vue';
+import DocumentRevisionFormModal from './detail/documents/revisions/DocumentRevisionFormModal.vue';
 import BomPanel from './detail/bom/BomPanel.vue';
 import ComparePanel from './detail/compare/ComparePanel.vue';
 import EditRevisionModal from './detail/EditRevisionModal.vue';
@@ -438,7 +437,10 @@ import { useRevisionSelection } from './detail/composables/useRevisionSelection.
 import { usePanelScope } from './detail/composables/usePanelScope.ts';
 import { useDocuments } from './detail/documents/composables/useDocuments.ts';
 import { useDocumentTypes } from './detail/documents/composables/useDocumentTypes.ts';
-import { useFirmwares } from './detail/firmware/composables/useFirmwares.ts';
+import {
+  useDocumentRevisions,
+  type RevisionCardScope,
+} from './detail/documents/revisions/composables/useDocumentRevisions.ts';
 import { useBomAndParts } from './detail/bom/composables/useBomAndParts.ts';
 import { useAlternativeParts } from './detail/bom/composables/useAlternativeParts.ts';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
@@ -572,7 +574,6 @@ const {
   openReplaceConfirm: openDocReplaceConfirm,
   confirmReplace: confirmDocReplace,
   cancelReplace: cancelDocReplace,
-  deleteVisible: docDeleteConfirmVisible,
   deleteTarget: docToDelete,
   deleteBusy: docDeleting,
   openDeleteConfirm: openDocDeleteConfirm,
@@ -589,9 +590,9 @@ const {
   draft: docTypeDraft,
   saving: docTypeSaving,
   saveError: docTypeSaveError,
+  modeLocked: docTypeModeLocked,
   openModal: openDocTypeModal,
   confirmSave: confirmDocTypeSave,
-  deleteVisible: docTypeDeleteVisible,
   deleteTarget: docTypeToDelete,
   deleteBusy: docTypeDeleting,
   openDeleteConfirm: openDocTypeDeleteConfirm,
@@ -599,44 +600,54 @@ const {
   cancelDelete: cancelDocTypeDelete,
 } = useDocumentTypes(panelScope, refreshAllDocScopes);
 
-// Firmware hangs off a sub-product revision, so it shares the Documents tab
-// rather than earning one of its own: `documentsView` picks which of the two
-// panels that tab shows.
-const documentsView = ref<'documents' | 'firmware'>('documents');
+// A versioned card shares the Documents tab rather than earning one of its
+// own: opening one swaps the panel, and closing it clears this. Held as an id
+// and re-derived from the payload, so a refetch (or a delete) keeps it honest.
+const openRevisionTypeId = ref<number | null>(null);
 
-// Kept as one namespace rather than destructured: every name would otherwise
-// need a `firmware` prefix to avoid colliding with the document and revision
-// equivalents (`selected`, `loading`, `saving`, `deleteTarget`…). `reactive`
-// unwraps the refs, so the template reads `fw.selected`, `fw.loading`, and so
-// on.
-const fw = reactive(useFirmwares(panelScope));
+const openRevisionType = computed(
+  () => docs.value.revisionTypes.find((group) => group.id === openRevisionTypeId.value) ?? null,
+);
 
-// One lookup feeding all three: the panel's title, the revision label it
-// shows, and the key that remounts it (so per-revision view state such as the
-// change log's status filter does not follow you to the next revision).
-const firmwareContext = computed(() => {
+// Versions belong to the product / sub-product, not to the selected revision,
+// so the card alone identifies what to load.
+const revisionCardScope = computed<RevisionCardScope | null>(() => {
   const scope = panelScope.value;
-  if (scope?.kind !== 'spRev') return null;
-  const { sp, rev } = spRevInfo(scope.spId, scope.revId);
+  const group = openRevisionType.value;
+  if (!scope || !group) return null;
   return {
-    key: `${scope.spId}:${scope.revId}`,
-    label: rev?.label ?? '',
-    name: sp?.name ?? '',
+    family: scope.kind === 'product' ? 'product' : 'sub-product',
+    documentTypeId: group.id,
   };
 });
 
-const firmwareScopeKey = computed(() => firmwareContext.value?.key ?? '');
-const firmwareRevisionLabel = computed(
-  () => firmwareContext.value?.label ?? '',
-);
-const firmwareTitle = computed(() =>
-  firmwareContext.value
-    ? t('firmware_for', {
-        name: firmwareContext.value.name,
-        label: firmwareContext.value.label,
-      })
-    : t('firmware'),
-);
+/** A version change moves the card's count and production name, which live in
+ *  the Documents payload — and in every revision's cached copy of it. */
+async function refreshDocsForScope() {
+  const scope = panelScope.value;
+  if (scope) await refreshAllDocScopes(scope);
+}
+
+// Kept as one namespace rather than destructured: every name would otherwise
+// need a prefix to avoid colliding with the document and revision equivalents
+// (`selected`, `loading`, `saving`, `deleteTarget`…). `reactive` unwraps the
+// refs, so the template reads `rev.selected`, `rev.loading`, and so on.
+const rev = reactive(useDocumentRevisions(revisionCardScope, refreshDocsForScope));
+
+watch(revisionCardScope, (scope) => {
+  if (scope) void rev.load(scope);
+});
+
+const revisionPanelTitle = computed(() => {
+  const group = openRevisionType.value;
+  if (!group) return '';
+  const scope = panelScope.value;
+  const entity =
+    scope?.kind === 'spRev'
+      ? (spRevInfo(scope.spId, scope.revId).sp?.name ?? '')
+      : (detail.value?.name ?? '');
+  return t('versions_for', { name: group.name, entity });
+});
 
 const {
   bom,
@@ -671,20 +682,15 @@ watch(revisionsMode, (on) => {
 // three scheduler jobs and an ordering that was only implicit.
 //
 // Documents are per product REVISION, so switching revision is a scope change
-// like any other. Firmware exists only under a sub-product revision — and is
-// loaded even while the Documents view is showing, because the entry point
-// there reports the version count and the current production version.
+// like any other. The open versioned card is closed rather than re-resolved:
+// card ids come from two tables, so the same id can name a different card in
+// the other family.
 watch(panelScope, (scope) => {
   if (!scope) return;
+  openRevisionTypeId.value = null;
   void loadContent(scope);
   void loadDocs(scope);
-  if (scope.kind === 'spRev') {
-    void fw.load(scope);
-    void altParts.ensureLoaded(scope.spId, scope.revId);
-  } else {
-    // No firmware to show at product scope; fall back rather than render blank.
-    documentsView.value = 'documents';
-  }
+  if (scope.kind === 'spRev') void altParts.ensureLoaded(scope.spId, scope.revId);
 });
 
 // Product-level BOM lists parts across every linked sub-product revision, so
@@ -1153,10 +1159,7 @@ async function loadAndApplyDefaults() {
   // switching between two products whose active revision happens to be the
   // same object leaves the scope value unchanged, so the watcher wouldn't fire.
   const scope = panelScope.value;
-  if (scope) {
-    void loadDocs(scope);
-    if (scope.kind === 'spRev') void fw.load(scope);
-  }
+  if (scope) void loadDocs(scope);
 }
 
 onMounted(loadAndApplyDefaults);
@@ -1164,12 +1167,12 @@ onMounted(loadAndApplyDefaults);
 watch(productId, () => {
   resetForProductChange();
   clearDocsCache();
-  fw.clearCache();
+  rev.clearCache();
   clearContentCaches();
   bom.value = [];
   parts.value = [];
   activeTab.value = DEFAULT_TAB;
-  documentsView.value = 'documents';
+  openRevisionTypeId.value = null;
   loadAndApplyDefaults();
 });
 </script>

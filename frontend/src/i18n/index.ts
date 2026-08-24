@@ -294,59 +294,68 @@ const messages = {
     errors_download_failed: 'Failed to download file',
     errors_save_failed: 'Failed to save the file',
 
-    // Firmware (per sub-product revision)
-    firmware: 'Firmware',
-    firmware_for: 'Firmware — {name} · {label}',
-    firmware_count: '{n} version | {n} versions',
-    firmware_production_is: 'Production: {name}',
-    firmware_change_log: 'Change log',
-    firmware_version: 'Version',
-    firmware_version_placeholder: 'e.g. v2.14.3',
-    firmware_created_at: 'Created',
-    firmware_created_by: 'Created by',
-    firmware_revision: 'Revision',
-    firmware_version_info: 'Version information',
-    firmware_release_notes: 'Release notes',
-    firmware_files: 'Uploaded files',
-    firmware_status: {
+    // Document versions (a document type with revision mode on)
+    versioned_documents: 'Versioned documents',
+    versions_for: 'Versions — {name} · {entity}',
+    version_count: '{n} version | {n} versions',
+    version_production_is: 'Production: {name}',
+    version_list: 'Versions',
+    version_name: 'Version',
+    version_name_placeholder: 'e.g. v2.14.3',
+    version_created_at: 'Created',
+    version_created_by: 'Created by',
+    version_info: 'Version information',
+    version_release_notes: 'Release notes',
+    version_files: 'Uploaded files',
+    open_versions: 'Open versions',
+    version_status: {
       testing: 'Testing',
       production: 'Production',
       deprecated: 'Deprecated',
     },
-    firmware_is_production: 'This is the production firmware',
-    firmware_is_production_hint:
+    version_is_production: 'This is the production version',
+    version_is_production_hint:
       'Manufacturing and service use this version by default.',
-    firmware_not_production: 'Not the production firmware',
-    firmware_not_production_hint:
-      'Only one version per revision can be the production firmware.',
-    firmware_production_takeover_hint:
-      'The revision\'s current production version will be set to Deprecated.',
+    version_not_production: 'Not the production version',
+    version_not_production_hint:
+      'Only one version per document type can be the production one.',
+    version_production_takeover_hint:
+      'The current production version will be set to Deprecated.',
     set_as_production: 'Set as production',
-    add_firmware: 'New version',
-    edit_firmware: 'Edit version',
-    delete_firmware: 'Delete firmware version',
-    delete_firmware_file: 'Delete firmware file',
-    firmware_created: 'Firmware version created',
-    firmware_updated: 'Firmware version updated',
-    firmware_deleted: 'Firmware version deleted',
-    firmware_files_uploaded: 'Files uploaded',
-    firmware_file_deleted: 'File deleted',
-    firmware_any_extension_hint: 'Any file type is allowed',
-    firmware_executable: 'Executable',
-    firmware_executable_hint:
+    add_version: 'New version',
+    edit_version: 'Edit version',
+    delete_version: 'Delete version',
+    delete_version_file: 'Delete version file',
+    version_created: 'Version created',
+    version_updated: 'Version updated',
+    version_deleted: 'Version deleted',
+    version_files_uploaded: 'Files uploaded',
+    version_file_deleted: 'File deleted',
+    version_any_extension_hint: 'Any file type is allowed',
+    version_executable: 'Executable',
+    version_executable_hint:
       'This file runs as a program once downloaded. Only open it if you trust the source.',
-    no_firmware_yet: 'No firmware version yet',
-    no_firmware_yet_hint:
+    no_versions_yet: 'No version yet',
+    no_versions_yet_hint:
       'Files belong to a version, so create a version first — then upload its files.',
-    add_first_firmware: 'Create the first version',
-    no_firmware_for_filter: 'No firmware version matches this filter.',
-    no_firmware_files: 'No file uploaded to this version yet.',
+    add_first_version: 'Create the first version',
+    no_version_for_filter: 'No version matches this filter.',
+    no_version_files: 'No file uploaded to this version yet.',
     no_release_notes: 'No release notes.',
-    select_firmware_hint: 'Select a version to see its details.',
-    errors_save_firmware_failed: 'Failed to save firmware version',
-    errors_delete_firmware_failed: 'Failed to delete firmware version',
-    errors_upload_firmware_file_failed: 'Failed to upload firmware file',
-    errors_delete_firmware_file_failed: 'Failed to delete firmware file',
+    select_version_hint: 'Select a version to see its details.',
+    document_revision_mode: 'Revision mode',
+    document_revision_mode_hint:
+      'The card keeps versions instead of loose files — each with its own status, release notes and files. Versions belong to this item, not to the selected revision.',
+    document_revision_mode_locked_hint:
+      'Cannot be changed: this document type already holds files or versions.',
+    errors_save_version_failed: 'Failed to save version',
+    errors_delete_version_failed: 'Failed to delete version',
+    errors_upload_version_file_failed: 'Failed to upload version file',
+    errors_delete_version_file_failed: 'Failed to delete version file',
+    event_document_type: 'Document type',
+    event_document_revision: 'Version',
+    event_document_revision_file: 'Version file',
+    // Kept for change-log rows written before versions became generic.
     event_firmware: 'Firmware',
     event_firmware_file: 'Firmware file',
 
@@ -611,12 +620,17 @@ const messages = {
         'This is the default revision. Set another revision as default before deleting it.',
       REVISION_LAST_REMAINING:
         "This is the product's only revision, so it cannot be deleted.",
-      FIRMWARE_NOT_FOUND: 'Firmware version not found',
-      FIRMWARE_NAME_ALREADY_EXISTS:
-        'A firmware version with this name already exists on this revision',
-      FIRMWARE_FILE_NOT_FOUND: 'Firmware file not found',
-      FIRMWARE_FILE_MISSING: 'The firmware file is missing from storage',
-      FIRMWARE_TOO_LARGE: 'The firmware file is too large',
+      DOCUMENT_TYPE_NOT_FOUND: 'Document type not found',
+      DOCUMENT_TYPE_NOT_REVISION_MODE:
+        'This document type does not keep versions',
+      DOCUMENT_TYPE_REVISION_MODE_LOCKED:
+        'Revision mode cannot be changed once the document type holds files or versions',
+      DOCUMENT_REVISION_NOT_FOUND: 'Version not found',
+      DOCUMENT_REVISION_NAME_ALREADY_EXISTS:
+        'A version with this name already exists on this document type',
+      DOCUMENT_REVISION_FILE_NOT_FOUND: 'Version file not found',
+      DOCUMENT_REVISION_FILE_MISSING: 'The version file is missing from storage',
+      DOCUMENT_REVISION_FILE_TOO_LARGE: 'The version file is too large',
       INVALID_REVISION_ID: 'Invalid revision id',
       REVISION_UPDATE_FAILED: 'Failed to update revision',
       COMPARE_INVALID_PARAMS: 'Invalid comparison parameters',
@@ -713,6 +727,8 @@ const messages = {
       delete_document_type: 'The document type was deleted successfully.',
       delete_document_type_with_files:
         'The document type was deleted. {count} file(s) were moved to "Other documents".',
+      delete_document_type_with_versions:
+        'The document type was deleted, along with its {count} version(s) and their files.',
     },
 
     validation: {
@@ -732,9 +748,9 @@ const messages = {
         'This change rebuilds the name of every part in this category. Continue?',
       delete_part_msg: 'Are you sure you want to delete this part',
       delete_document_msg: 'Are you sure you want to delete this document',
-      delete_firmware_msg:
-        'Are you sure you want to delete this firmware version and all of its files',
-      delete_firmware_file_msg: 'Are you sure you want to delete this firmware file',
+      delete_version_msg:
+        'Are you sure you want to delete this version and all of its files',
+      delete_version_file_msg: 'Are you sure you want to delete this file',
       replace_document_msg:
         'Replace "{current}" with "{incoming}"?\nOnly this revision is affected — other revisions keep the current file.',
       archive_product_msg:
@@ -1043,59 +1059,68 @@ const messages = {
     errors_download_failed: 'Nem sikerült letölteni a fájlt',
     errors_save_failed: 'Nem sikerült menteni a fájlt',
 
-    // Firmware (altermék revíziónként)
-    firmware: 'Firmware',
-    firmware_for: 'Firmware — {name} · {label}',
-    firmware_count: '{n} verzió',
-    firmware_production_is: 'Éles: {name}',
-    firmware_change_log: 'Változásnapló',
-    firmware_version: 'Verzió',
-    firmware_version_placeholder: 'pl. v2.14.3',
-    firmware_created_at: 'Létrehozva',
-    firmware_created_by: 'Készítette',
-    firmware_revision: 'Revízió',
-    firmware_version_info: 'Verzió információk',
-    firmware_release_notes: 'Kiadási megjegyzés',
-    firmware_files: 'Feltöltött fájlok',
-    firmware_status: {
+    // Dokumentum verziók (revízió módú dokumentum típus)
+    versioned_documents: 'Verziózott dokumentumok',
+    versions_for: 'Verziók — {name} · {entity}',
+    version_count: '{n} verzió',
+    version_production_is: 'Éles: {name}',
+    version_list: 'Verziók',
+    version_name: 'Verzió',
+    version_name_placeholder: 'pl. v2.14.3',
+    version_created_at: 'Létrehozva',
+    version_created_by: 'Készítette',
+    version_info: 'Verzió információk',
+    version_release_notes: 'Kiadási megjegyzés',
+    version_files: 'Feltöltött fájlok',
+    open_versions: 'Verziók megnyitása',
+    version_status: {
       testing: 'Teszt',
       production: 'Éles',
       deprecated: 'Elavult',
     },
-    firmware_is_production: 'Ez az éles firmware',
-    firmware_is_production_hint:
+    version_is_production: 'Ez az éles verzió',
+    version_is_production_hint:
       'A gyártás és a szerviz alapértelmezetten ezt a verziót használja.',
-    firmware_not_production: 'Nem ez az éles firmware',
-    firmware_not_production_hint:
-      'Revíziónként csak egy verzió lehet az éles firmware.',
-    firmware_production_takeover_hint:
-      'A revízió jelenlegi éles verziója elavult státuszba kerül.',
+    version_not_production: 'Nem ez az éles verzió',
+    version_not_production_hint:
+      'Dokumentum típusonként csak egy verzió lehet az éles.',
+    version_production_takeover_hint:
+      'A jelenlegi éles verzió elavult státuszba kerül.',
     set_as_production: 'Beállítás élesként',
-    add_firmware: 'Új verzió',
-    edit_firmware: 'Verzió szerkesztése',
-    delete_firmware: 'Firmware verzió törlése',
-    delete_firmware_file: 'Firmware fájl törlése',
-    firmware_created: 'Firmware verzió létrehozva',
-    firmware_updated: 'Firmware verzió módosítva',
-    firmware_deleted: 'Firmware verzió törölve',
-    firmware_files_uploaded: 'Fájlok feltöltve',
-    firmware_file_deleted: 'Fájl törölve',
-    firmware_any_extension_hint: 'Bármilyen fájltípus feltölthető',
-    firmware_executable: 'Futtatható',
-    firmware_executable_hint:
+    add_version: 'Új verzió',
+    edit_version: 'Verzió szerkesztése',
+    delete_version: 'Verzió törlése',
+    delete_version_file: 'Verzió fájl törlése',
+    version_created: 'Verzió létrehozva',
+    version_updated: 'Verzió módosítva',
+    version_deleted: 'Verzió törölve',
+    version_files_uploaded: 'Fájlok feltöltve',
+    version_file_deleted: 'Fájl törölve',
+    version_any_extension_hint: 'Bármilyen fájltípus feltölthető',
+    version_executable: 'Futtatható',
+    version_executable_hint:
       'Ez a fájl letöltés után programként fut. Csak megbízható forrásból nyisd meg.',
-    no_firmware_yet: 'Még nincs firmware verzió',
-    no_firmware_yet_hint:
+    no_versions_yet: 'Még nincs verzió',
+    no_versions_yet_hint:
       'A fájlok mindig egy verzióhoz tartoznak, ezért előbb hozz létre egy verziót, utána töltsd fel a fájljait.',
-    add_first_firmware: 'Első verzió létrehozása',
-    no_firmware_for_filter: 'Nincs a szűrésnek megfelelő firmware verzió.',
-    no_firmware_files: 'Ehhez a verzióhoz még nincs feltöltött fájl.',
+    add_first_version: 'Első verzió létrehozása',
+    no_version_for_filter: 'Nincs a szűrésnek megfelelő verzió.',
+    no_version_files: 'Ehhez a verzióhoz még nincs feltöltött fájl.',
     no_release_notes: 'Nincs kiadási megjegyzés.',
-    select_firmware_hint: 'Válassz egy verziót a részletekhez.',
-    errors_save_firmware_failed: 'Nem sikerült menteni a firmware verziót',
-    errors_delete_firmware_failed: 'Nem sikerült törölni a firmware verziót',
-    errors_upload_firmware_file_failed: 'Nem sikerült feltölteni a firmware fájlt',
-    errors_delete_firmware_file_failed: 'Nem sikerült törölni a firmware fájlt',
+    select_version_hint: 'Válassz egy verziót a részletekhez.',
+    document_revision_mode: 'Revízió mód',
+    document_revision_mode_hint:
+      'A kártya külön fájlok helyett verziókat tart nyilván — mindegyiket saját státusszal, kiadási megjegyzéssel és fájlokkal. A verziók ehhez az elemhez tartoznak, nem a kiválasztott revízióhoz.',
+    document_revision_mode_locked_hint:
+      'Nem módosítható: ehhez a dokumentum típushoz már tartoznak fájlok vagy verziók.',
+    errors_save_version_failed: 'Nem sikerült menteni a verziót',
+    errors_delete_version_failed: 'Nem sikerült törölni a verziót',
+    errors_upload_version_file_failed: 'Nem sikerült feltölteni a verzió fájlt',
+    errors_delete_version_file_failed: 'Nem sikerült törölni a verzió fájlt',
+    event_document_type: 'Dokumentum típus',
+    event_document_revision: 'Verzió',
+    event_document_revision_file: 'Verzió fájl',
+    // A verziók általánosítása előtt írt változásnapló sorokhoz.
     event_firmware: 'Firmware',
     event_firmware_file: 'Firmware fájl',
 
@@ -1357,12 +1382,17 @@ const messages = {
         'Ez az alapértelmezett revízió. Törlés előtt állíts be másikat alapértelmezettként.',
       REVISION_LAST_REMAINING:
         'Ez a termék egyetlen revíziója, ezért nem törölhető.',
-      FIRMWARE_NOT_FOUND: 'A firmware verzió nem található',
-      FIRMWARE_NAME_ALREADY_EXISTS:
-        'Ezen a revízión már létezik ilyen nevű firmware verzió',
-      FIRMWARE_FILE_NOT_FOUND: 'A firmware fájl nem található',
-      FIRMWARE_FILE_MISSING: 'A firmware fájl hiányzik a tárolóból',
-      FIRMWARE_TOO_LARGE: 'A firmware fájl túl nagy',
+      DOCUMENT_TYPE_NOT_FOUND: 'A dokumentumtípus nem található',
+      DOCUMENT_TYPE_NOT_REVISION_MODE:
+        'Ez a dokumentumtípus nem tart nyilván verziókat',
+      DOCUMENT_TYPE_REVISION_MODE_LOCKED:
+        'A revízió mód nem módosítható, ha a dokumentumtípushoz már tartoznak fájlok vagy verziók',
+      DOCUMENT_REVISION_NOT_FOUND: 'A verzió nem található',
+      DOCUMENT_REVISION_NAME_ALREADY_EXISTS:
+        'Ehhez a dokumentumtípushoz már tartozik ilyen nevű verzió',
+      DOCUMENT_REVISION_FILE_NOT_FOUND: 'A verzió fájl nem található',
+      DOCUMENT_REVISION_FILE_MISSING: 'A verzió fájl hiányzik a tárolóból',
+      DOCUMENT_REVISION_FILE_TOO_LARGE: 'A verzió fájl túl nagy',
       INVALID_REVISION_ID: 'Érvénytelen revízióazonosító',
       REVISION_UPDATE_FAILED: 'Nem sikerült módosítani a revíziót',
       COMPARE_INVALID_PARAMS: 'Érvénytelen összehasonlítási paraméterek',
@@ -1458,6 +1488,8 @@ const messages = {
       delete_document_type: 'A dokumentumtípus sikeresen törölve.',
       delete_document_type_with_files:
         'A dokumentumtípus törölve. {count} fájl átkerült az "Egyéb dokumentumok" közé.',
+      delete_document_type_with_versions:
+        'A dokumentumtípus törölve, a hozzá tartozó {count} verzióval és azok fájljaival együtt.',
     },
 
     validation: {
@@ -1477,9 +1509,9 @@ const messages = {
         'Ez a módosítás újraépíti a kategória összes alkatrészének nevét. Folytatod?',
       delete_part_msg: 'Biztosan törölni szeretnéd ezt az alkatrészt',
       delete_document_msg: 'Biztosan törölni szeretnéd ezt a dokumentumot',
-      delete_firmware_msg:
-        'Biztosan törölni szeretnéd ezt a firmware verziót és az összes fájlját',
-      delete_firmware_file_msg: 'Biztosan törölni szeretnéd ezt a firmware fájlt',
+      delete_version_msg:
+        'Biztosan törölni szeretnéd ezt a verziót és az összes fájlját',
+      delete_version_file_msg: 'Biztosan törölni szeretnéd ezt a fájlt',
       replace_document_msg:
         'Lecseréled a(z) „{current}” fájlt erre: „{incoming}”?\nCsak ez a revízió változik — a többi revízióban a jelenlegi fájl marad.',
       archive_product_msg:
