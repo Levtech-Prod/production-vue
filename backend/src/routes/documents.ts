@@ -135,9 +135,12 @@ function docResponse(scope: DocumentScope, row: DocumentRow) {
 }
 
 /** Status is per plan §2 — a card holding something is `complete`; an empty one
- *  is `missing` when required and `optional` when not. */
-function cardStatus(template: DocumentTypeTemplate, filled: boolean) {
-  return filled ? 'complete' : template.required ? 'missing' : 'optional';
+ *  is `missing` when required and `optional` when not.
+ *
+ *  What counts as "holding something" differs by card kind: a file for an
+ *  ordinary one, a production version WITH a file for a versioned one. */
+function cardStatus(template: DocumentTypeTemplate, satisfied: boolean) {
+  return satisfied ? 'complete' : template.required ? 'missing' : 'optional';
 }
 
 /**
@@ -206,7 +209,10 @@ function groupDocuments(
         required: template.required,
         custom: template.custom,
         revisionMode: true,
-        status: cardStatus(template, versionCount > 0),
+        // Deliberately not `versionCount > 0`: versions are created before
+        // their files are uploaded, so counting them marked a card complete the
+        // moment it had an empty placeholder on it.
+        status: cardStatus(template, stats?.productionHasFiles ?? false),
         versionCount,
         productionName: stats?.productionName ?? null,
       };

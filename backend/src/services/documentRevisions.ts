@@ -193,6 +193,11 @@ export interface RevisionTypeStats {
   versionCount: number;
   /** Name of the card's production version, if it has one. */
   productionName: string | null;
+  /** Whether that production version actually carries a file. This, not the
+   *  version count, is what satisfies the card: a version with nothing attached
+   *  is a placeholder, and a card whose testing versions have files but whose
+   *  production one does not still has nothing to ship. */
+  productionHasFiles: boolean;
 }
 
 /** One grouped summary per card, for the panel payload. */
@@ -208,19 +213,36 @@ export async function listRevisionStats(
     document_type_id: number;
     version_count: number;
     production_name: string | null;
+    production_has_files: boolean;
   }>(
-    `SELECT ${column} AS document_type_id, COUNT(*)::int AS version_count,
-            MAX(name) FILTER (WHERE status = 'production') AS production_name
-       FROM document_revisions
-      WHERE ${column} = ANY($1::int[])
-      GROUP BY ${column}`,
+    // `bool_or` over a per-row EXISTS rather than a join: joining the files in
+    // would multiply the rows and break the version count in the same query.
+    // At most one row per card can be `production`, so the OR collapses to it.
+    `SELECT dr.${column} AS document_type_id,
+            COUNT(*)::int AS version_count,
+            MAX(dr.name) FILTER (WHERE dr.status = 'production') AS production_name,
+            COALESCE(
+              bool_or(
+                dr.status = 'production'
+                AND EXISTS (SELECT 1 FROM document_revision_files f
+                             WHERE f.document_revision_id = dr.id)
+              ),
+              FALSE
+            ) AS production_has_files
+       FROM document_revisions dr
+      WHERE dr.${column} = ANY($1::int[])
+      GROUP BY dr.${column}`,
     [documentTypeIds],
   );
 
   return new Map(
     result.rows.map((row) => [
       row.document_type_id,
-      { versionCount: row.version_count, productionName: row.production_name },
+      {
+        versionCount: row.version_count,
+        productionName: row.production_name,
+        productionHasFiles: row.production_has_files,
+      },
     ]),
   );
 }

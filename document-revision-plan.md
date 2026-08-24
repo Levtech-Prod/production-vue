@@ -163,8 +163,16 @@ GET    /api/document-revision-files/:fileId/download
 The Documents panel payload gains `revisionTypes` beside `documentTypes` — the
 same card fields plus `versionCount` and `productionName`. Revision-mode types
 are excluded from `documentTypes` so the two sections never show the same card
-twice; both feed the summary counts, where a revision-mode card is `complete`
-once it has at least one version.
+twice; both feed the summary counts.
+
+A versioned card counts as `complete` only when its **production** version
+carries at least one file. Not the version count: versions are created before
+their files are uploaded, so counting them marked a card complete the moment it
+held an empty placeholder. Not "any version has a file" either — a card whose
+testing version is populated but whose production one is empty still has nothing
+to ship. `listRevisionStats` answers it in the same grouped query with a
+`bool_or` over a per-row `EXISTS`, rather than joining the files in, which would
+multiply the rows and distort the version count.
 
 Version changes keep writing the owning product's change log, under event types
 `document_revision` / `document_revision_file` (the old `firmware` /
