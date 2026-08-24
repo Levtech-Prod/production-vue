@@ -49,7 +49,7 @@
               :version-count="group.versionCount"
               :production-name="group.productionName"
               :color-seed="index"
-              :can-manage-type="canManageTypes && canEdit"
+              :can-manage-type="canManageTypes"
               @open="emit('open-revisions', group)"
               @edit-type="emit('edit-type', group)"
               @delete-type="emit('delete-type', group)"

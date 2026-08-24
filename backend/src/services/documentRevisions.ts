@@ -65,6 +65,11 @@ export function revisionColumnFor(scope: DocumentScope): string {
   return SCOPES[scope].revisionColumn;
 }
 
+/** The card's own table, for the row lock that serialises promotions. */
+export function documentTypeTableFor(scope: DocumentScope): string {
+  return SCOPES[scope].typeTable;
+}
+
 /** Everything a document-revision request needs about what it is acting on. */
 export interface RevisionOwner {
   scope: DocumentScope;
@@ -235,6 +240,28 @@ export async function countRevisions(
   return result.rows[0].count;
 }
 
+/**
+ * The storage keys of the files belonging to these versions. Read INSIDE the
+ * deleting transaction, before the cascade takes the rows away.
+ *
+ * The keys, not the folders, are what locate the bytes: files migrated from the
+ * old firmware feature kept their original `documents/firmware/{oldId}-{ver}/`
+ * path (migration 022), so a scan of `documents/revisions/` keyed on the new
+ * version id finds nothing and would leak them.
+ */
+export async function listRevisionFileKeys(
+  db: Queryable,
+  revisionIds: readonly number[],
+): Promise<string[]> {
+  if (revisionIds.length === 0) return [];
+  const result = await db.query<{ storage_key: string }>(
+    `SELECT storage_key FROM document_revision_files
+      WHERE document_revision_id = ANY($1::int[])`,
+    [revisionIds],
+  );
+  return result.rows.map((row) => row.storage_key);
+}
+
 /** Every version id a card holds, so their folders can be removed after the
  *  cascade that deletes the card has committed. */
 export async function listRevisionIds(
@@ -299,9 +326,24 @@ export function placeRevisionFile(
   return { storageKey: `${folder}/${originalName}`, originalName };
 }
 
-/** Remove the folders of the given versions. Call only AFTER the deleting
- *  transaction has committed — an `rm` cannot be rolled back. */
-export function removeRevisionDirs(
+/**
+ * Unlink the given files and then remove the versions' own folders. Call only
+ * AFTER the deleting transaction has committed — neither can be rolled back.
+ *
+ * Both steps are needed: the keys cover files wherever they sit (including the
+ * migrated `documents/firmware/...` ones), the folder sweep clears the now-empty
+ * `documents/revisions/{id}-{name}` directories the keys leave behind.
+ */
+export function removeRevisionFiles(
+  owner: RevisionOwner,
+  revisionIds: readonly number[],
+  storageKeys: readonly string[],
+): void {
+  for (const key of storageKeys) unlinkRevisionFile(key);
+  removeRevisionDirs(owner, revisionIds);
+}
+
+function removeRevisionDirs(
   owner: RevisionOwner,
   revisionIds: readonly number[],
 ): void {

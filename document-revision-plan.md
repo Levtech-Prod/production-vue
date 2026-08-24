@@ -65,8 +65,9 @@ for files migrated from firmware, `firmware`) path SEGMENT, ahead of the static
 mount. Three non-obvious requirements carried over from the firmware guard, all
 still load-bearing:
 
-- decode each segment before comparing (`express.static` decodes, so
-  `%72evisions` would otherwise slip past),
+- decode the WHOLE path once and only then split it (`express.static` decodes
+  the whole path before resolving it — decoding per segment instead let `%2F`
+  smuggle a separator past the check; see §6),
 - compare case-insensitively,
 - match a segment, never a prefix — and never replace this with an allow-list of
   served subtrees, because `uploads/` also holds part, part-category and
@@ -186,3 +187,82 @@ Frontend — `views/products/detail/firmware/**` becomes
 `api/firmwareAPI.ts` become `types/documentRevisions.ts` and
 `api/documentRevisionsAPI.ts`. `DocumentsPanel.vue` gains the versioned section
 and loses the firmware bar; `DocumentTypeFormModal.vue` gains the checkbox.
+
+---
+
+## 6. Review fixes (2026-08-24, after implementation)
+
+A review pass over the finished feature found and fixed the following. Each was
+reproduced before being changed, and the fix verified against a real Express app
+and a real PostgreSQL 16.
+
+- **The unserved-path guard was bypassable with `%2F`.** `req.path` is not
+  decoded, so decoding *per segment* let an encoded separator merge `revisions`
+  into a neighbouring segment: `.../revisions%2F5-v1/x.html` was one segment to
+  the guard and two directories to `express.static`, which served it. Since a
+  versioned card with no extension list takes any file — including `.html` —
+  that was stored XSS on the app's own origin, reachable by anyone the URL was
+  given to. The guard now decodes the whole path once and then splits, exactly
+  as `express.static` does. This flaw predates revision mode: it came over from
+  the original firmware guard.
+- **Deleting a migrated version leaked its files.** Cleanup scanned
+  `documents/revisions/` for a folder named after the new version id, but
+  migrated files kept their old `documents/firmware/{oldId}-{ver}/` path. Files
+  are now located by `storage_key` — read inside the deleting transaction,
+  before the cascade — and the folder sweep only clears what the keys leave
+  behind. Empty legacy `firmware/` directories remain; they hold no bytes.
+- **Concurrent promotions raced.** Two clients promoting different versions
+  could each find the production slot already cleared by the other's demotion,
+  both claim it, and lose to the partial unique index with a bare 500. Create
+  and update now take a `FOR UPDATE` lock on the card row first (card, then
+  version — one lock order), and the production indexes are mapped to a 409 as a
+  backstop. Verified with five simultaneous promotions: all 200, exactly one
+  production, no 500s.
+- **`updateTemplate` / `deleteTemplate` ran their checks outside a
+  transaction**, so a version created in the window could be stranded on a card
+  that was no longer versioned, or have its rows cascaded away with its folder
+  left behind. Both now run in one transaction with the row locked.
+- **A partial upload orphaned bytes outside `_tmp`.** File placement runs before
+  the transaction; a throw part-way through (an over-long name is the reachable
+  case) left the already-moved files where nothing reclaims them. Placement now
+  has its own cleanup.
+- **Multer rejections other than the size limit returned 500** — 21 files at
+  once, or a part under the wrong field name. All now map to a 400 with a code.
+  A non-numeric `DOCUMENT_REVISION_MAX_UPLOAD_MB` also silently disabled the
+  size cap (multer reads `fileSize: NaN` as "no limit"); it now falls back.
+- **Migration 022 could create a duplicate `Firmware` card** when one is
+  inherited from the sub-product TYPE — invisible to both the old guard and the
+  partial unique index, and afterwards neither card could be renamed, because
+  the API's name check spans exactly that join. The migration now aborts with an
+  instruction instead.
+- **The versions panel showed the previous card's versions while the next one
+  loaded**, with live Edit / Delete / Set-as-production buttons — so Delete
+  destroyed a version on a card the user had navigated away from. `loading` now
+  reaches the details and files panes, not just the list.
+- **The Documents payload was fetched twice** on every page load and product
+  switch (an explicit call and the scope watcher, both missing the cache).
+  `useScopedCache` now shares one in-flight request per key between concurrent
+  loads — `refresh` deliberately does not join, since a mutation must never be
+  answered by a response that left before it.
+- **A versions request was fired for the wrong card** on every tree change,
+  because the scope was derived from the not-yet-refetched panel payload and
+  correctness rested on watcher registration order. The open card is now
+  remembered with the entity it belongs to and drops itself when the selection
+  leaves that entity — which also stopped a Documents refetch from re-firing the
+  load and racing the mutation that caused it (that race intermittently left the
+  wrong version selected after creating one).
+- **`loading` could stick on forever**: a mutation's `refresh` superseded an
+  in-flight `load`, which returned early without clearing the flag. Split into
+  two counters — one owns the view, one owns the spinner. This was latent in the
+  documents and BOM panels too.
+- Smaller: a stale "Name: required" error reappeared on reopening the
+  document-type modal; the two card kinds disagreed about editing card
+  definitions on an archived product (the versioned one now matches the
+  ordinary one).
+
+**Left deliberately unchanged:** every version route is `requireAuth` only,
+while the document-*type* routes beside them are `requireAdmin`. That matches
+the firmware routes this replaced and the split documents already use — card
+definitions are admin, card contents are not — but it does mean any logged-in
+user can delete a version and its files irreversibly. Flagged for a decision
+rather than changed.

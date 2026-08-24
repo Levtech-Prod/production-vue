@@ -30,12 +30,14 @@ import {
   type DocumentRevisionPayload,
 } from '../schemas/documentRevisions.schema.js';
 import {
+  documentTypeTableFor,
   ensureRevisionDir,
   findRevisionOwner,
   findRevisionOwnerByType,
+  listRevisionFileKeys,
   ownerProduct,
   placeRevisionFile,
-  removeRevisionDirs,
+  removeRevisionFiles,
   resolveRevisionFilePath,
   revisionColumnFor,
   unlinkRevisionFile,
@@ -50,8 +52,13 @@ const router = Router();
 
 // ── Upload handling ────────────────────────────────────────────────────────
 
+const MAX_UPLOAD_FILES = 20;
+
+// Falls back rather than trusting the parse: multer reads `fileSize: NaN` as
+// "no limit", so a typo in the env var would silently remove the cap.
+const configuredMb = Number(process.env.DOCUMENT_REVISION_MAX_UPLOAD_MB);
 const MAX_UPLOAD_BYTES =
-  Number(process.env.DOCUMENT_REVISION_MAX_UPLOAD_MB || 100) * 1024 * 1024;
+  (Number.isFinite(configuredMb) && configuredMb > 0 ? configuredMb : 100) * 1024 * 1024;
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, ensureDocumentRevisionTmpDir()),
@@ -63,12 +70,22 @@ const storage = multer.diskStorage({
 // only known once the request has been routed (see `extensionRejected`).
 const upload = multer({ storage, limits: { fileSize: MAX_UPLOAD_BYTES } });
 
-/** `upload.array` with the size limit translated into an API error code. */
+/** `upload.array` with its rejections translated into API error codes. Multer
+ *  surfaces all of them as thrown errors, which would otherwise reach the global
+ *  handler as a generic 500 and leave the UI with nothing specific to say. */
 function uploadFiles(req: Request, res: Response, next: NextFunction) {
-  upload.array('files', 20)(req, res, (err: unknown) => {
+  upload.array('files', MAX_UPLOAD_FILES)(req, res, (err: unknown) => {
     if (!err) return next();
-    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_TOO_LARGE });
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_TOO_LARGE });
+      }
+      // LIMIT_FILE_COUNT for too many at once, LIMIT_UNEXPECTED_FILE for a part
+      // under another field name.
+      return res.status(400).json({
+        code: ErrorCodes.DOCUMENT_REVISION_TOO_MANY_FILES,
+        max: MAX_UPLOAD_FILES,
+      });
     }
     return next(err);
   });
@@ -215,14 +232,40 @@ async function loadRevision(scope: DocumentScope, revisionId: number) {
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-/** Did this error come from one of the per-card name indexes? */
-function isDuplicateName(err: unknown): boolean {
+function violatedConstraint(err: unknown): string | null {
   const e = err as { code?: string; constraint?: string } | null;
-  return (
-    e?.code === '23505' &&
-    (e?.constraint === 'ux_document_revisions_pdt_name' ||
-      e?.constraint === 'ux_document_revisions_spdt_name')
-  );
+  return e?.code === '23505' ? (e.constraint ?? null) : null;
+}
+
+/** Turn a unique-index violation into the code the UI can act on, or null when
+ *  it is not one. The production indexes are covered as well as the name ones:
+ *  the row lock below should make them unreachable, but a 500 is the wrong
+ *  answer if it ever is not. */
+function duplicateCode(err: unknown): string | null {
+  switch (violatedConstraint(err)) {
+    case 'ux_document_revisions_pdt_name':
+    case 'ux_document_revisions_spdt_name':
+      return ErrorCodes.DOCUMENT_REVISION_NAME_ALREADY_EXISTS;
+    case 'ux_document_revisions_pdt_production':
+    case 'ux_document_revisions_spdt_production':
+      return ErrorCodes.DOCUMENT_REVISION_PRODUCTION_CONFLICT;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Serialise everything that touches one card's versions.
+ *
+ * Without it two concurrent promotions both find the production slot already
+ * cleared by the other's demotion, both claim it, and the partial unique index
+ * rejects the loser with a bare 23505. Taken before the version row's own lock
+ * so the lock order is always card-then-row.
+ */
+async function lockCard(client: PoolClient, scope: DocumentScope, documentTypeId: number) {
+  await client.query(`SELECT 1 FROM ${documentTypeTableFor(scope)} WHERE id = $1 FOR UPDATE`, [
+    documentTypeId,
+  ]);
 }
 
 /**
@@ -337,6 +380,7 @@ function registerCardRoutes(scope: DocumentScope, itemBase: string) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await lockCard(client, scope, documentTypeId);
 
       const events: AuditEvent[] = [];
       if (data.status === 'production') {
@@ -364,9 +408,8 @@ function registerCardRoutes(scope: DocumentScope, itemBase: string) {
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
-      if (isDuplicateName(err)) {
-        return res.status(409).json({ code: ErrorCodes.DOCUMENT_REVISION_NAME_ALREADY_EXISTS });
-      }
+      const code = duplicateCode(err);
+      if (code) return res.status(409).json({ code });
       throw err;
     } finally {
       client.release();
@@ -395,6 +438,7 @@ router.put('/document-revisions/:id', requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await lockCard(client, owner.scope, owner.documentTypeId);
 
     const before = await client.query<{
       name: string;
@@ -440,9 +484,8 @@ router.put('/document-revisions/:id', requireAuth, async (req, res) => {
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
-    if (isDuplicateName(err)) {
-      return res.status(409).json({ code: ErrorCodes.DOCUMENT_REVISION_NAME_ALREADY_EXISTS });
-    }
+    const code = duplicateCode(err);
+    if (code) return res.status(409).json({ code });
     throw err;
   } finally {
     client.release();
@@ -460,9 +503,15 @@ router.delete('/document-revisions/:id', requireAuth, async (req, res) => {
   const owner = await findRevisionOwner(pool, revisionId);
   if (!owner) return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
 
+  let storageKeys: string[];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Before the DELETE: the cascade takes the file rows with it, and their
+    // keys are the only thing that locates the bytes on disk.
+    storageKeys = await listRevisionFileKeys(client, [revisionId]);
+
     const deleted = await client.query<{ id: number }>(
       `DELETE FROM document_revisions WHERE id = $1 RETURNING id`,
       [revisionId],
@@ -488,8 +537,7 @@ router.delete('/document-revisions/:id', requireAuth, async (req, res) => {
     client.release();
   }
 
-  // Post-commit: `document_revision_files` cascaded, so the whole folder goes.
-  removeRevisionDirs(owner, [revisionId]);
+  removeRevisionFiles(owner, [revisionId], storageKeys);
   res.json({ id: revisionId, deleted: true });
 });
 
@@ -543,10 +591,23 @@ router.post('/document-revisions/:id/files', requireAuth, uploadFiles, async (re
 
   // Resolved once, not per file: it walks and creates several directory levels.
   const folder = ensureRevisionDir(owner, { id: revisionId, name: owner.revisionName });
-  const placed = files.map((file, index) => ({
-    file,
-    ...placeRevisionFile(file, folder, names[index]),
-  }));
+
+  // Placement runs outside the transaction below, so it needs its own cleanup:
+  // a throw part-way (an over-long name is the reachable case) would otherwise
+  // leave the already-moved files in the version folder with no row and no
+  // sweeper — `_tmp` is the only thing tmpSweeper reclaims.
+  const placed: { file: Express.Multer.File; storageKey: string; originalName: string }[] = [];
+  try {
+    files.forEach((file, index) => {
+      placed.push({ file, ...placeRevisionFile(file, folder, names[index]) });
+    });
+  } catch (err) {
+    for (const item of placed) {
+      if (!existingKeys.has(item.storageKey)) unlinkRevisionFile(item.storageKey);
+    }
+    discardUploads(req);
+    throw err;
+  }
 
   // `pool.connect()` is inside the try so that a failure to get a client is
   // covered by the same cleanup as a failed transaction — by this point the

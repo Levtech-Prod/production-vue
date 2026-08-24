@@ -628,6 +628,9 @@ const messages = {
       DOCUMENT_REVISION_NOT_FOUND: 'Version not found',
       DOCUMENT_REVISION_NAME_ALREADY_EXISTS:
         'A version with this name already exists on this document type',
+      DOCUMENT_REVISION_PRODUCTION_CONFLICT:
+        'Another version was set as production at the same moment. Reload and try again.',
+      DOCUMENT_REVISION_TOO_MANY_FILES: 'Too many files at once — upload up to 20.',
       DOCUMENT_REVISION_FILE_NOT_FOUND: 'Version file not found',
       DOCUMENT_REVISION_FILE_MISSING: 'The version file is missing from storage',
       DOCUMENT_REVISION_FILE_TOO_LARGE: 'The version file is too large',
@@ -1390,6 +1393,9 @@ const messages = {
       DOCUMENT_REVISION_NOT_FOUND: 'A verzió nem található',
       DOCUMENT_REVISION_NAME_ALREADY_EXISTS:
         'Ehhez a dokumentumtípushoz már tartozik ilyen nevű verzió',
+      DOCUMENT_REVISION_PRODUCTION_CONFLICT:
+        'Ugyanabban a pillanatban egy másik verzió lett élesre állítva. Töltsd újra és próbáld meg ismét.',
+      DOCUMENT_REVISION_TOO_MANY_FILES: 'Túl sok fájl egyszerre — legfeljebb 20 tölthető fel.',
       DOCUMENT_REVISION_FILE_NOT_FOUND: 'A verzió fájl nem található',
       DOCUMENT_REVISION_FILE_MISSING: 'A verzió fájl hiányzik a tárolóból',
       DOCUMENT_REVISION_FILE_TOO_LARGE: 'A verzió fájl túl nagy',

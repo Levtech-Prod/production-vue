@@ -1,9 +1,17 @@
 <template>
   <div class="min-h-0 overflow-y-auto px-4 py-3">
+    <!-- Checked before everything else: on a cache miss the list still holds
+         the previously opened card's versions, and rendering one of those here
+         put live Edit / Delete / Set-as-production buttons on a version the
+         user is no longer looking at. -->
+    <p v-if="loading" class="py-10 text-center text-sm text-slate-400">
+      {{ t('loading') }}
+    </p>
+
     <!-- Nothing exists yet. Files live INSIDE a version, so this is the one
          place that has to explain the order of operations — without it the
          panel reads as broken rather than empty. -->
-    <div v-if="!hasRevisions" class="flex flex-col items-center gap-2 px-4 py-10 text-center">
+    <div v-else-if="!hasRevisions" class="flex flex-col items-center gap-2 px-4 py-10 text-center">
       <span class="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500">
         <component :is="icon" class="h-6 w-6" />
       </span>
@@ -150,6 +158,9 @@ const props = defineProps<{
   /** False means the card has no versions at all, which needs a different
    *  empty state from "none selected". */
   hasRevisions: boolean;
+  /** The card's versions are still being fetched, so `revision` may still be
+   *  the previously opened card's. */
+  loading: boolean;
   /** The card's own icon, so the empty state looks like what you clicked. */
   iconName: string;
   canEdit: boolean;

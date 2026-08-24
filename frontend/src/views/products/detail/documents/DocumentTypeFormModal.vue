@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { TriangleAlert } from 'lucide-vue-next';
 import BaseModal from '../../../../components/modal/BaseModal.vue';
@@ -136,6 +136,12 @@ const title = computed(() =>
 );
 
 const nameError = ref<string | null>(null);
+
+// Cleared on open, not on close: cancelling leaves the message behind, and it
+// would then greet the next card on a blank form.
+watch(open, (isOpen) => {
+  if (isOpen) nameError.value = null;
+});
 const extensionsInput = ref<InstanceType<typeof ChipsInput> | null>(
   null,
 );

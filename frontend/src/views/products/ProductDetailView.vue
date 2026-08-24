@@ -105,7 +105,7 @@
               @add-type="openDocTypeModal(null)"
               @edit-type="openDocTypeModal"
               @delete-type="openDocTypeDeleteConfirm"
-              @open-revisions="openRevisionTypeId = $event.id"
+              @open-revisions="openRevisions($event.id)"
             />
             <DocumentRevisionPanel
               v-else
@@ -120,7 +120,7 @@
               :saving="rev.saving"
               :uploading="rev.uploading"
               :can-edit="!isArchived"
-              @back="openRevisionTypeId = null"
+              @back="openRevisionCard = null"
               @select="rev.selectedId = $event"
               @create="rev.openCreate"
               @edit="rev.openEdit"
@@ -460,7 +460,7 @@ import type {
   SubProductPayload,
   NewSubProductRevisionPayload,
 } from '../../types/products.ts';
-import type { EditRevisionPayload } from './detail/types.ts';
+import type { EditRevisionPayload, PanelScope } from './detail/types.ts';
 
 const { t, te } = useI18n();
 const route = useRoute();
@@ -600,26 +600,50 @@ const {
   cancelDelete: cancelDocTypeDelete,
 } = useDocumentTypes(panelScope, refreshAllDocScopes);
 
-// A versioned card shares the Documents tab rather than earning one of its
-// own: opening one swaps the panel, and closing it clears this. Held as an id
-// and re-derived from the payload, so a refetch (or a delete) keeps it honest.
-const openRevisionTypeId = ref<number | null>(null);
+// A versioned card shares the Documents tab rather than earning one of its own:
+// opening one swaps the panel, and closing it clears this.
+//
+// Remembered together with the entity it belongs to. Card ids come from two
+// tables, so the same id names a different card in the other family — and the
+// entity is also what decides whether the card survives a selection change:
+// versions hang off the product / sub-product, so switching REVISION keeps the
+// panel open while switching entity closes it.
+interface OpenRevisionCard extends RevisionCardScope {
+  entityId: number;
+}
 
-const openRevisionType = computed(
-  () => docs.value.revisionTypes.find((group) => group.id === openRevisionTypeId.value) ?? null,
-);
+const openRevisionCard = ref<OpenRevisionCard | null>(null);
 
-// Versions belong to the product / sub-product, not to the selected revision,
-// so the card alone identifies what to load.
+function revisionOwnerOf(scope: PanelScope) {
+  return scope.kind === 'product'
+    ? { family: 'product' as const, entityId: scope.productId }
+    : { family: 'sub-product' as const, entityId: scope.spId };
+}
+
+// Deliberately independent of `docs`: it used to read the card out of the
+// payload, which meant every Documents refetch produced a new scope object and
+// re-fired the load — racing the mutation that caused the refetch.
 const revisionCardScope = computed<RevisionCardScope | null>(() => {
+  const card = openRevisionCard.value;
   const scope = panelScope.value;
-  const group = openRevisionType.value;
-  if (!scope || !group) return null;
-  return {
-    family: scope.kind === 'product' ? 'product' : 'sub-product',
-    documentTypeId: group.id,
-  };
+  if (!card || !scope) return null;
+  const owner = revisionOwnerOf(scope);
+  if (owner.family !== card.family || owner.entityId !== card.entityId) return null;
+  return { family: card.family, documentTypeId: card.documentTypeId };
 });
+
+/** The open card as the payload currently describes it — the panel's title,
+ *  icon and extension list, and what closes the panel when the card is gone. */
+const openRevisionType = computed(() => {
+  const id = revisionCardScope.value?.documentTypeId;
+  return id == null ? null : (docs.value.revisionTypes.find((g) => g.id === id) ?? null);
+});
+
+function openRevisions(documentTypeId: number) {
+  const scope = panelScope.value;
+  if (!scope) return;
+  openRevisionCard.value = { ...revisionOwnerOf(scope), documentTypeId };
+}
 
 /** A version change moves the card's count and production name, which live in
  *  the Documents payload — and in every revision's cached copy of it. */
@@ -682,12 +706,10 @@ watch(revisionsMode, (on) => {
 // three scheduler jobs and an ordering that was only implicit.
 //
 // Documents are per product REVISION, so switching revision is a scope change
-// like any other. The open versioned card is closed rather than re-resolved:
-// card ids come from two tables, so the same id can name a different card in
-// the other family.
+// like any other. Nothing closes the versioned card here — `revisionCardScope`
+// drops it by itself once the selection leaves its entity.
 watch(panelScope, (scope) => {
   if (!scope) return;
-  openRevisionTypeId.value = null;
   void loadContent(scope);
   void loadDocs(scope);
   if (scope.kind === 'spRev') void altParts.ensureLoaded(scope.spId, scope.revId);
@@ -1158,6 +1180,8 @@ async function loadAndApplyDefaults() {
   // Explicit (rather than relying solely on the panelScope watcher above):
   // switching between two products whose active revision happens to be the
   // same object leaves the scope value unchanged, so the watcher wouldn't fire.
+  // When the watcher DOES also fire, `useScopedCache` joins the two onto one
+  // request rather than issuing a second identical GET.
   const scope = panelScope.value;
   if (scope) void loadDocs(scope);
 }
@@ -1172,7 +1196,7 @@ watch(productId, () => {
   bom.value = [];
   parts.value = [];
   activeTab.value = DEFAULT_TAB;
-  openRevisionTypeId.value = null;
+  openRevisionCard.value = null;
   loadAndApplyDefaults();
 });
 </script>

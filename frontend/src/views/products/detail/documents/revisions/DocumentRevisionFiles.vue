@@ -2,12 +2,12 @@
   <div class="flex max-h-64 min-h-0 flex-col border-t border-slate-100">
     <div class="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
       <h4 class="text-sm font-semibold text-slate-700">{{ t('version_files') }}</h4>
-      <span v-if="revision" class="text-xs text-slate-400">
+      <span v-if="revision && !loading" class="text-xs text-slate-400">
         {{ t('n_files', revision.files.length) }}
       </span>
 
       <label
-        v-if="revision && canEdit"
+        v-if="revision && canEdit && !loading"
         class="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50"
         :class="{ 'pointer-events-none opacity-50': uploading }"
         :title="acceptHint"
@@ -19,7 +19,12 @@
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-3 pt-2">
-      <p v-if="!hasRevisions" class="py-4 text-center text-sm text-slate-400">
+      <!-- Same reason as the details pane: until the fetch lands, `revision`
+           may still belong to the card that was open before. -->
+      <p v-if="loading" class="py-4 text-center text-sm text-slate-400">
+        {{ t('loading') }}
+      </p>
+      <p v-else-if="!hasRevisions" class="py-4 text-center text-sm text-slate-400">
         {{ t('no_versions_yet_hint') }}
       </p>
       <p v-else-if="!revision" class="py-4 text-center text-sm text-slate-400">
@@ -100,6 +105,8 @@ import type {
 const props = defineProps<{
   revision: DocumentRevision | null;
   hasRevisions: boolean;
+  /** The card's versions are still being fetched. */
+  loading: boolean;
   /** The card's list; empty means it takes any file type, which is the point of
    *  a versioned card and why it is never statically served. */
   allowedExtensions: string[];

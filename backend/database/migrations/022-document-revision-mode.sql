@@ -152,6 +152,30 @@ BEGIN
       'A "Firmware" document type already holds uploaded documents on a sub-product that also has firmware. Migration 022 would turn that card into a versioned one and hide them — rename the card, then re-run.';
   END IF;
 
+  -- A card INHERITED from the sub-product type is invisible to both the insert
+  -- below (the uniqueness index is partial on sub_product_id) and to the update
+  -- after it, so it would end up beside the new one: two "Firmware" cards on
+  -- the same panel, and — because the API's name check spans exactly this join
+  -- (nameTaken in routes/documentTypes.ts) — neither of them editable again.
+  -- Revision mode cannot be moved onto the inherited card either: it is shared
+  -- by every sub-product of that type and owns no single history.
+  IF EXISTS (
+    SELECT 1
+      FROM sub_product_document_types dt
+      JOIN sub_product_types t ON t.id = dt.sub_product_type_id
+      JOIN sub_products sp ON sp.type = t.name
+     WHERE dt.sub_product_type_id IS NOT NULL
+       AND LOWER(dt.name) = 'firmware'
+       AND EXISTS (
+             SELECT 1 FROM firmwares f
+               JOIN sub_product_revisions spr ON spr.id = f.sub_product_revision_id
+              WHERE spr.sub_product_id = sp.id
+           )
+  ) THEN
+    RAISE EXCEPTION
+      'A sub-product type defines a "Firmware" document type that a sub-product with firmware inherits. Migration 022 would add a second card of that name to that sub-product. Rename the inherited card in Settings, then re-run.';
+  END IF;
+
   INSERT INTO sub_product_document_types
     (sub_product_id, name, icon, allowed_extensions, required, revision_mode, sort_order)
   SELECT sp.id, 'Firmware', 'cpu', '{}'::text[], FALSE, TRUE,

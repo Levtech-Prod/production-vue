@@ -25,8 +25,9 @@ import type { DocumentScope, Queryable } from '../services/documentFiles.js';
 import {
   countRevisions,
   findRevisionOwnerByType,
+  listRevisionFileKeys,
   listRevisionIds,
-  removeRevisionDirs,
+  removeRevisionFiles,
 } from '../services/documentRevisions.js';
 import { requireId } from './routeParams.js';
 
@@ -350,13 +351,14 @@ async function createForEntity(
  *  implies — versions when it is versioned, documents when it is not? That is
  *  what makes the mode a one-way choice once the card is in use. */
 async function templateHasContent(
+  db: Queryable,
   config: ScopeConfig,
   id: number,
   revisionMode: boolean,
 ): Promise<boolean> {
-  if (revisionMode) return (await countRevisions(pool, config.documentScope, id)) > 0;
+  if (revisionMode) return (await countRevisions(db, config.documentScope, id)) > 0;
 
-  const result = await query<{ count: number }>(
+  const result = await db.query<{ count: number }>(
     `SELECT COUNT(*)::int AS count FROM ${config.revisionDocumentTable} WHERE document_type_id = $1`,
     [id],
   );
@@ -377,31 +379,45 @@ async function updateTemplate(
 ) {
   const { table, entityColumn, errors } = config;
 
-  const existing = await query<{ entity_id: number | null; revision_mode: boolean }>(
-    `SELECT ${entityColumn} AS entity_id, revision_mode FROM ${table} WHERE id = $1`,
-    [id],
-  );
-  if (existing.rowCount === 0) return res.status(404).json({ code: errors.templateNotFound });
-
-  // Only meaningful for an entity-scoped row; a type-scoped one is covered by
-  // its partial unique index alone (see nameTaken).
-  const entityId = existing.rows[0].entity_id;
-  if (entityId !== null && (await nameTaken(pool, config, entityId, data.name, id))) {
-    return res.status(409).json({ code: errors.alreadyExists });
-  }
-
-  // A type-scoped template can never be versioned (migration 022's CHECK): it
-  // is shared by every product of its type, so it has no single history to own.
-  const wasRevisionMode = existing.rows[0].revision_mode;
-  const revisionMode = entityId === null ? false : data.revisionMode;
-  if (revisionMode !== wasRevisionMode && (await templateHasContent(config, id, wasRevisionMode))) {
-    // Turning it on would hide the card's documents; turning it off would
-    // strand its versions. Neither is recoverable by toggling back.
-    return res.status(409).json({ code: ErrorCodes.DOCUMENT_TYPE_REVISION_MODE_LOCKED });
-  }
-
+  // One transaction with the row locked: the mode check below is a read
+  // followed by a write, and a version created in between would be stranded on
+  // a card that is no longer versioned.
+  const client = await pool.connect();
   try {
-    const result = await query<DocumentTypeDbRow>(
+    await client.query('BEGIN');
+
+    const existing = await client.query<{ entity_id: number | null; revision_mode: boolean }>(
+      `SELECT ${entityColumn} AS entity_id, revision_mode FROM ${table} WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    if (existing.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: errors.templateNotFound });
+    }
+
+    // Only meaningful for an entity-scoped row; a type-scoped one is covered by
+    // its partial unique index alone (see nameTaken).
+    const entityId = existing.rows[0].entity_id;
+    if (entityId !== null && (await nameTaken(client, config, entityId, data.name, id))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: errors.alreadyExists });
+    }
+
+    // A type-scoped template can never be versioned (migration 022's CHECK): it
+    // is shared by every product of its type, so it has no single history to own.
+    const wasRevisionMode = existing.rows[0].revision_mode;
+    const revisionMode = entityId === null ? false : data.revisionMode;
+    if (
+      revisionMode !== wasRevisionMode &&
+      (await templateHasContent(client, config, id, wasRevisionMode))
+    ) {
+      // Turning it on would hide the card's documents; turning it off would
+      // strand its versions. Neither is recoverable by toggling back.
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: ErrorCodes.DOCUMENT_TYPE_REVISION_MODE_LOCKED });
+    }
+
+    const result = await client.query<DocumentTypeDbRow>(
       `UPDATE ${table}
        SET name = $1, icon = $2, allowed_extensions = $3::text[], required = $4,
            revision_mode = $5
@@ -409,10 +425,15 @@ async function updateTemplate(
        RETURNING ${columns(config)}`,
       [data.name, data.icon, data.allowedExtensions, data.required, revisionMode, id],
     );
+
+    await client.query('COMMIT');
     return res.json(documentTypeRow(result.rows[0]));
   } catch (err) {
+    await client.query('ROLLBACK');
     if (isUniqueViolation(err)) return res.status(409).json({ code: errors.alreadyExists });
     throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -428,14 +449,11 @@ async function updateTemplate(
 async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
   const { table, revisionDocumentTable, documentScope, errors } = config;
 
-  // Read before the delete: the cascade takes the version rows with it, and
-  // afterwards there is nothing left to derive their folders from.
-  const [owner, revisionIds] = await Promise.all([
-    findRevisionOwnerByType(pool, documentScope, id),
-    listRevisionIds(pool, documentScope, id),
-  ]);
+  const owner = await findRevisionOwnerByType(pool, documentScope, id);
 
   let affectedCount: number;
+  let revisionIds: number[];
+  let storageKeys: string[];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -445,6 +463,13 @@ async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
       [id],
     );
     affectedCount = affected.rows[0].count;
+
+    // Inside the transaction and before the DELETE: the cascade takes the
+    // version rows with it, and afterwards there is nothing left to locate
+    // their files from. Reading them outside would also miss a version created
+    // in the meantime.
+    revisionIds = await listRevisionIds(client, documentScope, id);
+    storageKeys = await listRevisionFileKeys(client, revisionIds);
 
     const result = await client.query(`DELETE FROM ${table} WHERE id = $1 RETURNING id`, [id]);
     if (result.rowCount === 0) {
@@ -460,7 +485,7 @@ async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
     client.release();
   }
 
-  if (owner) removeRevisionDirs(owner, revisionIds);
+  if (owner) removeRevisionFiles(owner, revisionIds, storageKeys);
   return res.json({
     id,
     deleted: true,

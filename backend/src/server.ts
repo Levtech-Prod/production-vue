@@ -52,20 +52,25 @@ app.use('/api/audit-logs', auditLogRoutes);
 // their original storage keys (migration 022), so their folders are still named
 // that way on disk.
 //
-// Segments are decoded before comparison: express.static decodes the path
-// itself, so a request for `%72evisions` would otherwise slip past this guard
-// and still resolve to the same directory.
 const UNSERVED_SEGMENTS = new Set(['revisions', 'firmware']);
 
 app.use('/uploads', (req, res, next) => {
-  for (const segment of req.path.split('/')) {
-    let decoded = segment;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      // Malformed escape — compare the raw segment rather than throwing.
-    }
-    if (UNSERVED_SEGMENTS.has(decoded.toLowerCase())) return res.sendStatus(404);
+  // Decode the WHOLE path once and only then split — exactly what
+  // express.static does before resolving it. Decoding per segment instead let
+  // `%2F` smuggle a separator past this check: `.../revisions%2F5-v1/x.html`
+  // is ONE segment here but two directories to express.static, so no segment
+  // ever equalled `revisions` and the file was served. That made any uploaded
+  // .html stored XSS on this origin.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(req.path);
+  } catch {
+    // Malformed escape: there is no safe way to tell what it would resolve to,
+    // and express.static rejects it too.
+    return res.sendStatus(400);
+  }
+  for (const segment of pathname.split('/')) {
+    if (UNSERVED_SEGMENTS.has(segment.toLowerCase())) return res.sendStatus(404);
   }
   next();
 });
