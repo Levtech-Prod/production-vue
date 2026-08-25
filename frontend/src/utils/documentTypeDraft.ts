@@ -1,9 +1,10 @@
 // The edit buffer behind both document type forms — the settings table row
 // (views/settings/DocumentTypeRowForm.vue) and the Documents panel's modal
 // (views/products/detail/documents/DocumentTypeFormModal.vue). They render
-// differently but hold the same four fields under the same rules, so the
-// shape, its defaults and its one validation rule live here rather than being
-// written out twice.
+// differently but hold the same fields under the same rules, so the shape, its
+// defaults and its one validation rule live here rather than being written out
+// twice. Only the panel's modal offers `revisionMode`: a type-scoped template
+// can never be versioned, and the settings row leaves it at its default.
 import type { DocumentTypeDraft, DocumentTypePayload } from '../types/documentTypes.ts';
 
 /** What a document type starts as before the admin picks anything. */
@@ -17,6 +18,7 @@ interface DocumentTypeLike {
   icon: string;
   allowedExtensions: string[];
   required: boolean;
+  revisionMode: boolean;
 }
 
 /** A blank draft for a new, unsaved document type. */
@@ -27,6 +29,7 @@ export function emptyDocumentTypeDraft(): DocumentTypeDraft {
     icon: DEFAULT_DOCUMENT_TYPE_ICON,
     allowedExtensions: [],
     required: true,
+    revisionMode: false,
   };
 }
 
@@ -40,6 +43,7 @@ export function documentTypeDraftFrom(item: DocumentTypeLike): DocumentTypeDraft
     icon: item.icon,
     allowedExtensions: [...item.allowedExtensions],
     required: item.required,
+    revisionMode: item.revisionMode,
   };
 }
 
@@ -50,6 +54,7 @@ export function documentTypePayloadFrom(draft: DocumentTypeDraft): DocumentTypeP
     icon: draft.icon,
     allowedExtensions: draft.allowedExtensions,
     required: draft.required,
+    revisionMode: draft.revisionMode,
   };
 }
 

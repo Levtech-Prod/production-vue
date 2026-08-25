@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { pool } from '../db.js';
-import { firmwareTmpDir, tmpDir, TMP_PUBLIC_PREFIX } from './uploadPaths.js';
+import { documentRevisionTmpDir, tmpDir, TMP_PUBLIC_PREFIX } from './uploadPaths.js';
 
 /** How long a staged file may sit unclaimed. Long enough to cover a form left
  *  open over a lunch break, short enough that `_tmp` stays small. */
@@ -59,11 +59,11 @@ function sweepDir(dir: string, inUse: Set<string>): number {
 }
 
 /** Sweep both staging dirs (`sweepDir` skips subdirectories, so the nested
- *  firmware one does not sweep itself). Firmware needs no in-use check: a
- *  firmware upload is filed within the request that staged it, so nothing ever
- *  holds a reference to a file still sitting there. */
+ *  revision one does not sweep itself). Version files need no in-use check: the
+ *  upload is filed within the request that staged it, so nothing ever holds a
+ *  reference to a file still sitting there. */
 async function sweepTmp(): Promise<number> {
-  return sweepDir(tmpDir, await stagedNamesInUse()) + sweepDir(firmwareTmpDir, new Set());
+  return sweepDir(tmpDir, await stagedNamesInUse()) + sweepDir(documentRevisionTmpDir, new Set());
 }
 
 /** Sweep on boot, then hourly. Failures are logged, never fatal. */

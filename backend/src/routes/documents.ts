@@ -50,6 +50,10 @@ import {
   type DocumentTypeTemplate,
   type LinkableDocumentRow,
 } from '../services/documentFiles.js';
+import {
+  listRevisionStats,
+  type RevisionTypeStats,
+} from '../services/documentRevisions.js';
 import { ensureTmpDir } from '../services/uploadPaths.js';
 import { parseId } from './routeParams.js';
 
@@ -130,20 +134,35 @@ function docResponse(scope: DocumentScope, row: DocumentRow) {
   };
 }
 
+/** Status is per plan §2 — a card holding something is `complete`; an empty one
+ *  is `missing` when required and `optional` when not.
+ *
+ *  What counts as "holding something" differs by card kind: a file for an
+ *  ordinary one, a production version WITH a file for a versioned one. */
+function cardStatus(template: DocumentTypeTemplate, satisfied: boolean) {
+  return satisfied ? 'complete' : template.required ? 'missing' : 'optional';
+}
+
 /**
  * The panel payload: one entry per document type that applies to this entity
  * (inherited from its type first, then the entity's own — see
  * `listDocumentTypesForRevision`), each carrying its files and status, plus the
- * ad-hoc "Other documents" bucket and a summary. Status is per plan §2 — a
- * type with at least one file is `complete`; with none it is `missing` when
- * required and `optional` when not.
+ * ad-hoc "Other documents" bucket and a summary.
+ *
+ * Versioned cards come back separately in `revisionTypes`: they hold versions
+ * rather than files, and the panel renders them in a section of their own. Both
+ * lists feed the summary.
  */
 function groupDocuments(
   scope: DocumentScope,
   templates: DocumentTypeTemplate[],
   rows: DocumentRow[],
+  revisionStats: Map<number, RevisionTypeStats>,
 ) {
-  const templateIds = new Set(templates.map((template) => template.id));
+  const fileTemplates = templates.filter((template) => !template.revision_mode);
+  // A file filed under a card that later became versioned would fall through to
+  // "Other" rather than disappear — see the comment on `templateIds` below.
+  const templateIds = new Set(fileTemplates.map((template) => template.id));
   const filesByType = new Map<number, DocumentRow[]>();
   const other: DocumentRow[] = [];
   for (const row of rows) {
@@ -160,9 +179,8 @@ function groupDocuments(
     filesByType.set(row.document_type_id, list);
   }
 
-  const documentTypes = templates.map((template) => {
+  const documentTypes = fileTemplates.map((template) => {
     const files = filesByType.get(template.id) ?? [];
-    const status = files.length > 0 ? 'complete' : template.required ? 'missing' : 'optional';
     return {
       id: template.id,
       name: template.name,
@@ -172,18 +190,43 @@ function groupDocuments(
       // Defined on this entity alone, so the panel may edit or delete it in
       // place; an inherited one belongs to the type and to the settings page.
       custom: template.custom,
-      status,
+      revisionMode: false,
+      status: cardStatus(template, files.length > 0),
       files: files.map((row) => docResponse(scope, row)),
     };
   });
 
+  const revisionTypes = templates
+    .filter((template) => template.revision_mode)
+    .map((template) => {
+      const stats = revisionStats.get(template.id);
+      const versionCount = stats?.versionCount ?? 0;
+      return {
+        id: template.id,
+        name: template.name,
+        icon: template.icon,
+        allowedExtensions: template.allowed_extensions ?? [],
+        required: template.required,
+        custom: template.custom,
+        revisionMode: true,
+        // Deliberately not `versionCount > 0`: versions are created before
+        // their files are uploaded, so counting them marked a card complete the
+        // moment it had an empty placeholder on it.
+        status: cardStatus(template, stats?.productionHasFiles ?? false),
+        versionCount,
+        productionName: stats?.productionName ?? null,
+      };
+    });
+
+  const cards = [...documentTypes, ...revisionTypes];
   return {
     documentTypes,
+    revisionTypes,
     other: other.map((row) => docResponse(scope, row)),
     summary: {
-      totalTypes: documentTypes.length,
-      uploaded: documentTypes.filter((t) => t.status === 'complete').length,
-      missing: documentTypes.filter((t) => t.status === 'missing').length,
+      totalTypes: cards.length,
+      uploaded: cards.filter((card) => card.status === 'complete').length,
+      missing: cards.filter((card) => card.status === 'missing').length,
     },
   };
 }
@@ -225,8 +268,9 @@ async function prepareIncomingFile(
       body.documentTypeId,
     );
     // Not just "unknown id" — also a real document type belonging to a
-    // different product/sub-product type than this revision's entity.
-    if (!template) {
+    // different product/sub-product type than this revision's entity, or a
+    // versioned card, whose files go through routes/documentRevisions.ts.
+    if (!template || template.revision_mode) {
       safeUnlink(file.path);
       return { error: ErrorCodes.DOCUMENT_TYPE_MISMATCH };
     }
@@ -387,9 +431,12 @@ async function handleLink(
   }
 
   if (documentTypeId != null) {
-    // Same rule as upload: the card must belong to this entity's type.
+    // Same rule as upload: the card must belong to this entity's type, and
+    // must not be a versioned one.
     const template = await findDocumentTypeForRevision(pool, scope, revisionId, documentTypeId);
-    if (!template) return res.status(400).json({ code: ErrorCodes.DOCUMENT_TYPE_MISMATCH });
+    if (!template || template.revision_mode) {
+      return res.status(400).json({ code: ErrorCodes.DOCUMENT_TYPE_MISMATCH });
+    }
 
     // The target card's extension rule applies to a borrowed file too.
     if (!extensionAllowed(template, source.original_name)) {
@@ -472,7 +519,14 @@ async function loadPanel(scope: DocumentScope, revisionId: number) {
     listDocumentTypesForRevision(pool, scope, revisionId),
     listDocuments(pool, scope, revisionId),
   ]);
-  return groupDocuments(scope, templates, rows);
+  // Versions belong to the entity rather than to this revision, so they are
+  // summarised per card instead of being loaded here (see documentRevisions.ts).
+  const revisionStats = await listRevisionStats(
+    pool,
+    scope,
+    templates.filter((template) => template.revision_mode).map((template) => template.id),
+  );
+  return groupDocuments(scope, templates, rows, revisionStats);
 }
 
 /**

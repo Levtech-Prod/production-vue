@@ -195,8 +195,29 @@ export interface DocumentTypeGroup {
   /** Defined on this product / sub-product alone rather than inherited from
    *  its type — the only kind the panel can edit or delete in place. */
   custom: boolean;
+  /** Always false here; versioned cards come back in `revisionTypes`. Carried
+   *  so both card kinds seed an edit draft the same way. */
+  revisionMode: boolean;
   status: DocumentTypeStatus;
   files: ProductDocument[];
+}
+
+/** A versioned card: it holds versions rather than files, so the panel shows a
+ *  summary here and loads the versions themselves only when one is opened.
+ *  Versions belong to the product / sub-product, not to the selected revision. */
+export interface RevisionTypeGroup {
+  id: number;
+  name: string;
+  icon: string;
+  allowedExtensions: string[];
+  required: boolean;
+  custom: boolean;
+  /** Always true here. */
+  revisionMode: boolean;
+  status: DocumentTypeStatus;
+  versionCount: number;
+  /** Name of the card's production version, if it has one. */
+  productionName: string | null;
 }
 
 /** A file offered by the "use a file from another revision" picker. */
@@ -220,6 +241,8 @@ export interface LinkableDocuments {
 /** The Documents panel payload for one revision, grouped server-side. */
 export interface RevisionDocuments {
   documentTypes: DocumentTypeGroup[];
+  /** Cards with revision mode on, rendered in their own section. */
+  revisionTypes: RevisionTypeGroup[];
   /** Ad-hoc uploads that belong to no document type. */
   other: ProductDocument[];
   summary: { totalTypes: number; uploaded: number; missing: number };

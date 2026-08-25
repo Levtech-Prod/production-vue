@@ -22,7 +22,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { fileExtension } from './firmwareHelpers.ts';
+import { fileExtension } from './revisionFileHelpers.ts';
 
 const props = defineProps<{ fileName: string }>();
 
@@ -32,8 +32,8 @@ const extension = computed(() => fileExtension(props.fileName));
  *  recognisable truncated ('kicad_pcb' -> 'KICA'). */
 const label = computed(() => (extension.value || '?').slice(1, 5) || '?');
 
-// Grouped by what the file IS to someone browsing a firmware release, not by
-// MIME family: the image you flash, the build artifacts beside it, the source
+// Grouped by what the file IS to someone browsing a release, not by MIME
+// family: the image you flash, the build artifacts beside it, the source
 // archive, the board data, the paperwork, the tool you run.
 const FAMILIES: Record<string, string> = {
   '.hex': 'binary', '.bin': 'binary', '.uf2': 'binary', '.dfu': 'binary',

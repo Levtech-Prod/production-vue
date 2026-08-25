@@ -264,76 +264,65 @@ export function resolveUnderProducts(key: string): string | null {
   return resolveUnder(productsDir, key);
 }
 
-// ── Firmware tree ──────────────────────────────────────────────────────────
+// ── Document revision tree ─────────────────────────────────────────────────
 //
-// Firmware lives inside the owning sub-product's folder, beside its documents:
+// The versions of a revision-mode document type live inside the owning entity's
+// documents folder:
 //
-//   uploads/products/{product}/sub-products/{sub}/documents/firmware/
-//     {firmwareId}-{Version}/
-//       firmware.hex
+//   uploads/products/{product}/documents/revisions/{revisionId}-{Name}/
+//   uploads/products/{product}/sub-products/{sub}/documents/revisions/...
 //
-// That puts it under `uploads/products/`, which IS statically served — and
-// firmware accepts EVERY file extension (see routes/firmwares.ts), so an
-// uploaded .html or .svg would be stored XSS on this origin. server.ts
-// therefore 404s any `/uploads/**` path containing a `firmware` SEGMENT,
-// ahead of the static mount; the authenticated download route is the only way
-// to read one back. Moving this folder means moving that guard with it.
+// That puts them under `uploads/products/`, which IS statically served — and a
+// card with no extension list accepts EVERY extension (see
+// routes/documentRevisions.ts), so an uploaded .html or .svg would be stored
+// XSS on this origin. server.ts therefore 404s any `/uploads/**` path
+// containing a `revisions` SEGMENT, ahead of the static mount; the
+// authenticated download route is the only way to read one back. Moving this
+// folder means moving that guard with it.
 
-/** The `firmware/` folder inside an entity's documents folder, relative to
- *  `productsDir`. */
-export function firmwareDirFor(entityDir: string): string {
-  return `${documentsDirFor(entityDir)}/firmware`;
-}
+/** Staging area for version file uploads. A `revisions` segment, so the same
+ *  guard that hides the stored files hides half-written ones too — `_tmp`
+ *  itself is served, and an unfiltered upload must not sit in it unprotected. */
+export const documentRevisionTmpDir = path.join(tmpDir, 'revisions');
 
-/** Staging area for firmware uploads. A `firmware` segment, so the same guard
- *  that hides the stored files hides half-written ones too — `_tmp` itself is
- *  served, and an unfiltered upload must not sit in it unprotected. */
-export const firmwareTmpDir = path.join(tmpDir, 'firmware');
-
-/** `firmwareTmpDir`, created on demand. Multer needs it to already exist. */
-export function ensureFirmwareTmpDir(): string {
-  fs.mkdirSync(firmwareTmpDir, { recursive: true });
-  return firmwareTmpDir;
+/** `documentRevisionTmpDir`, created on demand. Multer needs it to exist. */
+export function ensureDocumentRevisionTmpDir(): string {
+  fs.mkdirSync(documentRevisionTmpDir, { recursive: true });
+  return documentRevisionTmpDir;
 }
 
 /**
- * A firmware's own folder, relative to `productsDir`, as
- * `{product}/sub-products/{sub}/documents/firmware/{id}-{Version}` — created if
- * missing, parents included.
+ * One version's folder, relative to `productsDir`, as
+ * `{entityDocumentsDir}/revisions/{id}-{Name}` — created if missing, parents
+ * included.
  */
-export function ensureFirmwareDir(
-  product: FolderEntity,
-  subProduct: FolderEntity,
-  firmware: { id: number; name: string },
+export function ensureDocumentRevisionDir(
+  entityDocumentsDir: string,
+  revision: { id: number; name: string },
 ): string {
-  const base = firmwareDirFor(ensureSubProductDir(product, subProduct));
+  const base = `${entityDocumentsDir}/revisions`;
   const baseAbs = path.join(productsDir, base);
   fs.mkdirSync(baseAbs, { recursive: true });
-  return `${base}/${ensureEntityFolder(baseAbs, firmware.id, firmware.name, null)}`;
+  return `${base}/${ensureEntityFolder(baseAbs, revision.id, revision.name, null)}`;
 }
 
 /**
- * Remove the folders of the given firmwares. Call only AFTER the deleting
+ * Remove the folders of the given versions. Call only AFTER the deleting
  * transaction has committed — an `rm` cannot be rolled back. Deleting a whole
- * sub-product needs no counterpart: `removeEntityFolder` takes the documents
- * folder, and the firmware tree inside it, with everything else.
+ * product or sub-product needs no counterpart: `removeEntityFolder` takes the
+ * documents folder, and the revision tree inside it, with everything else.
  *
- * Takes a list rather than one id because deleting a revision deletes all of
- * its firmwares at once, and locating the containing folder costs three
- * directory scans — worth paying once, not once per firmware.
+ * Takes a list rather than one id because deleting a card deletes all of its
+ * versions at once, and one directory scan covers the lot.
  */
-export function removeFirmwareDirs(
-  product: FolderEntity,
-  subProduct: FolderEntity,
-  firmwareIds: readonly number[],
+export function removeDocumentRevisionDirs(
+  entityDocumentsDir: string,
+  revisionIds: readonly number[],
 ): void {
-  if (firmwareIds.length === 0) return;
+  if (revisionIds.length === 0) return;
 
-  const entityDir = findEntityDir(product, subProduct);
-  if (!entityDir) return;
-  const baseAbs = path.join(productsDir, firmwareDirFor(entityDir));
-
-  const wanted = new Set(firmwareIds);
+  const baseAbs = path.join(productsDir, entityDocumentsDir, 'revisions');
+  const wanted = new Set(revisionIds);
   for (const folder of directoriesIn(baseAbs)) {
     if (wanted.has(folderId(folder) ?? -1)) {
       fs.rmSync(path.join(baseAbs, folder), { recursive: true, force: true });

@@ -30,7 +30,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       PORT: 4000
       FRONTEND_URL: "*"
-      FIRMWARE_MAX_UPLOAD_MB: ${FIRMWARE_MAX_UPLOAD_MB:-100}
+      DOCUMENT_REVISION_MAX_UPLOAD_MB: ${DOCUMENT_REVISION_MAX_UPLOAD_MB:-100}
     volumes:
       - ./backend/uploads:/app/uploads
 

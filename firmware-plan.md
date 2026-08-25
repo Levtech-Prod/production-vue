@@ -1,3 +1,8 @@
+> **Superseded (2026-08-24).** Firmware is no longer a feature of its own:
+> it is one document type with revision mode on. See
+> `document-revision-plan.md` and migration 022. Kept for the history of the
+> decisions the generic model inherited.
+
 # Firmware management — plan
 
 Firmware versions per sub-product revision: upload, version details, change log

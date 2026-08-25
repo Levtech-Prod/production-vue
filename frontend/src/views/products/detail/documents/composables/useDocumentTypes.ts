@@ -11,14 +11,23 @@ import {
   documentTypePayloadFrom,
   emptyDocumentTypeDraft,
 } from '../../../../../utils/documentTypeDraft.ts';
-import type { DocumentTypeGroup } from '../../../../../types/products.ts';
+import type { DocumentTypeGroup, RevisionTypeGroup } from '../../../../../types/products.ts';
 import type { DocumentTypeDraft } from '../../../../../types/documentTypes.ts';
 import type { PanelScope } from '../../types.ts';
 
+/** Either kind of card the panel can edit or delete. */
+type PanelCard = DocumentTypeGroup | RevisionTypeGroup;
+
 /** A card being deleted, held while its confirmation modal is open. */
 interface PendingType {
-  group: DocumentTypeGroup;
+  group: PanelCard;
   scope: PanelScope;
+}
+
+/** Does this card already hold documents or versions? That is what settles its
+ *  revision mode — see the guard in routes/documentTypes.ts. */
+function cardHasContent(group: PanelCard): boolean {
+  return 'files' in group ? group.files.length > 0 : group.versionCount > 0;
 }
 
 /**
@@ -46,6 +55,7 @@ export function useDocumentTypes(
   const draft = ref<DocumentTypeDraft>(emptyDocumentTypeDraft());
   const saving = ref(false);
   const saveError = ref<string | null>(null);
+  const modeLocked = ref(false);
 
   // Captured when the form opens, not read at save time: the user can change
   // the tree selection while the dialog is up, and the save belongs to the
@@ -60,11 +70,12 @@ export function useDocumentTypes(
   }
 
   /** `group` null opens the add form; otherwise it edits that card. */
-  function openModal(group: DocumentTypeGroup | null) {
+  function openModal(group: PanelCard | null) {
     const current = panelScope.value;
     if (!current) return;
     scope.value = current;
     draft.value = group ? documentTypeDraftFrom(group) : emptyDocumentTypeDraft();
+    modeLocked.value = group ? cardHasContent(group) : false;
     saveError.value = null;
     modalOpen.value = true;
   }
@@ -105,11 +116,15 @@ export function useDocumentTypes(
       const { api } = targetFor(target);
       const res = await api.remove(group.id);
       await onChanged(target);
-      // Files are never destroyed — the FK demotes them to "Other documents".
+      // Ordinary files are never destroyed — the FK demotes them to "Other
+      // documents". A versioned card's versions have nowhere to go, so they are
+      // deleted with it and the toast has to say so.
       notify.showToast(
-        res.data.filesMovedToOther > 0
-          ? t('success.delete_document_type_with_files', { count: res.data.filesMovedToOther })
-          : t('success.delete_document_type'),
+        res.data.versionsDeleted > 0
+          ? t('success.delete_document_type_with_versions', { count: res.data.versionsDeleted })
+          : res.data.filesMovedToOther > 0
+            ? t('success.delete_document_type_with_files', { count: res.data.filesMovedToOther })
+            : t('success.delete_document_type'),
         'success',
       );
       return true;
@@ -122,7 +137,7 @@ export function useDocumentTypes(
     }
   });
 
-  function openDeleteConfirm(group: DocumentTypeGroup) {
+  function openDeleteConfirm(group: PanelCard) {
     if (!panelScope.value) return;
     deleteConfirm.open({ group, scope: panelScope.value });
   }
@@ -132,10 +147,10 @@ export function useDocumentTypes(
     draft,
     saving,
     saveError,
+    modeLocked,
     openModal,
     confirmSave,
 
-    deleteVisible: computed(() => deleteConfirm.target.value != null),
     deleteTarget: computed(() => deleteConfirm.target.value),
     deleteBusy: deleteConfirm.busy,
     openDeleteConfirm,
