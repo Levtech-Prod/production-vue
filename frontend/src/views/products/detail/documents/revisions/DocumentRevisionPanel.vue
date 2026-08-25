@@ -1,7 +1,7 @@
 <template>
-  <!-- Three regions: the version change log down the left, the selected
-       version's details on the right, its files along the bottom. The modals
-       live in ProductDetailView with every other modal on the page. -->
+  <!-- Three regions: the version list down the left, the selected version's
+       details on the right, its files along the bottom. The modals live in
+       ProductDetailView with every other modal on the page. -->
   <div class="grid min-h-0 flex-1 grid-rows-[auto_1fr_auto]">
     <div class="flex shrink-0 items-center gap-2 border-b border-slate-100 px-3 py-2">
       <button
@@ -17,18 +17,19 @@
     </div>
 
     <div class="grid min-h-0 grid-cols-[16rem_1fr]">
-      <FirmwareChangeLog
-        :firmwares="firmwares"
+      <DocumentRevisionList
+        :revisions="revisions"
         :selected-id="selectedId"
         :loading="loading"
         :can-edit="canEdit"
         @select="emit('select', $event)"
         @create="emit('create')"
       />
-      <FirmwareDetails
-        :firmware="selected"
-        :has-firmwares="firmwares.length > 0"
-        :revision-label="revisionLabel"
+      <DocumentRevisionDetails
+        :revision="selected"
+        :has-revisions="revisions.length > 0"
+        :icon-name="iconName"
+        :loading="loading"
         :can-edit="canEdit"
         :saving="saving"
         @create="emit('create')"
@@ -38,9 +39,11 @@
       />
     </div>
 
-    <FirmwareFiles
-      :firmware="selected"
-      :has-firmwares="firmwares.length > 0"
+    <DocumentRevisionFiles
+      :revision="selected"
+      :has-revisions="revisions.length > 0"
+      :allowed-extensions="allowedExtensions"
+      :loading="loading"
       :can-edit="canEdit"
       :uploading="uploading"
       @upload="emit('upload', $event)"
@@ -52,16 +55,20 @@
 <script setup lang="ts">
 import { ChevronLeft } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import FirmwareChangeLog from './FirmwareChangeLog.vue';
-import FirmwareDetails from './FirmwareDetails.vue';
-import FirmwareFiles from './FirmwareFiles.vue';
-import type { Firmware, FirmwareFile } from '../../../../types/firmware.ts';
+import DocumentRevisionList from './DocumentRevisionList.vue';
+import DocumentRevisionDetails from './DocumentRevisionDetails.vue';
+import DocumentRevisionFiles from './DocumentRevisionFiles.vue';
+import type {
+  DocumentRevision,
+  DocumentRevisionFile,
+} from '../../../../../types/documentRevisions.ts';
 
 defineProps<{
   title: string;
-  revisionLabel: string;
-  firmwares: Firmware[];
-  selected: Firmware | null;
+  iconName: string;
+  allowedExtensions: string[];
+  revisions: DocumentRevision[];
+  selected: DocumentRevision | null;
   selectedId: number | null;
   loading: boolean;
   saving: boolean;
@@ -71,13 +78,13 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'back'): void;
-  (e: 'select', firmwareId: number): void;
+  (e: 'select', revisionId: number): void;
   (e: 'create'): void;
-  (e: 'edit', firmware: Firmware): void;
-  (e: 'delete', firmware: Firmware): void;
-  (e: 'set-production', firmware: Firmware): void;
+  (e: 'edit', revision: DocumentRevision): void;
+  (e: 'delete', revision: DocumentRevision): void;
+  (e: 'set-production', revision: DocumentRevision): void;
   (e: 'upload', files: File[]): void;
-  (e: 'delete-file', file: FirmwareFile): void;
+  (e: 'delete-file', file: DocumentRevisionFile): void;
 }>();
 
 const { t } = useI18n();

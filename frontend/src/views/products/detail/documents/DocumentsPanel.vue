@@ -13,7 +13,7 @@
         </span>
 
         <dl
-          v-if="!loading && docs.documentTypes.length > 0"
+          v-if="!loading && docs.summary.totalTypes > 0"
           class="flex shrink-0 items-center gap-3 text-[11px]"
         >
           <div v-for="stat in stats" :key="stat.labelKey" class="flex items-baseline gap-1">
@@ -28,35 +28,39 @@
       </div>
 
       <template v-else>
-        <!-- Firmware. Deliberately outside the card grid and styled unlike a
-             document type: a firmware is a versioned build with its own change
-             log, not another file slot. Sub-products only — a product revision
-             has no firmware of its own. -->
-        <button
-          v-if="showFirmware"
-          type="button"
-          class="mb-3 flex w-full items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 py-2.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50"
-          @click="emit('open-firmware')"
+        <!-- Versioned cards, in a section of their own above the grid: they
+             hold versions with a status and a change history, not a file slot,
+             and their versions belong to the product / sub-product rather than
+             to the revision on screen. -->
+        <section
+          v-if="docs.revisionTypes.length > 0"
+          class="mb-4 rounded-xl border border-emerald-200 p-3"
         >
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
-            <Cpu class="h-5 w-5" />
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-sm font-semibold text-slate-800">{{ t('firmware') }}</span>
-            <span class="block truncate text-xs text-slate-500">
-              {{ t('firmware_count', firmwareCount) }}
-              <template v-if="productionFirmwareName">
-                &middot; {{ t('firmware_production_is', { name: productionFirmwareName }) }}
-              </template>
-            </span>
-          </span>
-          <ChevronRight class="h-4 w-4 shrink-0 text-indigo-400" />
-        </button>
+          <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            {{ t('versioned_documents') }}
+          </p>
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <RevisionTypeCard
+              v-for="(group, index) in docs.revisionTypes"
+              :key="group.id"
+              :name="group.name"
+              :icon-name="group.icon"
+              :status="group.status"
+              :version-count="group.versionCount"
+              :production-name="group.productionName"
+              :color-seed="index"
+              :can-manage-type="canManageTypes"
+              @open="emit('open-revisions', group)"
+              @edit-type="emit('edit-type', group)"
+              @delete-type="emit('delete-type', group)"
+            />
+          </div>
+        </section>
 
         <!-- No requirements defined for this product/sub-product type yet:
              ad-hoc uploads still work, so explain where they come from. -->
         <p
-          v-if="docs.documentTypes.length === 0"
+          v-if="docs.documentTypes.length === 0 && docs.revisionTypes.length === 0"
           class="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"
         >
           {{ t('no_document_types_hint') }}
@@ -134,13 +138,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ChevronRight, Cpu, Plus } from 'lucide-vue-next';
+import { Plus } from 'lucide-vue-next';
 import DocumentTypeCard from './DocumentTypeCard.vue';
+import RevisionTypeCard from './RevisionTypeCard.vue';
 import DocumentFilesModal, { type DocumentFilesGroup } from './DocumentFilesModal.vue';
 import type {
   DocumentTypeGroup,
   ProductDocument,
   RevisionDocuments,
+  RevisionTypeGroup,
 } from '../../../../types/products.ts';
 
 const props = defineProps<{
@@ -150,12 +156,6 @@ const props = defineProps<{
   canEdit: boolean;
   /** May the viewer define document types for this product (admin)? */
   canManageTypes: boolean;
-  /** Firmware belongs to a sub-product revision, so the entry point only
-   *  appears when one is selected. */
-  showFirmware: boolean;
-  firmwareCount: number;
-  /** Name of this revision's production firmware, if it has one. */
-  productionFirmwareName: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -167,10 +167,10 @@ const emit = defineEmits<{
   (e: 'link-doc', documentTypeId: number | null, cardName: string): void;
   /** Document types belonging to this product alone. */
   (e: 'add-type'): void;
-  (e: 'edit-type', group: DocumentTypeGroup): void;
-  (e: 'delete-type', group: DocumentTypeGroup): void;
-  /** Swap the right panel over to the firmware section. */
-  (e: 'open-firmware'): void;
+  (e: 'edit-type', group: DocumentTypeGroup | RevisionTypeGroup): void;
+  (e: 'delete-type', group: DocumentTypeGroup | RevisionTypeGroup): void;
+  /** Swap the right panel over to this card's versions. */
+  (e: 'open-revisions', group: RevisionTypeGroup): void;
 }>();
 
 const { t } = useI18n();

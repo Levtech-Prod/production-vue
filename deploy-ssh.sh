@@ -52,9 +52,11 @@ command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker not found. Start Dock
 docker info >/dev/null 2>&1 || { echo "ERROR: Docker daemon not running. Open Docker Desktop and wait for the whale icon."; exit 1; }
 docker buildx version >/dev/null 2>&1 || { echo "ERROR: docker buildx not available. Update Docker Desktop."; exit 1; }
 
-for m in "${MIGRATIONS[@]}"; do
-  [[ -f "backend/database/migrations/$m" ]] || { echo "ERROR: migration not found: backend/database/migrations/$m"; exit 1; }
-done
+if [[ ${#MIGRATIONS[@]} -gt 0 ]]; then
+  for m in "${MIGRATIONS[@]}"; do
+    [[ -f "backend/database/migrations/$m" ]] || { echo "ERROR: migration not found: backend/database/migrations/$m"; exit 1; }
+  done
+fi
 
 # --- Git state -------------------------------------------------------------
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -94,20 +96,24 @@ echo "==> Copying $TAR to NAS..."
 $SCP "$TAR" "${NAS_USER}@${NAS_HOST}:${NAS_PATH}/"
 
 # Copy any migration files we're about to apply, so they exist on the NAS.
-for m in "${MIGRATIONS[@]}"; do
-  echo "==> Copying migration $m to NAS..."
-  $SCP "backend/database/migrations/$m" "${NAS_USER}@${NAS_HOST}:${NAS_PATH}/backend/database/migrations/"
-done
+if [[ ${#MIGRATIONS[@]} -gt 0 ]]; then
+  for m in "${MIGRATIONS[@]}"; do
+    echo "==> Copying migration $m to NAS..."
+    $SCP "backend/database/migrations/$m" "${NAS_USER}@${NAS_HOST}:${NAS_PATH}/backend/database/migrations/"
+  done
+fi
 
 # --- Load + restart on the NAS --------------------------------------------
 echo "==> Loading images and recreating containers on the NAS (sudo may prompt)..."
 $SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} load -i ${TAR} && sudo ${DOCKER} compose -p ${PROJECT_NAME} up -d"
 
 # --- Apply migrations ------------------------------------------------------
-for m in "${MIGRATIONS[@]}"; do
-  echo "==> Applying migration $m..."
-  $SSH_TTY "sudo ${DOCKER} exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}"
-done
+if [[ ${#MIGRATIONS[@]} -gt 0 ]]; then
+  for m in "${MIGRATIONS[@]}"; do
+    echo "==> Applying migration $m..."
+    $SSH_TTY "sudo ${DOCKER} exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}"
+  done
+fi
 
 # --- Verify ----------------------------------------------------------------
 echo "==> Container status:"

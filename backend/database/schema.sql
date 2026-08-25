@@ -352,10 +352,16 @@ CREATE TABLE IF NOT EXISTS product_document_types (
   icon               VARCHAR(60)  NOT NULL,
   allowed_extensions TEXT[] NOT NULL DEFAULT '{}',
   required           BOOLEAN NOT NULL DEFAULT TRUE,
+  -- Holds versions rather than loose files (see "Document revisions" below).
+  revision_mode      BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order         INTEGER NOT NULL DEFAULT 0,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT product_document_types_scope_chk
-    CHECK ((product_type_id IS NULL) <> (product_id IS NULL))
+    CHECK ((product_type_id IS NULL) <> (product_id IS NULL)),
+  -- A type-scoped template is shared by every product of its type, so it has
+  -- no single version history to own.
+  CONSTRAINT product_document_types_revision_scope_chk
+    CHECK (NOT revision_mode OR product_id IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS sub_product_document_types (
@@ -366,10 +372,13 @@ CREATE TABLE IF NOT EXISTS sub_product_document_types (
   icon                VARCHAR(60)  NOT NULL,
   allowed_extensions  TEXT[] NOT NULL DEFAULT '{}',
   required            BOOLEAN NOT NULL DEFAULT TRUE,
+  revision_mode       BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order          INTEGER NOT NULL DEFAULT 0,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT sub_product_document_types_scope_chk
-    CHECK ((sub_product_type_id IS NULL) <> (sub_product_id IS NULL))
+    CHECK ((sub_product_type_id IS NULL) <> (sub_product_id IS NULL)),
+  CONSTRAINT sub_product_document_types_revision_scope_chk
+    CHECK (NOT revision_mode OR sub_product_id IS NOT NULL)
 );
 
 -- One partial unique index per scope rather than a table-level UNIQUE: the
@@ -468,68 +477,80 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
   ON audit_logs (entity_type, entity_id, created_at DESC);
 
 -- ===========================================================================
--- Firmware (see migration 019)
+-- Document revisions (see migration 022)
 -- ---------------------------------------------------------------------------
--- A firmware belongs to exactly ONE sub-product revision: a revision carries
--- several firmwares, a firmware is never shared across revisions — hence a
--- plain FK and no junction table.
+-- The versions a revision-mode document type holds. A card carries several
+-- versions; a version belongs to exactly one card, and at most one of them is
+-- `production`.
 --
--- Deliberately NOT built on `stored_files`: nothing is shared between
--- firmwares, so carry-forward / copy-on-write have nothing to do here.
+-- Versions belong to the ENTITY, not to a product revision — a revision-mode
+-- card shows one history whichever product revision is selected. Hence
+-- `revision_mode` is only legal on an entity-scoped template (see the CHECKs
+-- above), and the template id alone identifies the owning product /
+-- sub-product, so there is no second FK to it.
 --
--- Files live beside the sub-product's documents, at
--- `uploads/products/{product}/sub-products/{sub}/documents/firmware/{id}-{ver}/`.
--- That is inside the statically served tree, and firmware accepts EVERY file
--- extension — so server.ts 404s any `/uploads/**` path containing a `firmware`
+-- Deliberately NOT built on `stored_files`: nothing is shared between versions,
+-- so carry-forward / copy-on-write have nothing to do here.
+--
+-- Files live inside the entity's documents folder, at
+-- `.../documents/revisions/{revisionId}-{Name}/`. That is inside the statically
+-- served tree, and a card with no `allowed_extensions` accepts EVERY file
+-- extension — so server.ts 404s any `/uploads/**` path containing a `revisions`
 -- segment, ahead of the static mount. Removing that guard turns any uploaded
 -- .html or .svg into stored XSS on the app's own origin.
 -- ===========================================================================
 
-CREATE TABLE IF NOT EXISTS firmwares (
-  id                      SERIAL PRIMARY KEY,
-  sub_product_revision_id INTEGER NOT NULL
-                            REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
-  name                    VARCHAR(120) NOT NULL,
-  status                  VARCHAR(20)  NOT NULL DEFAULT 'testing'
-                            CHECK (status IN ('testing', 'production', 'deprecated')),
-  release_notes           TEXT,
-  created_by              INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS document_revisions (
+  id                           SERIAL PRIMARY KEY,
+  product_document_type_id     INTEGER REFERENCES product_document_types(id) ON DELETE CASCADE,
+  sub_product_document_type_id INTEGER REFERENCES sub_product_document_types(id) ON DELETE CASCADE,
+  name                         VARCHAR(120) NOT NULL,
+  status                       VARCHAR(20)  NOT NULL DEFAULT 'testing'
+                                 CHECK (status IN ('testing', 'production', 'deprecated')),
+  release_notes                TEXT,
+  created_by                   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT document_revisions_scope_chk
+    CHECK ((product_document_type_id IS NULL) <> (sub_product_document_type_id IS NULL))
 );
 
 -- Keyed on LOWER(name), like the document-type name indexes: "v2.1" beside
 -- "V2.1" is a duplicate to anyone reading the version list.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_revision_name
-  ON firmwares(sub_product_revision_id, LOWER(name));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_document_revisions_pdt_name
+  ON document_revisions(product_document_type_id, LOWER(name))
+  WHERE product_document_type_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_document_revisions_spdt_name
+  ON document_revisions(sub_product_document_type_id, LOWER(name))
+  WHERE sub_product_document_type_id IS NOT NULL;
 
--- "Only one production firmware per revision", enforced by the database
--- rather than by application code.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_firmwares_one_production
-  ON firmwares(sub_product_revision_id) WHERE status = 'production';
+-- "Only one production version per card", enforced by the database rather than
+-- by application code.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_document_revisions_pdt_production
+  ON document_revisions(product_document_type_id)
+  WHERE status = 'production' AND product_document_type_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_document_revisions_spdt_production
+  ON document_revisions(sub_product_document_type_id)
+  WHERE status = 'production' AND sub_product_document_type_id IS NOT NULL;
 
--- No plain index on sub_product_revision_id: ux_firmwares_revision_name above
--- already leads with that column, so every lookup by revision uses it.
-DROP INDEX IF EXISTS idx_firmwares_revision_id;
-
-CREATE TABLE IF NOT EXISTS firmware_files (
-  id            SERIAL PRIMARY KEY,
-  firmware_id   INTEGER NOT NULL REFERENCES firmwares(id) ON DELETE CASCADE,
-  storage_key   TEXT     NOT NULL,   -- path relative to uploads/products/
-  original_name VARCHAR(255) NOT NULL,
-  size_bytes    BIGINT   NOT NULL,
-  mime_type     VARCHAR(100),
-  uploaded_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS document_revision_files (
+  id                   SERIAL PRIMARY KEY,
+  document_revision_id INTEGER NOT NULL REFERENCES document_revisions(id) ON DELETE CASCADE,
+  storage_key          TEXT     NOT NULL,   -- path relative to uploads/products/
+  original_name        VARCHAR(255) NOT NULL,
+  size_bytes           BIGINT   NOT NULL,
+  mime_type            VARCHAR(100),
+  uploaded_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Also the conflict target for re-uploading a file of the same name: the row
 -- is updated in place and the bytes overwritten.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_firmware_files_storage_key
-  ON firmware_files(storage_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_document_revision_files_storage_key
+  ON document_revision_files(storage_key);
 
-CREATE INDEX IF NOT EXISTS idx_firmware_files_firmware_id
-  ON firmware_files(firmware_id);
+CREATE INDEX IF NOT EXISTS idx_document_revision_files_revision_id
+  ON document_revision_files(document_revision_id);
 
 -- ===========================================================================
 -- Part alternatives (see migration 021)

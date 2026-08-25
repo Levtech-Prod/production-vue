@@ -222,19 +222,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import {
-  Check,
-  Circle,
-  Download,
-  Link2,
-  Pencil,
-  RefreshCw,
-  Settings,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-vue-next';
+import { Download, Link2, Pencil, RefreshCw, Settings, Trash2, Upload } from 'lucide-vue-next';
 import { resolveIcon } from '../../../../utils/documentTypeIcons.ts';
+import {
+  documentStatusBadge,
+  documentTile,
+} from '../../../../utils/documentCardStyle.ts';
 import { formatBytes } from '../../../../utils/formatters.ts';
 import { useFileDownload } from '../../../../composables/useFileDownload.ts';
 import type { DocumentTypeStatus, ProductDocument } from '../../../../types/products.ts';
@@ -311,46 +304,8 @@ const LISTED_COUNT = 2;
 const visibleFiles = computed(() => props.files.slice(0, LISTED_COUNT));
 const hiddenCount = computed(() => Math.max(props.files.length - LISTED_COUNT, 0));
 
-// A stable pastel per card, keyed off the document type id, so the grid reads
-// as distinct tiles (as in the design) without storing a colour per template.
-const TILES = [
-  { bg: 'bg-emerald-50', fg: 'text-emerald-600' },
-  { bg: 'bg-blue-50', fg: 'text-blue-600' },
-  { bg: 'bg-violet-50', fg: 'text-violet-600' },
-  { bg: 'bg-amber-50', fg: 'text-amber-600' },
-  { bg: 'bg-rose-50', fg: 'text-rose-600' },
-  { bg: 'bg-cyan-50', fg: 'text-cyan-600' },
-  { bg: 'bg-lime-50', fg: 'text-lime-600' },
-  { bg: 'bg-fuchsia-50', fg: 'text-fuchsia-600' },
-];
-const NEUTRAL_TILE = { bg: 'bg-slate-100', fg: 'text-slate-500' };
-
-const tile = computed(() =>
-  props.colorSeed == null ? NEUTRAL_TILE : TILES[props.colorSeed % TILES.length],
-);
-
-const BADGES = {
-  complete: {
-    icon: Check,
-    labelKey: 'doc_status_complete',
-    hintKey: 'doc_status_complete_hint',
-    classes: 'bg-emerald-50 text-emerald-700',
-  },
-  missing: {
-    icon: X,
-    labelKey: 'doc_status_missing',
-    hintKey: 'doc_status_missing_hint',
-    classes: 'bg-red-50 text-red-600',
-  },
-  optional: {
-    icon: Circle,
-    labelKey: 'doc_status_optional',
-    hintKey: 'doc_status_optional_hint',
-    classes: 'bg-slate-100 text-slate-500',
-  },
-} as const;
-
-const badge = computed(() => BADGES[props.status]);
+const tile = computed(() => documentTile(props.colorSeed));
+const badge = computed(() => documentStatusBadge(props.status));
 
 const restricted = computed(() => props.allowedExtensions.length > 0);
 

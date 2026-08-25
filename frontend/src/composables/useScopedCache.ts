@@ -32,11 +32,20 @@ export function useScopedCache<S, T>(options: ScopedCacheOptions<S, T>) {
   const { current, keyFor, fetcher, empty, onData } = options;
 
   const cache = new Map<string, T>();
+  // One entry per key while a `load` for it is in the air, so two callers
+  // asking for the same scope before it resolves share one request instead of
+  // racing. Deliberately NOT used by `refresh`: a mutation must never be
+  // answered by a response that left before it.
+  const inFlight = new Map<string, Promise<Outcome<T>>>();
   // shallowRef: these payloads are replaced wholesale, never mutated in place,
   // so deep reactivity would only cost proxy traversal on every fetch.
   const data = shallowRef<T>(empty) as Ref<T>;
   const loading = ref(false);
+  // `token` decides who owns the VIEW; `loadToken` decides who owns `loading`.
+  // One counter for both meant a mutation's `refresh` superseded an in-flight
+  // `load`, which then returned early and left the spinner on for good.
   let token = 0;
+  let loadToken = 0;
 
   /** Is this scope still the one on screen? */
   function isCurrent(scope: S): boolean {
@@ -48,29 +57,44 @@ export function useScopedCache<S, T>(options: ScopedCacheOptions<S, T>) {
     onData?.(value);
   }
 
+  /** Fetch one scope. The response is cached whether or not that scope is still
+   *  on screen — it is valid data for what it was asked for. */
+  async function fetchInto(scope: S): Promise<Outcome<T>> {
+    const key = keyFor(scope);
+    try {
+      const fresh = await fetcher(scope);
+      cache.set(key, fresh);
+      return { state: 'ok', data: fresh };
+    } catch {
+      // Drop any cached value: after a failed refresh it is stale, and
+      // re-reading is cheaper than showing something wrong.
+      cache.delete(key);
+      return { state: 'error' };
+    }
+  }
+
+  /** `fetchInto`, but joining a `load` already in the air for the same key. */
+  function fetchShared(scope: S): Promise<Outcome<T>> {
+    const key = keyFor(scope);
+    const existing = inFlight.get(key);
+    if (existing) return existing;
+
+    const pending = fetchInto(scope).finally(() => inFlight.delete(key));
+    inFlight.set(key, pending);
+    return pending;
+  }
+
   /**
-   * Fetch one scope. The response is cached whether or not that scope is still
-   * on screen — it is valid data for what it was asked for.
-   *
    * `stale` and `error` are deliberately distinct. Collapsing them (the
    * previous "return null for both") meant a superseded response cleared the
    * view to empty while a newer request for the *same* scope was still in
    * flight, flashing the empty state: select A, select B, select A again
    * before the first response lands.
    */
-  async function run(scope: S): Promise<Outcome<T>> {
+  async function run(scope: S, shared = false): Promise<Outcome<T>> {
     const requestToken = ++token;
-    const key = keyFor(scope);
-    try {
-      const fresh = await fetcher(scope);
-      cache.set(key, fresh);
-      return requestToken === token ? { state: 'ok', data: fresh } : { state: 'stale' };
-    } catch {
-      // Drop any cached value: after a failed refresh it is stale, and
-      // re-reading is cheaper than showing something wrong.
-      cache.delete(key);
-      return requestToken === token ? { state: 'error' } : { state: 'stale' };
-    }
+    const outcome = await (shared ? fetchShared(scope) : fetchInto(scope));
+    return requestToken === token ? outcome : { state: 'stale' };
   }
 
   /** Show a scope, from cache when possible. */
@@ -84,12 +108,16 @@ export function useScopedCache<S, T>(options: ScopedCacheOptions<S, T>) {
       return;
     }
 
+    const thisLoad = ++loadToken;
     loading.value = true;
-    const outcome = await run(scope);
-    // A newer fetch owns the view and the flag; leave both alone.
-    if (outcome.state === 'stale') return;
-    if (isCurrent(scope)) apply(outcome.state === 'ok' ? outcome.data : empty);
-    loading.value = false;
+    const outcome = await run(scope, true);
+
+    // A newer fetch owns the view; but only a newer LOAD owns the flag — a
+    // `refresh` that superseded us leaves nobody to turn the spinner off.
+    if (outcome.state !== 'stale' && isCurrent(scope)) {
+      apply(outcome.state === 'ok' ? outcome.data : empty);
+    }
+    if (thisLoad === loadToken) loading.value = false;
   }
 
   /** Re-read a scope after a mutation, updating the view if still on it. */
@@ -108,6 +136,7 @@ export function useScopedCache<S, T>(options: ScopedCacheOptions<S, T>) {
   /** Forget everything and show nothing — used when switching product. */
   function clearCache() {
     cache.clear();
+    inFlight.clear();
     data.value = empty;
     loading.value = false;
   }

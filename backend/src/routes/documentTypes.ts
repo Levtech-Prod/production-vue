@@ -21,7 +21,14 @@ import {
   documentTypeReorderSchema,
   type DocumentTypePayload,
 } from '../schemas/documentTypes.schema.js';
-import type { Queryable } from '../services/documentFiles.js';
+import type { DocumentScope, Queryable } from '../services/documentFiles.js';
+import {
+  countRevisions,
+  findRevisionOwnerByType,
+  listRevisionFileKeys,
+  listRevisionIds,
+  removeRevisionFiles,
+} from '../services/documentRevisions.js';
 import { requireId } from './routeParams.js';
 
 const router = Router();
@@ -41,6 +48,8 @@ interface ScopeConfig {
   entityColumn: string;
   /** Per-revision documents, for counting what a delete would demote. */
   revisionDocumentTable: string;
+  /** Which family the document-revision helpers should act on. */
+  documentScope: DocumentScope;
   errors: {
     invalidEntityId: string;
     entityNotFound: string;
@@ -61,6 +70,7 @@ const SCOPES = {
     typeColumn: 'product_type_id',
     entityColumn: 'product_id',
     revisionDocumentTable: 'product_revision_documents',
+    documentScope: 'product',
     errors: {
       invalidEntityId: ErrorCodes.INVALID_PRODUCT_ID,
       entityNotFound: ErrorCodes.PRODUCT_NOT_FOUND,
@@ -79,6 +89,7 @@ const SCOPES = {
     typeColumn: 'sub_product_type_id',
     entityColumn: 'sub_product_id',
     revisionDocumentTable: 'sub_product_revision_documents',
+    documentScope: 'subProduct',
     errors: {
       invalidEntityId: ErrorCodes.INVALID_SUB_PRODUCT_ID,
       entityNotFound: ErrorCodes.SUB_PRODUCT_NOT_FOUND,
@@ -102,6 +113,7 @@ interface DocumentTypeDbRow {
   icon: string;
   allowed_extensions: string[] | null;
   required: boolean;
+  revision_mode: boolean;
   sort_order: number;
   created_at: Date;
 }
@@ -110,7 +122,7 @@ interface DocumentTypeDbRow {
  *  `entity_id` are mutually exclusive — see the table's scope CHECK. */
 function columns({ typeColumn, entityColumn }: ScopeConfig): string {
   return `id, ${typeColumn} AS type_id, ${entityColumn} AS entity_id, name, icon,
-          allowed_extensions, required, sort_order, created_at`;
+          allowed_extensions, required, revision_mode, sort_order, created_at`;
 }
 
 function documentTypeRow(row: DocumentTypeDbRow) {
@@ -121,6 +133,7 @@ function documentTypeRow(row: DocumentTypeDbRow) {
     icon: row.icon,
     allowedExtensions: row.allowed_extensions ?? [],
     required: row.required,
+    revisionMode: row.revision_mode,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     // Matches the flag the panel payload carries (routes/documents.ts), so the
@@ -312,13 +325,13 @@ async function createForEntity(
     // (see documentTypesQuery), never interleaved by number.
     const result = await client.query<DocumentTypeDbRow>(
       `INSERT INTO ${table}
-         (${entityColumn}, name, icon, allowed_extensions, required, sort_order)
+         (${entityColumn}, name, icon, allowed_extensions, required, revision_mode, sort_order)
        VALUES (
-         $1, $2, $3, $4::text[], $5,
+         $1, $2, $3, $4::text[], $5, $6,
          COALESCE((SELECT MAX(sort_order) + 1 FROM ${table} WHERE ${entityColumn} = $1), 0)
        )
        RETURNING ${columns(config)}`,
-      [entityId, data.name, data.icon, data.allowedExtensions, data.required],
+      [entityId, data.name, data.icon, data.allowedExtensions, data.required, data.revisionMode],
     );
 
     await client.query('COMMIT');
@@ -334,6 +347,24 @@ async function createForEntity(
 
 // ── By template id (either scope) ──────────────────────────────────────────
 
+/** Does this template already hold anything of the kind its current mode
+ *  implies — versions when it is versioned, documents when it is not? That is
+ *  what makes the mode a one-way choice once the card is in use. */
+async function templateHasContent(
+  db: Queryable,
+  config: ScopeConfig,
+  id: number,
+  revisionMode: boolean,
+): Promise<boolean> {
+  if (revisionMode) return (await countRevisions(db, config.documentScope, id)) > 0;
+
+  const result = await db.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM ${config.revisionDocumentTable} WHERE document_type_id = $1`,
+    [id],
+  );
+  return result.rows[0].count > 0;
+}
+
 /**
  * Update one template, whichever scope it belongs to — the settings list and an
  * entity's own panel both edit through here.
@@ -348,43 +379,81 @@ async function updateTemplate(
 ) {
   const { table, entityColumn, errors } = config;
 
-  const existing = await query<{ entity_id: number | null }>(
-    `SELECT ${entityColumn} AS entity_id FROM ${table} WHERE id = $1`,
-    [id],
-  );
-  if (existing.rowCount === 0) return res.status(404).json({ code: errors.templateNotFound });
-
-  // Only meaningful for an entity-scoped row; a type-scoped one is covered by
-  // its partial unique index alone (see nameTaken).
-  const entityId = existing.rows[0].entity_id;
-  if (entityId !== null && (await nameTaken(pool, config, entityId, data.name, id))) {
-    return res.status(409).json({ code: errors.alreadyExists });
-  }
-
+  // One transaction with the row locked: the mode check below is a read
+  // followed by a write, and a version created in between would be stranded on
+  // a card that is no longer versioned.
+  const client = await pool.connect();
   try {
-    const result = await query<DocumentTypeDbRow>(
-      `UPDATE ${table}
-       SET name = $1, icon = $2, allowed_extensions = $3::text[], required = $4
-       WHERE id = $5
-       RETURNING ${columns(config)}`,
-      [data.name, data.icon, data.allowedExtensions, data.required, id],
+    await client.query('BEGIN');
+
+    const existing = await client.query<{ entity_id: number | null; revision_mode: boolean }>(
+      `SELECT ${entityColumn} AS entity_id, revision_mode FROM ${table} WHERE id = $1 FOR UPDATE`,
+      [id],
     );
+    if (existing.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ code: errors.templateNotFound });
+    }
+
+    // Only meaningful for an entity-scoped row; a type-scoped one is covered by
+    // its partial unique index alone (see nameTaken).
+    const entityId = existing.rows[0].entity_id;
+    if (entityId !== null && (await nameTaken(client, config, entityId, data.name, id))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: errors.alreadyExists });
+    }
+
+    // A type-scoped template can never be versioned (migration 022's CHECK): it
+    // is shared by every product of its type, so it has no single history to own.
+    const wasRevisionMode = existing.rows[0].revision_mode;
+    const revisionMode = entityId === null ? false : data.revisionMode;
+    if (
+      revisionMode !== wasRevisionMode &&
+      (await templateHasContent(client, config, id, wasRevisionMode))
+    ) {
+      // Turning it on would hide the card's documents; turning it off would
+      // strand its versions. Neither is recoverable by toggling back.
+      await client.query('ROLLBACK');
+      return res.status(409).json({ code: ErrorCodes.DOCUMENT_TYPE_REVISION_MODE_LOCKED });
+    }
+
+    const result = await client.query<DocumentTypeDbRow>(
+      `UPDATE ${table}
+       SET name = $1, icon = $2, allowed_extensions = $3::text[], required = $4,
+           revision_mode = $5
+       WHERE id = $6
+       RETURNING ${columns(config)}`,
+      [data.name, data.icon, data.allowedExtensions, data.required, revisionMode, id],
+    );
+
+    await client.query('COMMIT');
     return res.json(documentTypeRow(result.rows[0]));
   } catch (err) {
+    await client.query('ROLLBACK');
     if (isUniqueViolation(err)) return res.status(409).json({ code: errors.alreadyExists });
     throw err;
+  } finally {
+    client.release();
   }
 }
 
 /**
- * Delete one template. Never destroys files: the FK's ON DELETE SET NULL
- * demotes any referencing revision-document rows to the "Other documents"
- * bucket. The affected-file count lets the UI say what just happened (plan §7
- * risk 3 / Story 4 AC).
+ * Delete one template. Ordinary documents are never destroyed: the FK's
+ * ON DELETE SET NULL demotes any referencing revision-document rows to the
+ * "Other documents" bucket, and the affected-file count lets the UI say what
+ * just happened (plan §7 risk 3 / Story 4 AC).
+ *
+ * A versioned card is the exception — its versions have nowhere to be demoted
+ * to, so they cascade away with it and their folders go too.
  */
 async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
-  const { table, revisionDocumentTable, errors } = config;
+  const { table, revisionDocumentTable, documentScope, errors } = config;
 
+  const owner = await findRevisionOwnerByType(pool, documentScope, id);
+
+  let affectedCount: number;
+  let revisionIds: number[];
+  let storageKeys: string[];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -393,6 +462,14 @@ async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
       `SELECT COUNT(*)::int AS count FROM ${revisionDocumentTable} WHERE document_type_id = $1`,
       [id],
     );
+    affectedCount = affected.rows[0].count;
+
+    // Inside the transaction and before the DELETE: the cascade takes the
+    // version rows with it, and afterwards there is nothing left to locate
+    // their files from. Reading them outside would also miss a version created
+    // in the meantime.
+    revisionIds = await listRevisionIds(client, documentScope, id);
+    storageKeys = await listRevisionFileKeys(client, revisionIds);
 
     const result = await client.query(`DELETE FROM ${table} WHERE id = $1 RETURNING id`, [id]);
     if (result.rowCount === 0) {
@@ -401,13 +478,20 @@ async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
     }
 
     await client.query('COMMIT');
-    return res.json({ id, deleted: true, filesMovedToOther: affected.rows[0].count });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
+
+  if (owner) removeRevisionFiles(owner, revisionIds, storageKeys);
+  return res.json({
+    id,
+    deleted: true,
+    filesMovedToOther: affectedCount,
+    versionsDeleted: revisionIds.length,
+  });
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────────

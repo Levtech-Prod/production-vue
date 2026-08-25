@@ -382,8 +382,12 @@ export interface DocumentTypeTemplate {
   allowed_extensions: string[];
   required: boolean;
   /** Defined on this entity alone rather than inherited from its type — the
-   *  only kind the panel lets an admin edit or delete in place. */
+   *  only kind the panel lets an admin edit or delete in place, and the only
+   *  kind that may be versioned. */
   custom: boolean;
+  /** Holds versions rather than loose files (migration 022) — rendered in the
+   *  panel's own section instead of the card grid. */
+  revision_mode: boolean;
 }
 
 // A revision's requirements are the union of two scopes (migration 016): those
@@ -406,6 +410,7 @@ function documentTypesQuery(scope: DocumentScope, extraFilter = ''): string {
   } = SCOPES[scope];
   return `
     SELECT dt.id, dt.name, dt.icon, dt.allowed_extensions, dt.required,
+      dt.revision_mode,
       dt.${documentTypeEntityColumn} IS NOT NULL AS custom
     FROM ${revisionTable} r
     JOIN ${entityTable} e ON e.id = r.${entityColumn}

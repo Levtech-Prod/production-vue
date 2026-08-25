@@ -2,7 +2,7 @@
   <div class="flex min-h-0 flex-col border-r border-slate-100">
     <div class="flex shrink-0 items-center gap-1.5 border-b border-slate-100 px-3 py-1.5">
       <span class="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        {{ t('firmware_change_log') }}
+        {{ t('version_list') }}
       </span>
       <!-- Runs over the already-loaded list, so it triggers no request. -->
       <select
@@ -11,8 +11,8 @@
         :aria-label="t('filter_by_status')"
       >
         <option value="all">{{ t('all_statuses') }}</option>
-        <option v-for="status in FIRMWARE_STATUSES" :key="status" :value="status">
-          {{ t(`firmware_status.${status}`) }}
+        <option v-for="status in DOCUMENT_REVISION_STATUSES" :key="status" :value="status">
+          {{ t(`version_status.${status}`) }}
         </option>
       </select>
     </div>
@@ -21,20 +21,20 @@
       <p v-if="loading" class="py-10 text-center text-sm text-slate-400">
         {{ t('loading') }}
       </p>
-      <p v-else-if="!firmwares.length" class="py-10 text-center text-sm text-slate-400">
-        {{ t('no_firmware_yet') }}
+      <p v-else-if="!revisions.length" class="py-10 text-center text-sm text-slate-400">
+        {{ t('no_versions_yet') }}
       </p>
       <p v-else-if="!visible.length" class="py-10 text-center text-sm text-slate-400">
-        {{ t('no_firmware_for_filter') }}
+        {{ t('no_version_for_filter') }}
       </p>
       <ul v-else>
-        <FirmwareChangeLogItem
-          v-for="(firmware, i) in visible"
-          :key="firmware.id"
-          :firmware="firmware"
-          :is-selected="firmware.id === selectedId"
+        <DocumentRevisionListItem
+          v-for="(revision, i) in visible"
+          :key="revision.id"
+          :revision="revision"
+          :is-selected="revision.id === selectedId"
           :is-last="i === visible.length - 1"
-          @select="emit('select', firmware.id)"
+          @select="emit('select', revision.id)"
         />
       </ul>
     </div>
@@ -45,7 +45,7 @@
         class="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
         @click="emit('create')"
       >
-        <Plus class="h-3.5 w-3.5" /> {{ t('add_firmware') }}
+        <Plus class="h-3.5 w-3.5" /> {{ t('add_version') }}
       </button>
     </div>
   </div>
@@ -55,30 +55,33 @@
 import { computed, ref } from 'vue';
 import { Plus } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
-import FirmwareChangeLogItem from './FirmwareChangeLogItem.vue';
-import { FIRMWARE_STATUSES } from '../../../../types/firmware.ts';
-import type { Firmware, FirmwareStatus } from '../../../../types/firmware.ts';
+import DocumentRevisionListItem from './DocumentRevisionListItem.vue';
+import { DOCUMENT_REVISION_STATUSES } from '../../../../../types/documentRevisions.ts';
+import type {
+  DocumentRevision,
+  DocumentRevisionStatus,
+} from '../../../../../types/documentRevisions.ts';
 
 const props = defineProps<{
-  firmwares: Firmware[];
+  revisions: DocumentRevision[];
   selectedId: number | null;
   loading: boolean;
   canEdit: boolean;
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', firmwareId: number): void;
+  (e: 'select', revisionId: number): void;
   (e: 'create'): void;
 }>();
 
 const { t } = useI18n();
 
-const statusFilter = ref<FirmwareStatus | 'all'>('all');
+const statusFilter = ref<DocumentRevisionStatus | 'all'>('all');
 
 // The list arrives newest-first from the API; only filtering happens here.
 const visible = computed(() =>
   statusFilter.value === 'all'
-    ? props.firmwares
-    : props.firmwares.filter((f) => f.status === statusFilter.value),
+    ? props.revisions
+    : props.revisions.filter((r) => r.status === statusFilter.value),
 );
 </script>
