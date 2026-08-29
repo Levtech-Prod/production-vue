@@ -118,15 +118,12 @@ If a container shows an error status, check its logs in Container Manager (click
 
 ## 8. Backups
 
-- **Database**: schedule a `pg_dump` via DSM **Task Scheduler** (Control Panel > Task Scheduler > Create > Scheduled Task > User-defined script):
-  ```bash
-  docker exec prodtrack-db-1 pg_dump -U levtech levtechproduction | gzip > /volume1/docker/prodtrack-backups/db-$(date +%F).sql.gz
-  ```
-- **Uploaded files** (`backend/uploads`, bind-mounted from the project folder — used for part-category/part/product/sub-product images and documents): it's a regular folder under `/volume1/docker/prodtrack/backend/uploads`, so Hyper Backup (or any File Station-based backup) covers it directly with no `docker run` step needed. For a manual snapshot:
-  ```bash
-  tar czf /volume1/docker/prodtrack-backups/uploads-$(date +%F).tar.gz -C /volume1/docker/prodtrack/backend uploads
-  ```
-- Point **Hyper Backup** at `/volume1/docker/prodtrack-backups` to get these off-box.
+A daily backup of the database and the uploaded files runs on the NAS via DSM
+Task Scheduler, keeping 30 days in `/volume1/backups/prodtrack`. The script is
+`backup-prodtrack.sh` in this repo.
+
+Setup, retention, restore procedures and the Hyper Backup off-box step are all
+in **[BACKUP.md](BACKUP.md)**.
 
 ## 9. Firewall (only relevant if DSM's firewall is enabled)
 
