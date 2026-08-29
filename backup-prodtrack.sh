@@ -37,6 +37,12 @@ LOG_FILE="${BACKUP_ROOT}/logs/backup.log"
 
 mkdir -p "$DB_DIR" "$UPLOADS_DIR" "$(dirname "$LOG_FILE")"
 
+# Nothing here is urgent, and the NAS has 2 GB of RAM and four slow cores.
+# Yielding CPU and disk means a backup that overruns into the morning still
+# can't make the app feel slow.
+command -v renice >/dev/null 2>&1 && renice -n 19 -p $$ >/dev/null 2>&1 || true
+command -v ionice >/dev/null 2>&1 && ionice -c 3 -p $$ >/dev/null 2>&1 || true
+
 log()  { echo "[$(date '+%F %T')] $*" | tee -a "$LOG_FILE"; }
 fail() { log "ERROR: $*"; exit 1; }
 
@@ -93,14 +99,20 @@ if [[ -n "$PREV" ]]; then LINK_DEST=(--link-dest="$PREV"); fi
 
 rm -rf "$SNAP_TMP"
 log "Snapshotting uploads${PREV:+ (linking unchanged files to $(basename "$PREV"))}..."
-"$RSYNC" -a --delete "${LINK_DEST[@]}" "${UPLOADS_SRC}/" "${SNAP_TMP}/" \
+# --stats reports the day's churn for free. Measuring the snapshot with `du`
+# instead would mean walking the whole tree a second time.
+RSYNC_OUT="$("$RSYNC" -a --delete --stats "${LINK_DEST[@]}" "${UPLOADS_SRC}/" "${SNAP_TMP}/")" \
   || fail "rsync of uploads failed"
+CHURN="$(printf '%s\n' "$RSYNC_OUT" | awk -F': *' '
+  /Number of .*files transferred/ {files=$2}
+  /Total transferred file size/   {bytes=$2}
+  END {printf "%s files, %s copied", (files=="" ? "?" : files), (bytes=="" ? "?" : bytes)}')"
 
 # Removing the old directory entries doesn't free the files themselves — the
 # new snapshot already holds hard links to the same inodes.
 rm -rf "$SNAP"
 mv "$SNAP_TMP" "$SNAP"
-log "Uploads snapshot OK: ${DATE} ($(du -sh "$SNAP" | cut -f1) apparent)"
+log "Uploads snapshot OK: ${DATE} (${CHURN}, rest hard-linked)"
 
 # --- 3. Prune --------------------------------------------------------------
 # Pruning keeps the newest RETENTION entries rather than deleting by age: if
@@ -125,4 +137,8 @@ prune "$UPLOADS_DIR" d "????-??-??"        "uploads snapshot"
 
 DB_COUNT="$(find "$DB_DIR" -maxdepth 1 -type f -name '*.dump' | wc -l)"
 SNAP_COUNT="$(find "$UPLOADS_DIR" -maxdepth 1 -type d -name '????-??-??' | wc -l)"
-log "=== Backup done — ${DB_COUNT} dumps, ${SNAP_COUNT} uploads snapshots, $(du -sh "$BACKUP_ROOT" | cut -f1) on disk ==="
+# Free space comes from df, not `du` on the backup root: du would stat every
+# file in all 30 snapshots every night for a number nobody acts on, while df
+# answers the question that actually matters in constant time.
+FREE_AFTER="$(df -Ph "$BACKUP_ROOT" | awk 'END {print $4}')"
+log "=== Backup done — ${DB_COUNT} dumps, ${SNAP_COUNT} uploads snapshots, ${FREE_AFTER} free ==="

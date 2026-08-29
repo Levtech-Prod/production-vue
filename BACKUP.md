@@ -57,6 +57,18 @@ roughly one copy of `uploads` plus whatever actually changed.
 - **Nothing is written until it is complete.** Dumps land on a `.tmp` name and
   are renamed only after verification; a failed run leaves yesterday's good
   backup untouched and exits non-zero so DSM can email you.
+- **Nothing walks the backup tree.** The run reports free space with `df` and
+  the day's churn from rsync's own `--stats`. A `du` over the backup root would
+  stat every file in all 30 snapshots, every night, to print a number nobody
+  acts on.
+- **The job yields.** It reduces its own CPU and I/O priority on startup, so
+  even a run that overruns into the morning can't make the app feel slow.
+
+Both halves stream rather than accumulate, so peak memory is well under 100 MB:
+`pg_dump` pipes table by table, and rsync's file list scales with file count
+(~100 bytes each, with incremental recursion) rather than with data size. This
+is why backups are fine on a NAS that can't compile the app — `vue-tsc` and
+`vite` hold whole ASTs in memory at once, which is a different problem.
 
 ## One-time setup
 
@@ -67,6 +79,13 @@ it out of the Docker folder keeps backups clear of anything the deploy touches,
 and gives Hyper Backup a single clean target later.
 
 The script creates `prodtrack/` and its subfolders itself on first run.
+
+While you're here, keep the indexer out of it: **Control Panel > Indexing
+Service > Indexed Folder List** — make sure `backups` isn't listed, and exclude
+it from antivirus scans if you run Synology's. Left alone, Universal Search
+will walk 30 snapshots × every file and try to thumbnail every image in all of
+them. That is by far the largest resource cost this setup can incur on a 2 GB
+NAS, and it comes from DSM rather than from the backup itself.
 
 ### 2. Put the script on the NAS
 
