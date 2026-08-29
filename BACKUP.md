@@ -156,22 +156,34 @@ Lowering it takes effect on the next run — the extra backups get pruned then.
 
 ## Restoring
 
+**Become root first — every command in this section assumes it:**
+
+```bash
+ssh -p 5022 Kincso@192.168.10.250
+sudo -i
+```
+
+This matters more than it looks. The backups are written by a root-only job, so
+your own user can't read them. Prefixing a command with `sudo` is not enough:
+in `sudo pg_restore … < backup.dump` the `<` redirect is performed by *your*
+shell before sudo runs, so it fails with `Permission denied` while the `sudo`
+part looks correct. Becoming root once avoids the trap everywhere.
+
 ### Restore the database
 
 Stop the app first so nothing writes while the tables are being replaced.
 
 ```bash
-ssh -p 5022 Kincso@192.168.10.250
 cd /volume1/docker/prodtrack
 
-sudo /usr/local/bin/docker compose -p levtech-production stop backend frontend
+/usr/local/bin/docker compose -p levtech-production stop backend frontend
 
-sudo /usr/local/bin/docker exec -i levtech-production-db-1 \
+/usr/local/bin/docker exec -i levtech-production-db-1 \
   pg_restore -U levtech -d levtechproduction \
              --clean --if-exists --no-owner --single-transaction \
   < /volume1/backups/prodtrack/db/levtechproduction-2026-08-28.dump
 
-sudo /usr/local/bin/docker compose -p levtech-production start backend frontend
+/usr/local/bin/docker compose -p levtech-production start backend frontend
 ```
 
 `--single-transaction` means it either fully succeeds or leaves the database
@@ -180,7 +192,7 @@ exactly as it was — there is no half-restored state to clean up.
 ### Restore the uploaded files
 
 ```bash
-sudo rsync -a --delete \
+rsync -a --delete \
   /volume1/backups/prodtrack/uploads/2026-08-28/ \
   /volume1/docker/prodtrack/backend/uploads/
 ```
@@ -194,11 +206,11 @@ only want to bring back missing files and keep everything newer.
 Use the **same date** for the dump and the snapshot, and do the database first:
 
 ```bash
-sudo /usr/local/bin/docker compose -p levtech-production stop backend frontend
+/usr/local/bin/docker compose -p levtech-production stop backend frontend
 # ...pg_restore from db/levtechproduction-<DATE>.dump...
-sudo rsync -a --delete /volume1/backups/prodtrack/uploads/<DATE>/ \
-                       /volume1/docker/prodtrack/backend/uploads/
-sudo /usr/local/bin/docker compose -p levtech-production start backend frontend
+rsync -a --delete /volume1/backups/prodtrack/uploads/<DATE>/ \
+                  /volume1/docker/prodtrack/backend/uploads/
+/usr/local/bin/docker compose -p levtech-production start backend frontend
 ```
 
 Because the database is dumped before the snapshot each night, a same-date pair
@@ -217,11 +229,11 @@ can only ever contain extra files, never missing ones.
 
 ```bash
 # what's inside
-sudo /usr/local/bin/docker exec -i levtech-production-db-1 pg_restore --list \
+/usr/local/bin/docker exec -i levtech-production-db-1 pg_restore --list \
   < /volume1/backups/prodtrack/db/latest.dump | head -40
 
 # one table only, into the live database
-sudo /usr/local/bin/docker exec -i levtech-production-db-1 \
+/usr/local/bin/docker exec -i levtech-production-db-1 \
   pg_restore -U levtech -d levtechproduction --data-only --table=parts --no-owner \
   < /volume1/backups/prodtrack/db/latest.dump
 ```
@@ -229,18 +241,22 @@ sudo /usr/local/bin/docker exec -i levtech-production-db-1 \
 ## Test the restore, quarterly
 
 A backup nobody has restored is a hypothesis. Restoring into a throwaway
-database proves it without touching production:
+database proves it without touching production. As root (`sudo -i`):
 
 ```bash
-sudo /usr/local/bin/docker exec levtech-production-db-1 createdb -U levtech restoretest
-sudo /usr/local/bin/docker exec -i levtech-production-db-1 \
+D=/usr/local/bin/docker
+
+$D exec levtech-production-db-1 createdb -U levtech restoretest
+$D exec -i levtech-production-db-1 \
   pg_restore -U levtech -d restoretest --no-owner < /volume1/backups/prodtrack/db/latest.dump
-sudo /usr/local/bin/docker exec levtech-production-db-1 \
+$D exec levtech-production-db-1 \
   psql -U levtech -d restoretest -c '\dt' -c 'SELECT count(*) FROM users;'
-sudo /usr/local/bin/docker exec levtech-production-db-1 dropdb -U levtech restoretest
+$D exec levtech-production-db-1 dropdb -U levtech restoretest
 ```
 
-If the table list and row counts look like production, the backup is real.
+If the table list and row counts look like production, the backup is real. An
+empty `\dt` means the `pg_restore` line didn't actually run — check it for a
+`Permission denied` on the dump, which is the redirect-runs-as-you trap above.
 
 ## Getting the backups off the NAS (set up when you have a destination)
 
@@ -282,3 +298,4 @@ Dropbox, or a second NAS) is available:
 | `dump failed verification` | The dump was written but is unreadable — most often the volume filled up mid-write. Check `df -h /volume1`. |
 | `only N GB free on the backup volume` | Free space, or lower `RETENTION`. |
 | Nothing in the log at all | The task didn't run. Check **Task Scheduler**, and that its user is `root`. |
+| `Permission denied` on a `.dump` while restoring | The `<` redirect runs as your shell user, not as `sudo`. Run `sudo -i` first — see the top of **Restoring**. |
