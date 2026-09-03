@@ -3,6 +3,17 @@
 --
 -- received: a batch purchased from a company; consumed gradually via FIFO.
 -- removed:  a manual removal from stock; always records a note, never a company/price.
+--
+-- `db:migrate` re-runs every migration on every run with no ledger, so each
+-- ALTER has to survive a second pass. `ADD COLUMN` and `ALTER COLUMN` already
+-- do; `ADD CONSTRAINT` has no IF NOT EXISTS form, so each is preceded by a
+-- DROP — the same shape migration 022 uses. One transaction, so the table is
+-- never briefly left without a constraint it is supposed to have.
+--
+-- Run: psql "$DATABASE_URL" -f database/migrations/010-add-stock-removals.sql
+-- Idempotent — safe to re-run.
+
+BEGIN;
 
 -- 1. Track FIFO consumption on received entries
 ALTER TABLE stock_entries
@@ -12,6 +23,8 @@ ALTER TABLE stock_entries
 ALTER TABLE stock_entries
   ADD COLUMN IF NOT EXISTS type VARCHAR(10) NOT NULL DEFAULT 'received';
 
+ALTER TABLE stock_entries
+  DROP CONSTRAINT IF EXISTS chk_stock_entry_type;
 ALTER TABLE stock_entries
   ADD CONSTRAINT chk_stock_entry_type CHECK (type IN ('received', 'removed'));
 
@@ -25,20 +38,30 @@ ALTER TABLE stock_entries ALTER COLUMN price_per_piece DROP NOT NULL;
 
 -- 5. Enforce type-specific field requirements at the DB level
 ALTER TABLE stock_entries
+  DROP CONSTRAINT IF EXISTS chk_received_requires_company;
+ALTER TABLE stock_entries
   ADD CONSTRAINT chk_received_requires_company
     CHECK (type != 'received' OR company_id IS NOT NULL);
 
+ALTER TABLE stock_entries
+  DROP CONSTRAINT IF EXISTS chk_received_requires_price;
 ALTER TABLE stock_entries
   ADD CONSTRAINT chk_received_requires_price
     CHECK (type != 'received' OR price_per_piece IS NOT NULL);
 
 ALTER TABLE stock_entries
+  DROP CONSTRAINT IF EXISTS chk_removed_requires_note;
+ALTER TABLE stock_entries
   ADD CONSTRAINT chk_removed_requires_note
     CHECK (type != 'removed' OR (note IS NOT NULL AND length(trim(note)) > 0));
 
+ALTER TABLE stock_entries
+  DROP CONSTRAINT IF EXISTS chk_removed_no_consumed;
 ALTER TABLE stock_entries
   ADD CONSTRAINT chk_removed_no_consumed
     CHECK (type != 'removed' OR quantity_consumed = 0);
 
 -- 6. Composite index for type-filtered queries (FIFO, avgPrice, totalQty)
 CREATE INDEX IF NOT EXISTS idx_stock_entries_part_type ON stock_entries(part_id, type);
+
+COMMIT;

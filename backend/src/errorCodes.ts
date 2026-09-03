@@ -31,6 +31,11 @@ export const ErrorCodes = {
   // Category names its parts manually ('custom' mode) but no name was given.
   PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
   PART_DELETE_FAILED: 'PART_DELETE_FAILED',
+  // A project's frozen BOM still claims this part. `project_parts.part_id` has
+  // no ON DELETE, so the delete is blocked at the database too — this is the
+  // friendly version of that. Also raised for the sub-product whose cascade
+  // would take a claimed revision with it.
+  PART_IN_USE_BY_PROJECT: 'PART_IN_USE_BY_PROJECT',
 
   // products
   PRODUCT_SKU_ALREADY_EXISTS: 'PRODUCT_SKU_ALREADY_EXISTS',
@@ -142,6 +147,35 @@ export const ErrorCodes = {
   DOCUMENT_LINK_SOURCE_NOT_FOUND: 'DOCUMENT_LINK_SOURCE_NOT_FOUND',
   // That physical file is already on this card in this revision.
   DOCUMENT_ALREADY_LINKED: 'DOCUMENT_ALREADY_LINKED',
+
+  // projects
+  INVALID_PROJECT_ID: 'INVALID_PROJECT_ID',
+  PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
+  // Only a draft project may be edited or deleted.
+  PROJECT_NOT_EDITABLE: 'PROJECT_NOT_EDITABLE',
+  PROJECT_ALREADY_STARTED: 'PROJECT_ALREADY_STARTED',
+  PROJECT_NOT_STARTED: 'PROJECT_NOT_STARTED',
+  PROJECT_HAS_NO_PRODUCTS: 'PROJECT_HAS_NO_PRODUCTS',
+  PROJECT_HAS_NO_PARTS: 'PROJECT_HAS_NO_PARTS',
+  // The pinned revision does not belong to the product it was added under.
+  PRODUCT_REVISION_MISMATCH: 'PRODUCT_REVISION_MISMATCH',
+  // The BOM freeze has not run, so there are no `project_parts` to act on.
+  PROJECT_PARTS_NOT_FROZEN: 'PROJECT_PARTS_NOT_FROZEN',
+  PROJECT_PART_NOT_FOUND: 'PROJECT_PART_NOT_FOUND',
+  // `missing_qty` may never be lowered below what is already on order.
+  MISSING_QTY_BELOW_ORDERED: 'MISSING_QTY_BELOW_ORDERED',
+
+  // project offers
+  OFFER_COMPANY_ALREADY_ADDED: 'OFFER_COMPANY_ALREADY_ADDED',
+  // Removing a company column whose quotes back an order already placed.
+  OFFER_COMPANY_IN_USE: 'OFFER_COMPANY_IN_USE',
+  // Ordering a part from a company that never quoted it.
+  OFFER_PRICE_MISSING: 'OFFER_PRICE_MISSING',
+
+  // orders
+  ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
+  // Ordering more than the part's outstanding `missing_qty - ordered_qty`.
+  ORDER_QUANTITY_EXCEEDS_MISSING: 'ORDER_QUANTITY_EXCEEDS_MISSING',
 
   // generic / global error handler
   VALIDATION_FAILED: 'VALIDATION_FAILED',
