@@ -690,6 +690,37 @@ const messages = {
         'A document type with this name already exists here.',
       SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'The document type order could not be saved — please reload and try again.',
+
+      // Projects module — backend codes
+      INVALID_PROJECT_ID: 'Invalid project id',
+      PROJECT_NOT_FOUND: 'Project not found',
+      PROJECT_NOT_EDITABLE:
+        'Only a draft project can be edited or deleted.',
+      PROJECT_ALREADY_STARTED: 'This project has already been started.',
+      PROJECT_NOT_STARTED: 'This project has not been started yet.',
+      PROJECT_HAS_NO_PRODUCTS:
+        'Add at least one product before starting the project.',
+      PROJECT_HAS_NO_PARTS:
+        'The selected products contain no parts, so there is nothing to prepare.',
+      PRODUCT_REVISION_MISMATCH:
+        'The selected revision does not belong to that product.',
+      PROJECT_PARTS_NOT_FROZEN:
+        'The parts list has not been generated for this project yet.',
+      PROJECT_PART_NOT_FOUND: 'Project part not found',
+      MISSING_QTY_BELOW_ORDERED:
+        'The quantity to order cannot be lower than what has already been ordered.',
+      PART_IN_USE_BY_PROJECT:
+        'This part cannot be deleted because a project is using it.',
+      OFFER_COMPANY_ALREADY_ADDED:
+        'This company is already a column on the offer sheet.',
+      OFFER_COMPANY_IN_USE:
+        'This company cannot be removed because parts have already been ordered from it.',
+      OFFER_PRICE_MISSING:
+        'This company has not quoted a price for every selected part.',
+      ORDER_NOT_FOUND: 'Order not found',
+      ORDER_QUANTITY_EXCEEDS_MISSING:
+        'The ordered quantity is more than the part still needs.',
+
       // Document types module — frontend-only fallbacks
       save_document_type_failed: 'The document type could not be saved',
       delete_document_type_failed: 'The document type could not be deleted',
@@ -1453,6 +1484,37 @@ const messages = {
         'Már létezik ilyen nevű dokumentumtípus.',
       SUB_PRODUCT_DOCUMENT_TYPE_REORDER_MISMATCH:
         'A dokumentumtípusok sorrendjét nem sikerült menteni — kérlek töltsd be újra az oldalt.',
+
+      // Projektek modul — backend kódok
+      INVALID_PROJECT_ID: 'Érvénytelen projekt azonosító',
+      PROJECT_NOT_FOUND: 'A projekt nem található',
+      PROJECT_NOT_EDITABLE:
+        'Csak vázlat állapotú projekt szerkeszthető vagy törölhető.',
+      PROJECT_ALREADY_STARTED: 'A projekt már el lett indítva.',
+      PROJECT_NOT_STARTED: 'A projekt még nincs elindítva.',
+      PROJECT_HAS_NO_PRODUCTS:
+        'A projekt indításához legalább egy terméket hozzá kell adni.',
+      PROJECT_HAS_NO_PARTS:
+        'A kiválasztott termékek nem tartalmaznak alkatrészt, így nincs mit előkészíteni.',
+      PRODUCT_REVISION_MISMATCH:
+        'A kiválasztott revízió nem ehhez a termékhez tartozik.',
+      PROJECT_PARTS_NOT_FROZEN:
+        'Ehhez a projekthez még nem készült el az alkatrészlista.',
+      PROJECT_PART_NOT_FOUND: 'A projekt alkatrésze nem található',
+      MISSING_QTY_BELOW_ORDERED:
+        'A rendelendő mennyiség nem lehet kevesebb a már megrendeltnél.',
+      PART_IN_USE_BY_PROJECT:
+        'Az alkatrész nem törölhető, mert egy projekt használja.',
+      OFFER_COMPANY_ALREADY_ADDED:
+        'Ez a cég már szerepel az ajánlati táblázatban.',
+      OFFER_COMPANY_IN_USE:
+        'A cég nem távolítható el, mert már rendeltek tőle alkatrészt.',
+      OFFER_PRICE_MISSING:
+        'Ez a cég nem adott árat minden kiválasztott alkatrészre.',
+      ORDER_NOT_FOUND: 'A rendelés nem található',
+      ORDER_QUANTITY_EXCEEDS_MISSING:
+        'A megrendelt mennyiség több, mint amennyi az alkatrészből még hiányzik.',
+
       // Dokumentumtípusok modul — frontend fallbackok
       save_document_type_failed: 'A dokumentumtípus mentése nem sikerült',
       delete_document_type_failed: 'A dokumentumtípus törlése nem sikerült',
