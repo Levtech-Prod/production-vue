@@ -147,6 +147,9 @@ CREATE TABLE IF NOT EXISTS project_parts (
   part_id        INTEGER NOT NULL REFERENCES parts(id),
 
   -- Total needed by the project: SUM(bom qty x project_products.quantity).
+  -- PRECONDITION: `sub_product_revision_parts.quantity` carries no CHECK of
+  -- its own, so zero and negative BOM lines are representable today. Any that
+  -- exist make the freeze fail here rather than be silently rounded up.
   required_qty   NUMERIC(12,3) NOT NULL CHECK (required_qty > 0),
   -- Claim on stock that already exists. Seeded to MIN(required_qty, free stock).
   from_stock_qty NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
@@ -169,6 +172,16 @@ CREATE TABLE IF NOT EXISTS project_parts (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (project_id, part_id),
 
+  -- FK targets, not business rules: `id` is already the PK, so these are
+  -- trivially unique. They let `order_lines` and `project_offer_prices` prove
+  -- in the database that a row they point at belongs to the same project (and
+  -- the same part) they claim — the device §3.2 already uses. Two indexes
+  -- rather than one because a FK must match a unique constraint on exactly its
+  -- own columns; a prefix will not do.
+  UNIQUE (id, project_id),
+  UNIQUE (id, project_id, part_id),
+
+  -- WRITE ORDER MATTERS — see below.
   CONSTRAINT chk_project_parts_ordered_within_missing
     CHECK (ordered_qty <= missing_qty),
   CONSTRAINT chk_project_parts_received_within_ordered
@@ -209,8 +222,17 @@ Every status in the UI is then a comparison, and every one of them is also a
 | line settled | none of the above | — |
 
 Three CHECK constraints keep the buckets ordered (`ordered <= missing`,
-`received <= ordered`, `prepared <= from_stock + received`), so there is no
-prose invariant for a service to remember. Received goods need no column
+`received <= ordered`, `prepared <= from_stock + received`), so no service can
+leave the row in an inconsistent state.
+
+**One invariant does survive for the service to remember, and it is not
+optional.** Postgres evaluates CHECKs per row per statement and cannot defer
+them, so any change that moves quantity *between* these columns must set them
+in a single `UPDATE`. Lowering `missing_qty` in one statement and raising
+`from_stock_qty` in the next fails on the first, inside a transaction that
+would have ended perfectly legal. This bites "Recalculate from stock" (§5.2)
+directly, since moving quantity between those two columns is exactly what it
+does. Received goods need no column
 rewriting to become pickable: they are pickable because `received_qty` counts
 toward the pick.
 
@@ -394,13 +416,17 @@ CREATE TABLE IF NOT EXISTS project_offer_companies (
   company_id INTEGER NOT NULL REFERENCES companies(id),
   position   INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (project_id, company_id)
+  UNIQUE (project_id, company_id),
+  -- FK target for project_offer_prices (see §3.3).
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE IF NOT EXISTS project_offer_prices (
   id                SERIAL PRIMARY KEY,
-  offer_company_id  INTEGER NOT NULL REFERENCES project_offer_companies(id) ON DELETE CASCADE,
-  project_part_id   INTEGER NOT NULL REFERENCES project_parts(id) ON DELETE CASCADE,
+  -- Denormalised, but it cannot drift: both composite FKs below read it.
+  project_id        INTEGER NOT NULL,
+  offer_company_id  INTEGER NOT NULL,
+  project_part_id   INTEGER NOT NULL,
   -- Canonical EUR, NULL = this company did not quote this part.
   price_per_piece   NUMERIC(12,4) CHECK (price_per_piece >= 0),
   entered_amount    NUMERIC(12,4),
@@ -408,7 +434,11 @@ CREATE TABLE IF NOT EXISTS project_offer_prices (
   rate_used         NUMERIC(18,6),
   rate_date         DATE,
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (offer_company_id, project_part_id)
+  UNIQUE (offer_company_id, project_part_id),
+  FOREIGN KEY (offer_company_id, project_id)
+    REFERENCES project_offer_companies (id, project_id) ON DELETE CASCADE,
+  FOREIGN KEY (project_part_id, project_id)
+    REFERENCES project_parts (id, project_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_offer_prices_part
@@ -439,29 +469,56 @@ CREATE TABLE IF NOT EXISTS orders (
   note         TEXT,
   expected_at  DATE,
   ordered_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  ordered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  ordered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- FK target for order_lines (see §3.3).
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE IF NOT EXISTS order_lines (
   id              SERIAL PRIMARY KEY,
-  order_id        INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  project_part_id INTEGER NOT NULL REFERENCES project_parts(id),
+  order_id        INTEGER NOT NULL,
+  -- Denormalised, held true by the composite FKs below.
+  project_id      INTEGER NOT NULL,
+  project_part_id INTEGER NOT NULL,
   part_id         INTEGER NOT NULL REFERENCES parts(id),
   quantity        NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
   -- Copied from the accepted offer cell (canonical EUR) so a later re-quote
   -- cannot rewrite the price of an order already placed.
   price_per_piece NUMERIC(12,4),
   received_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
-  UNIQUE (order_id, project_part_id)
+  UNIQUE (order_id, project_part_id),
+  FOREIGN KEY (order_id, project_id)
+    REFERENCES orders (id, project_id) ON DELETE CASCADE,
+  FOREIGN KEY (project_part_id, project_id, part_id)
+    REFERENCES project_parts (id, project_id, part_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_project_id ON orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_order_lines_order_id ON order_lines(order_id);
+-- project_parts does not cascade into order_lines, so deleting one has to scan
+-- for referencing lines; without this that is a sequential scan per part.
+CREATE INDEX IF NOT EXISTS idx_order_lines_project_part_id
+  ON order_lines(project_part_id);
 ```
 
 One order per company per "Order Parts" action — the same click can place three
 orders at three suppliers, which is precisely the requirement that parts be
 orderable separately from different companies.
+
+**Why `order_lines` carries `project_id` and `part_id` it could have joined
+for.** Both are denormalised for the writer's convenience — receiving needs the
+part to write its `stock_entries` row without a join. Denormalised copies that
+nothing checks are how a line ends up crediting stock to the wrong part, which
+is the one error in this module that corrupts data *outside* it. So both are
+covered by composite FKs back to `project_parts`, exactly as §3.2 covers
+`product_revision_id`: an order line whose `part_id` contradicts its
+`project_part`, or whose `project_part` belongs to a different project than its
+order, is un-representable rather than merely discouraged. `project_offer_prices`
+carries `project_id` for the same reason — without it a price cell can pair one
+project's company column with another project's part.
+
+This is the general rule the module follows: **wherever a row points at two
+things that must agree, the agreement is a composite FK, not a service check.**
 
 Placing an order adds its line quantities to `project_parts.ordered_qty` in the
 same transaction; receiving (phase 2) adds to `order_lines.received_qty` and
@@ -1209,8 +1266,44 @@ hands Preparation its per-sub-product pick list for free.
   manual before/after check with Hungarian part names (§7 step 11).
 - `projects.status = 'completed'` has no writer until phase 3. Harmless, but do
   not let a reviewer assume something sets it.
+- **`CHECK (required_qty > 0)` depends on data, not only on schema.**
+  `sub_product_revision_parts.quantity` has no CHECK of its own, so zero and
+  negative BOM lines are legal today. Run
+  `SELECT * FROM sub_product_revision_parts WHERE quantity <= 0` against
+  **production** before step 5; any row it returns makes the freeze fail on
+  every project that uses it. This is part of what the §7 step 0 spike is for.
+- **The CHECK constraints on `project_parts` are not deferrable.** Any write
+  that moves quantity between `from_stock_qty`, `missing_qty`, `ordered_qty`,
+  `received_qty` and `prepared_qty` must be a single `UPDATE` (§3.3). Two
+  statements inside one transaction fail on the first, which will look like a
+  mystery until someone remembers this.
+- `ordered_qty` / `received_qty` / `prepared_qty` are sums nothing enforces.
+  Cancelling an order, or removing a product from a project, leaves them stale
+  unless the same transaction adjusts them — the database will not notice.
+  `orders.status = 'cancelled'` in particular has no defined effect on
+  `project_parts.ordered_qty`; step 16 must decide one.
 
-### 11.6 What survived review unchanged
+### 11.6 Fifth pass — folded in after building the migration
+
+Found by writing a constraint smoke test
+(`backend/database/tests/023-add-projects.test.sql`) that tries to insert the
+wrong thing and asserts the database refuses. Three of these were accepted by
+the schema as first written:
+
+| # | Was | Now |
+|---|---|---|
+| B1 | `order_lines.part_id` could contradict its `project_part` — receiving would credit stock to the wrong part | composite FK `(project_part_id, project_id, part_id)` |
+| B2 | An order for project A could carry a line whose `project_part` belongs to project B | `order_lines.project_id` + composite FKs to both `orders` and `project_parts` |
+| B3 | A price cell could pair project A's company column with project B's part | `project_offer_prices.project_id` + composite FKs to both |
+| B4 | §3.3 claimed the CHECKs left "no prose invariant for a service to remember" — untrue, they are not deferrable | §3.3 now states the single-`UPDATE` rule; §11.5 repeats it as a risk |
+| B5 | `CHECK (required_qty > 0)` silently assumed no BOM line has quantity ≤ 0 | stated as a precondition in §3.3 and as a pre-step-1 risk in §11.5 |
+
+The smoke test is the deliverable that makes these stay fixed: it asserts both
+the refusals and the legal cases (the same product twice at different
+revisions, a quoted price of zero, a fully received line), and exits non-zero
+if a constraint is later dropped.
+
+### 11.7 What survived review unchanged
 
 The frozen BOM, the pinned revisions, the derived board, deriving reserved
 quantity instead of storing reservations, one offer sheet per project, and

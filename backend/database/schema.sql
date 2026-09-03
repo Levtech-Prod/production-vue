@@ -640,6 +640,12 @@ CREATE TABLE IF NOT EXISTS companies (
 -- between these columns, and the three CHECK constraints keep the buckets
 -- ordered, so no service has to remember the invariant.
 --
+--
+-- Deliberately NOT enforced here: `ordered_qty`, `received_qty` and
+-- `prepared_qty` are sums the service maintains, so cancelling an order or
+-- removing a product from a project leaves them stale unless the same
+-- transaction adjusts them.
+--
 -- The offer grid is the project's current quote sheet — companies are the
 -- dynamic columns, prices the cells; there is no "offer round" entity. Orders
 -- are created from that grid, one per company per "Order Parts" action.
@@ -698,6 +704,9 @@ CREATE TABLE IF NOT EXISTS project_parts (
   part_id        INTEGER NOT NULL REFERENCES parts(id),
 
   -- Total needed by the project: SUM(bom qty x project_products.quantity).
+  -- PRECONDITION: `sub_product_revision_parts.quantity` carries no CHECK of
+  -- its own, so zero and negative BOM lines are representable today. Any that
+  -- exist will make the freeze fail here rather than be silently rounded up.
   required_qty   NUMERIC(12,3) NOT NULL CHECK (required_qty > 0),
   -- Claim on stock that already exists. Seeded to MIN(required_qty, free stock).
   from_stock_qty NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
@@ -720,6 +729,20 @@ CREATE TABLE IF NOT EXISTS project_parts (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (project_id, part_id),
 
+  -- FK targets, not business rules: `id` is already the PK, so these are
+  -- trivially unique. They exist so `order_lines` and `project_offer_prices`
+  -- can prove in the database that a row they point at belongs to the same
+  -- project (and the same part) they claim — the same device as the composite
+  -- FK on project_products. Two indexes rather than one because a FK must
+  -- match a unique constraint on exactly its own columns; a prefix will not do.
+  UNIQUE (id, project_id),
+  UNIQUE (id, project_id, part_id),
+
+  -- WRITE ORDER MATTERS. Postgres CHECKs are evaluated per row per statement
+  -- and cannot be deferred, so any change that moves quantity BETWEEN these
+  -- columns must set them in ONE `UPDATE`. Lowering missing_qty in one
+  -- statement and raising from_stock_qty in the next fails on the first,
+  -- even inside a transaction that would have ended in a legal state.
   CONSTRAINT chk_project_parts_ordered_within_missing
     CHECK (ordered_qty <= missing_qty),
   CONSTRAINT chk_project_parts_received_within_ordered
@@ -770,13 +793,19 @@ CREATE TABLE IF NOT EXISTS project_offer_companies (
   company_id INTEGER NOT NULL REFERENCES companies(id),
   position   INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (project_id, company_id)
+  UNIQUE (project_id, company_id),
+  -- FK target for project_offer_prices (see project_parts above).
+  UNIQUE (id, project_id)
 );
 
+-- `project_id` is denormalised, but it cannot drift: both composite FKs below
+-- read it, so a cell pairing one project's company column with another
+-- project's part is un-representable rather than merely discouraged.
 CREATE TABLE IF NOT EXISTS project_offer_prices (
   id                SERIAL PRIMARY KEY,
-  offer_company_id  INTEGER NOT NULL REFERENCES project_offer_companies(id) ON DELETE CASCADE,
-  project_part_id   INTEGER NOT NULL REFERENCES project_parts(id) ON DELETE CASCADE,
+  project_id        INTEGER NOT NULL,
+  offer_company_id  INTEGER NOT NULL,
+  project_part_id   INTEGER NOT NULL,
   -- Canonical EUR, NULL = this company did not quote this part.
   price_per_piece   NUMERIC(12,4) CHECK (price_per_piece >= 0),
   entered_amount    NUMERIC(12,4),
@@ -784,7 +813,11 @@ CREATE TABLE IF NOT EXISTS project_offer_prices (
   rate_used         NUMERIC(18,6),
   rate_date         DATE,
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (offer_company_id, project_part_id)
+  UNIQUE (offer_company_id, project_part_id),
+  FOREIGN KEY (offer_company_id, project_id)
+    REFERENCES project_offer_companies (id, project_id) ON DELETE CASCADE,
+  FOREIGN KEY (project_part_id, project_id)
+    REFERENCES project_parts (id, project_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_offer_prices_part
@@ -809,21 +842,38 @@ CREATE TABLE IF NOT EXISTS orders (
   note         TEXT,
   expected_at  DATE,
   ordered_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  ordered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  ordered_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- FK target for order_lines (see project_parts above).
+  UNIQUE (id, project_id)
 );
 
+-- `part_id` is denormalised from project_parts so receiving can write its
+-- stock_entries row without a join; the composite FK below is what stops it
+-- disagreeing with the project_part it came from. Getting that wrong would
+-- credit stock to the wrong part, which is the one error here that corrupts
+-- data outside the projects module. `project_id` is denormalised for the same
+-- reason and held true by the same means.
 CREATE TABLE IF NOT EXISTS order_lines (
   id              SERIAL PRIMARY KEY,
-  order_id        INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  project_part_id INTEGER NOT NULL REFERENCES project_parts(id),
+  order_id        INTEGER NOT NULL,
+  project_id      INTEGER NOT NULL,
+  project_part_id INTEGER NOT NULL,
   part_id         INTEGER NOT NULL REFERENCES parts(id),
   quantity        NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
   -- Copied from the accepted offer cell (canonical EUR) so a later re-quote
   -- cannot rewrite the price of an order already placed.
   price_per_piece NUMERIC(12,4),
   received_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
-  UNIQUE (order_id, project_part_id)
+  UNIQUE (order_id, project_part_id),
+  FOREIGN KEY (order_id, project_id)
+    REFERENCES orders (id, project_id) ON DELETE CASCADE,
+  FOREIGN KEY (project_part_id, project_id, part_id)
+    REFERENCES project_parts (id, project_id, part_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_project_id ON orders(project_id);
 CREATE INDEX IF NOT EXISTS idx_order_lines_order_id ON order_lines(order_id);
+-- project_parts does not cascade into order_lines, so deleting one has to scan
+-- for referencing lines; without this that is a sequential scan per part.
+CREATE INDEX IF NOT EXISTS idx_order_lines_project_part_id
+  ON order_lines(project_part_id);
