@@ -41,40 +41,69 @@
 
     <nav class="px-3 text-sm">
       <template v-for="item in items" :key="item.to">
-        <RouterLink
-          class="nav"
-          :class="{ collapsed: ui.sidebarCollapsed }"
-          :to="item.to"
-          :title="ui.sidebarCollapsed ? item.label : undefined"
-        >
-          <template v-if="item.section && !ui.sidebarCollapsed">
-            <span class="section">{{ item.section }}</span>
-          </template>
-          <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
-            <component :is="item.icon" :size="20" class="shrink-0" />
-            <template v-if="!ui.sidebarCollapsed">
-              <span class="flex-1">{{ item.label }}</span>
-              <ChevronDown
-                v-if="item.children"
-                :size="16"
-                class="shrink-0 transition-transform"
-                :class="{ '-rotate-90': !isGroupOpen(item) }"
-                @click.stop.prevent="ui.toggleSidebarGroup(item.to)"
-              />
-            </template>
-          </span>
-        </RouterLink>
-
-        <div v-if="item.children && !ui.sidebarCollapsed && isGroupOpen(item)" class="pl-8">
-          <template v-for="child in item.children" :key="child.label">
-            <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
-              <span class="nav-link">{{ child.label }}</span>
-            </RouterLink>
-            <span v-else class="nav disabled" :title="t('coming_soon')">
-              <span class="nav-link">{{ child.label }}</span>
+        <!-- Collapsed sidebar + group item: the icon still navigates to the
+             group root on click, and hovering it opens a flyout with the
+             children (the only way to reach Offer Processing while collapsed,
+             since there's no room for an inline sub-list). -->
+        <div v-if="item.children && ui.sidebarCollapsed" class="group relative">
+          <RouterLink class="nav collapsed" :to="item.to" :title="item.label">
+            <span class="nav-link justify-center">
+              <component :is="item.icon" :size="20" class="shrink-0" />
             </span>
-          </template>
+          </RouterLink>
+          <div
+            class="invisible absolute left-full top-0 z-20 ml-2 w-56 rounded-xl bg-slate-950 p-2 opacity-0 shadow-xl ring-1 ring-slate-800 transition-opacity duration-150 group-hover:visible group-hover:opacity-100"
+          >
+            <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {{ item.label }}
+            </div>
+            <template v-for="child in item.children" :key="child.label">
+              <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
+                <span class="nav-link">{{ child.label }}</span>
+              </RouterLink>
+              <span v-else class="nav disabled" :title="t('coming_soon')">
+                <span class="nav-link">{{ child.label }}</span>
+              </span>
+            </template>
+          </div>
         </div>
+
+        <template v-else>
+          <RouterLink
+            class="nav"
+            :class="{ collapsed: ui.sidebarCollapsed }"
+            :to="item.to"
+            :title="ui.sidebarCollapsed ? item.label : undefined"
+          >
+            <template v-if="item.section && !ui.sidebarCollapsed">
+              <span class="section">{{ item.section }}</span>
+            </template>
+            <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
+              <component :is="item.icon" :size="20" class="shrink-0" />
+              <template v-if="!ui.sidebarCollapsed">
+                <span class="flex-1">{{ item.label }}</span>
+                <ChevronDown
+                  v-if="item.children"
+                  :size="16"
+                  class="shrink-0 transition-transform"
+                  :class="{ '-rotate-90': !isGroupOpen(item) }"
+                  @click.stop.prevent="ui.toggleSidebarGroup(item.to)"
+                />
+              </template>
+            </span>
+          </RouterLink>
+
+          <div v-if="item.children && !ui.sidebarCollapsed && isGroupOpen(item)" class="pl-8">
+            <template v-for="child in item.children" :key="child.label">
+              <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
+                <span class="nav-link">{{ child.label }}</span>
+              </RouterLink>
+              <span v-else class="nav disabled" :title="t('coming_soon')">
+                <span class="nav-link">{{ child.label }}</span>
+              </span>
+            </template>
+          </div>
+        </template>
       </template>
     </nav>
 

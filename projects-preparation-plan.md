@@ -837,9 +837,13 @@ interface NavItem {
 - The group auto-expands when `route.path.startsWith(item.to)`; the manual
   open/closed state lives in `uiStore` beside `sidebarCollapsed`, so it
   survives navigation.
-- Collapsed sidebar: the group icon navigates to the root, no flyout. (Matches
-  the current collapsed behaviour of every other item; a flyout would be the
-  only hover menu in the app.)
+- Collapsed sidebar: the icon still navigates to the root on click, same as
+  every other item, but hovering it opens a flyout listing the children
+  (including the two disabled entries, tooltipped the same way as inline).
+  Revised after shipping story 2 — without it, Offer Processing has no way to
+  be reached while the sidebar is collapsed. This is the first hover menu in
+  the app; kept deliberately minimal (no nested groups, no keyboard handling)
+  since it only ever holds one level of children.
 
 Routes:
 
