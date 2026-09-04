@@ -10,7 +10,8 @@
     "db:migrate": "dotenv -e .env -- sh -c 'for f in database/migrations/*.sql; do echo \"Applying $f\"; psql \"$DATABASE_URL\" -f \"$f\"; done'",
     "db:test": "dotenv -e .env -- sh -c 'for f in database/tests/*.test.sql; do echo \"Running $f\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\" || exit 1; done'",
     "uploads:migrate": "dotenv -e .env -- tsx scripts/migrate-uploads.ts",
-    "uploads:resync-names": "dotenv -e .env -- tsx scripts/resync-upload-folder-names.ts"
+    "uploads:resync-names": "dotenv -e .env -- tsx scripts/resync-upload-folder-names.ts",
+    "test:projectStock": "dotenv -e .env -- tsx src/services/projectStock.test.ts"
   },
   "dependencies": {
     "bcryptjs": "latest",
