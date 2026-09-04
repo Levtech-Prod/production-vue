@@ -40,22 +40,42 @@
     </button>
 
     <nav class="px-3 text-sm">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        class="nav"
-        :class="{ collapsed: ui.sidebarCollapsed }"
-        :to="item.to"
-        :title="ui.sidebarCollapsed ? item.label : undefined"
-      >
-        <template v-if="item.section && !ui.sidebarCollapsed">
-          <span class="section">{{ item.section }}</span>
-        </template>
-        <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
-          <component :is="item.icon" :size="20" class="shrink-0" />
-          <span v-if="!ui.sidebarCollapsed">{{ item.label }}</span>
-        </span>
-      </RouterLink>
+      <template v-for="item in items" :key="item.to">
+        <RouterLink
+          class="nav"
+          :class="{ collapsed: ui.sidebarCollapsed }"
+          :to="item.to"
+          :title="ui.sidebarCollapsed ? item.label : undefined"
+        >
+          <template v-if="item.section && !ui.sidebarCollapsed">
+            <span class="section">{{ item.section }}</span>
+          </template>
+          <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
+            <component :is="item.icon" :size="20" class="shrink-0" />
+            <template v-if="!ui.sidebarCollapsed">
+              <span class="flex-1">{{ item.label }}</span>
+              <ChevronDown
+                v-if="item.children"
+                :size="16"
+                class="shrink-0 transition-transform"
+                :class="{ '-rotate-90': !isGroupOpen(item) }"
+                @click.stop.prevent="ui.toggleSidebarGroup(item.to)"
+              />
+            </template>
+          </span>
+        </RouterLink>
+
+        <div v-if="item.children && !ui.sidebarCollapsed && isGroupOpen(item)" class="pl-8">
+          <template v-for="child in item.children" :key="child.label">
+            <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
+              <span class="nav-link">{{ child.label }}</span>
+            </RouterLink>
+            <span v-else class="nav disabled" :title="t('coming_soon')">
+              <span class="nav-link">{{ child.label }}</span>
+            </span>
+          </template>
+        </div>
+      </template>
     </nav>
 
     <button
@@ -70,8 +90,8 @@
   </aside>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, type Component } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/uiStore';
 import { useI18n } from 'vue-i18n';
@@ -81,18 +101,36 @@ import {
   FolderTree,
   Boxes,
   Package,
+  FolderKanban,
   Settings,
   LogOut,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-vue-next';
 
+interface NavChild {
+  // Absent for a disabled entry: it has no route yet (see NavItem.children).
+  to?: string;
+  label: string;
+  disabled?: boolean;
+}
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: Component;
+  section?: string;
+  children?: NavChild[];
+}
+
 const { t } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const ui = useUiStore();
 
-const items = computed(() => [
+const items = computed<NavItem[]>(() => [
   { to: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
   { to: '/users', label: t('users'), icon: Users, section: 'Rendszer' },
   {
@@ -104,12 +142,27 @@ const items = computed(() => [
   { to: '/stock/parts', label: t('stock'), icon: Boxes },
   { to: '/products', label: t('products'), icon: Package, section: 'Gyártás' },
   {
+    to: '/projects-preparation',
+    label: t('projects_preparation'),
+    icon: FolderKanban,
+    children: [
+      { to: '/projects-preparation/projects', label: t('projects') },
+      { to: '/projects-preparation/offers', label: t('offer_processing') },
+      { label: t('orders'), disabled: true },
+      { label: t('preparation'), disabled: true },
+    ],
+  },
+  {
     to: '/settings/product-types',
     label: t('product_types_settings'),
     icon: Settings,
     section: 'Beállítások',
   },
 ]);
+
+function isGroupOpen(item: NavItem): boolean {
+  return route.path.startsWith(item.to) || ui.openSidebarGroups.includes(item.to);
+}
 
 function logout() {
   auth.logout();
@@ -133,6 +186,14 @@ function logout() {
 .router-link-active .nav-link {
   background: #0b79e0;
   color: white;
+}
+.nav.disabled {
+  cursor: not-allowed;
+  color: #64748b;
+}
+.nav.disabled .nav-link:hover {
+  background: none;
+  color: #64748b;
 }
 .section {
   display: block;
