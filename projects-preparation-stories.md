@@ -52,7 +52,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 0. Spike: validate the BOM freeze query against real data
 
-**Type:** Spike · **Blocks:** everything · **Estimate:** half a day
+**Type:** Spike · **Blocks:** everything · **Estimate:** half a day · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.4 before
 > starting. Follow `CLAUDE.md`.
@@ -79,7 +79,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 1. Projects Preparation: database schema and error contract
 
-**Type:** Story · **Blocked by:** 0 · **Estimate:** 1 day
+**Type:** Story · **Blocked by:** 0 · **Estimate:** 1 day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3 in full
 > (§3.1–§3.6) plus §5.5. Follow `CLAUDE.md` — schema changes go through
@@ -108,7 +108,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 2. Projects Preparation menu group and routing
 
-**Type:** Story · **Blocked by:** 1 · **Estimate:** 1 day
+**Type:** Story · **Blocked by:** 1 · **Estimate:** 1 day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.1. Follow
 > `CLAUDE.md`.
@@ -144,7 +144,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 3. Stock availability and reservation service
 
-**Type:** Story · **Blocked by:** 1 · **Estimate:** 1 day
+**Type:** Story · **Blocked by:** 1 · **Estimate:** 1 day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §4.2. Follow
 > `CLAUDE.md`.
@@ -171,7 +171,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 4. Projects CRUD API
 
-**Type:** Story · **Blocked by:** 1 · **Estimate:** 2 days
+**Type:** Story · **Blocked by:** 1 · **Estimate:** 2 days · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.1, §3.2,
 > §4.1, §5.1, §5.2 (Projects table only), §5.6. Follow `CLAUDE.md` — Zod at the
@@ -205,7 +205,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 5. Projects board UI
 
-**Type:** Story · **Blocked by:** 2, 4 · **Estimate:** 3 days
+**Type:** Story · **Blocked by:** 2, 4 · **Estimate:** 3 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.2, §6.3,
 > and §4.1 for what the board payload means. Follow `CLAUDE.md`.
@@ -246,7 +246,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 6. Project BOM computation and the Parts endpoint
 
-**Type:** Story · **Blocked by:** 3, 4 · **Estimate:** 2 days
+**Type:** Story · **Blocked by:** 3, 4 · **Estimate:** 2 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.4 (in
 > full — the worked example matters), §5.3 and §5.4. Follow `CLAUDE.md`.
@@ -278,7 +278,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 7. Start and stop a project
 
-**Type:** Story · **Blocked by:** 6 · **Estimate:** 2 days
+**Type:** Story · **Blocked by:** 6 · **Estimate:** 2 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.3, §5.3
 > (the `freezeProjectBom` part) and §5.2. Follow `CLAUDE.md`.
@@ -316,7 +316,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 8. Edit purchase quantities and recalculate from stock
 
-**Type:** Story · **Blocked by:** 7 · **Estimate:** 1 day
+**Type:** Story · **Blocked by:** 7 · **Estimate:** 1 day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.3 (the
 > quantity buckets and their CHECKs), §5.2 and §5.3 (`reseedFromStock`). Follow
@@ -345,7 +345,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 9. Project parts table
 
-**Type:** Story · **Blocked by:** 5, 8 · **Estimate:** 3 days
+**Type:** Story · **Blocked by:** 5, 8 · **Estimate:** 3 days · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.4, §5.4 and
 > §4.2 (for what the shortfall flag means). Follow `CLAUDE.md`.
@@ -376,7 +376,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 10. Extract the shared PDF document helper
 
-**Type:** Task (refactor) · **Blocked by:** — · **Estimate:** half a day
+**Type:** Task (refactor) · **Blocked by:** — · **Estimate:** half a day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §7 step 11 and
 > §11.5. Follow `CLAUDE.md`.
@@ -397,7 +397,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 11. Offer processing API
 
-**Type:** Story · **Blocked by:** 8 · **Estimate:** 3 days
+**Type:** Story · **Blocked by:** 8 · **Estimate:** 3 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.5 and §5.2
 > (Offers section, including the two `DISTINCT ON` reference-price queries).
@@ -436,7 +436,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 12. Offer processing grid
 
-**Type:** Story · **Blocked by:** 9, 11 · **Estimate:** 4 days
+**Type:** Story · **Blocked by:** 9, 11 · **Estimate:** 4 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.5 (all of
 > it) and §6.2 for the file layout. Follow `CLAUDE.md`.
@@ -473,7 +473,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 13. Paste a price column from a spreadsheet
 
-**Type:** Story · **Blocked by:** 12 · **Estimate:** 1 day
+**Type:** Story · **Blocked by:** 12 · **Estimate:** 1 day · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.5, the
 > paste bullet. Follow `CLAUDE.md`.
@@ -496,7 +496,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 14. Export the offer table to PDF
 
-**Type:** Story · **Blocked by:** 10, 12 · **Estimate:** 2 days
+**Type:** Story · **Blocked by:** 10, 12 · **Estimate:** 2 days · **Model:** Sonnet 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §6.5 (export
 > bullet). Follow `CLAUDE.md`.
@@ -517,7 +517,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 15. Order parts from the offers
 
-**Type:** Story · **Blocked by:** 12 · **Estimate:** 3 days
+**Type:** Story · **Blocked by:** 12 · **Estimate:** 3 days · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.6, §5.2
 > (`POST /api/projects/:id/orders`) and §6.5 (the Order Parts bullet). Follow
@@ -551,7 +551,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 16. Project details page
 
-**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 15
+**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 15 · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §7 step 17.
 > Follow `CLAUDE.md`.
@@ -568,7 +568,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 17. Orders page and goods receipt
 
-**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 15
+**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 15 · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §7 step 18,
 > §3.3 and §3.6. Follow `CLAUDE.md`.
@@ -588,7 +588,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 
 ## 18. Preparation page
 
-**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 17
+**Type:** Story · **Phase 3 — not yet specified in detail** · **Blocked by:** 17 · **Model:** Opus 5
 
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §7 step 19,
 > §3.3 and §3.4. Follow `CLAUDE.md`.
@@ -613,3 +613,52 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 | §8.1 *Prepared* column semantics | **5** | None — derived in the API, changeable any time. Decide while looking at real cards. |
 | §8.4 stopping a project with open orders | **7** (shape), **15** (behaviour) | Reshaping the stop endpoint after it exists. |
 | ~~§8.5 permissions~~ | **settled** | All logged-in users; `POST /api/companies` relaxes in story 11. |
+
+---
+
+## Which Claude model per story
+
+Model lineup as of September 2026: **Fable 5.1** ($10/$50 per MTok, deepest
+reasoning), **Opus 5** ($5/$25, complex agentic coding), **Sonnet 5** ($2/$10,
+best speed/intelligence balance), **Haiku 4.5** ($1/$5, fastest).
+
+**The rule that decides it here:** how a mistake fails. A wrong BOM aggregation,
+a missing transaction boundary or a mis-summed quantity bucket fails *silently*
+— the numbers look plausible and someone buys the wrong parts in three weeks.
+A component that does not render fails *loudly*, in front of you, in seconds.
+Spend on the silent ones. Also, the plan is unusually specific, so mid-tier
+models go further on these stories than they would on a vague ticket.
+
+| # | Story | Model | Why |
+|---|---|---|---|
+| 0 | Spike: validate the freeze query | **Opus 5** | Judgement, not typing — deciding whether the numbers are *right* is the whole task. |
+| 1 | Migration + error contract | **Sonnet 5** | §3 gives the DDL almost verbatim. Transcription with care. |
+| 2 | Menu group and routing | **Sonnet 5** | Contained UI change against a clear spec. |
+| 3 | Stock availability service | **Sonnet 5** | Both queries are written out in §4.2. |
+| 4 | Projects CRUD API | **Sonnet 5** | Standard CRUD with Zod; the board payload is specified. |
+| 5 | Projects board UI | **Opus 5** | Seven components, real reuse judgement (`useConfirmDelete`, the product picker), and the plan describes behaviour rather than markup. |
+| 6 | BOM computation + parts endpoint | **Opus 5** | The correctness-critical heart of the epic. Silent-failure territory. |
+| 7 | Start and stop | **Opus 5** | Transaction boundaries, advisory locking, seeding rules. Concurrency bugs do not announce themselves. |
+| 8 | Edit quantities + recalculate | **Sonnet 5** | Small surface, clamps fully specified. |
+| 9 | Project parts table | **Sonnet 5** | Large but conventional; `useScopedCache` and `useTableSort` do the thinking. |
+| 10 | Extract the PDF helper | **Sonnet 5** | Mechanical move. Verification is manual either way. |
+| 11 | Offer processing API | **Opus 5** | Money, currency conversion with frozen rates, two `DISTINCT ON` queries, transactional upsert. |
+| 12 | Offer processing grid | **Opus 5** | The hardest UI in the epic: dynamic columns, sticky layout, keyboard model, sorting with nulls, per-company footer. |
+| 13 | Excel paste | **Sonnet 5** | Contained and precisely specified, including the edge cases. |
+| 14 | Offer PDF export | **Sonnet 5** | Follows an existing, working export. |
+| 15 | Order parts | **Opus 5** | Multi-order transaction, additive quantity bumps, the §8.4 stop behaviour. |
+| 16–18 | Phase 3 pages | **Opus 5** | Deliberately under-specified — these stories include design, not just build. |
+
+**Where Fable 5.1 earns its price.** Not by default. Two cases: Opus 5 gets
+story 6, 7 or 12 visibly wrong twice, or you want one adversarial review pass
+over the finished epic — "find the case where these quantity buckets disagree"
+is exactly the kind of question deep reasoning pays for. Running the whole epic
+on Fable would roughly double the bill for work the plan has already de-risked.
+
+**Where Haiku 4.5 fits.** No whole story, but plenty of sub-tasks inside one:
+adding the sixteen error codes with their English and Hungarian strings,
+renaming across call sites, writing the i18n keys for a finished component.
+Switch down for those rather than starting a story on it.
+
+Rough split: 6 stories on Opus, 9 on Sonnet — the expensive model on the third
+of the work where being wrong is expensive.
