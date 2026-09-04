@@ -8,6 +8,8 @@ import PartsView from '../views/parts/PartsView.vue';
 import ProductsListView from '../views/products/ProductsListView.vue';
 import ProductDetailView from '../views/products/ProductDetailView.vue';
 import ProductTypesView from '../views/settings/ProductTypesView.vue';
+import ProjectsView from '../views/projects/ProjectsView.vue';
+import OfferProcessingView from '../views/projects/offers/OfferProcessingView.vue';
 import { useAuthStore } from '../stores/auth';
 
 declare module 'vue-router' {
@@ -61,6 +63,19 @@ const router = createRouter({
       path: '/products/:id',
       component: ProductDetailView,
       meta: { auth: true, back: { to: '/products', labelKey: 'products' } },
+    },
+    // The group link (Sidebar.vue) points at the root; this redirect is what
+    // makes "click the group" land on Projects, rather than a click handler.
+    { path: '/projects-preparation', redirect: '/projects-preparation/projects' },
+    {
+      path: '/projects-preparation/projects',
+      component: ProjectsView,
+      meta: { auth: true, titleKey: 'projects' },
+    },
+    {
+      path: '/projects-preparation/offers',
+      component: OfferProcessingView,
+      meta: { auth: true, titleKey: 'offer_processing' },
     },
     {
       path: '/settings/product-types',

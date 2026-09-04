@@ -40,22 +40,67 @@
     </button>
 
     <nav class="px-3 text-sm">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        class="nav"
-        :class="{ collapsed: ui.sidebarCollapsed }"
-        :to="item.to"
-        :title="ui.sidebarCollapsed ? item.label : undefined"
-      >
-        <template v-if="item.section && !ui.sidebarCollapsed">
-          <span class="section">{{ item.section }}</span>
+      <template v-for="item in items" :key="item.to">
+        <!-- Collapsed sidebar + group item: the icon still navigates to the
+             group root on click, and hovering or focusing it opens a flyout
+             with the children (the only way to reach Offer Processing while
+             collapsed, since there's no room for an inline sub-list). -->
+        <div v-if="item.children && ui.sidebarCollapsed" class="group relative">
+          <RouterLink class="nav collapsed" :to="item.to" :title="item.label">
+            <span class="nav-link justify-center">
+              <component :is="item.icon" :size="20" class="shrink-0" />
+            </span>
+          </RouterLink>
+          <div class="flyout absolute left-full top-0 z-20 ml-2 w-56 rounded-xl bg-slate-950 p-2 shadow-xl ring-1 ring-slate-800">
+            <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {{ item.label }}
+            </div>
+            <SidebarNavChild
+              v-for="child in item.children"
+              :key="child.label"
+              :to="child.to"
+              :label="child.label"
+              :disabled="child.disabled"
+            />
+          </div>
+        </div>
+
+        <template v-else>
+          <RouterLink
+            class="nav"
+            :class="{ collapsed: ui.sidebarCollapsed }"
+            :to="item.to"
+            :title="ui.sidebarCollapsed ? item.label : undefined"
+          >
+            <template v-if="item.section && !ui.sidebarCollapsed">
+              <span class="section">{{ item.section }}</span>
+            </template>
+            <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
+              <component :is="item.icon" :size="20" class="shrink-0" />
+              <template v-if="!ui.sidebarCollapsed">
+                <span class="flex-1">{{ item.label }}</span>
+                <ChevronDown
+                  v-if="item.children"
+                  :size="16"
+                  class="shrink-0 transition-transform"
+                  :class="{ '-rotate-90': !isGroupOpen(item) }"
+                  @click.stop.prevent="ui.toggleSidebarGroup(item.to)"
+                />
+              </template>
+            </span>
+          </RouterLink>
+
+          <div v-if="item.children && !ui.sidebarCollapsed && isGroupOpen(item)" class="pl-8">
+            <SidebarNavChild
+              v-for="child in item.children"
+              :key="child.label"
+              :to="child.to"
+              :label="child.label"
+              :disabled="child.disabled"
+            />
+          </div>
         </template>
-        <span class="nav-link" :class="{ 'justify-center': ui.sidebarCollapsed }">
-          <component :is="item.icon" :size="20" class="shrink-0" />
-          <span v-if="!ui.sidebarCollapsed">{{ item.label }}</span>
-        </span>
-      </RouterLink>
+      </template>
     </nav>
 
     <button
@@ -70,29 +115,48 @@
   </aside>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, type Component } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/uiStore';
 import { useI18n } from 'vue-i18n';
+import SidebarNavChild from './SidebarNavChild.vue';
 import {
   LayoutDashboard,
   Users,
   FolderTree,
   Boxes,
   Package,
+  FolderKanban,
   Settings,
   LogOut,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-vue-next';
 
+interface NavChild {
+  // Absent for a disabled entry: it has no route yet (see NavItem.children).
+  to?: string;
+  label: string;
+  disabled?: boolean;
+}
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: Component;
+  section?: string;
+  children?: NavChild[];
+}
+
 const { t } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const ui = useUiStore();
 
-const items = computed(() => [
+const items = computed<NavItem[]>(() => [
   { to: '/dashboard', label: t('dashboard'), icon: LayoutDashboard },
   { to: '/users', label: t('users'), icon: Users, section: 'Rendszer' },
   {
@@ -104,6 +168,17 @@ const items = computed(() => [
   { to: '/stock/parts', label: t('stock'), icon: Boxes },
   { to: '/products', label: t('products'), icon: Package, section: 'Gyártás' },
   {
+    to: '/projects-preparation',
+    label: t('projects_preparation'),
+    icon: FolderKanban,
+    children: [
+      { to: '/projects-preparation/projects', label: t('projects') },
+      { to: '/projects-preparation/offers', label: t('offer_processing') },
+      { label: t('orders'), disabled: true },
+      { label: t('preparation'), disabled: true },
+    ],
+  },
+  {
     to: '/settings/product-types',
     label: t('product_types_settings'),
     icon: Settings,
@@ -111,34 +186,31 @@ const items = computed(() => [
   },
 ]);
 
+function isGroupOpen(item: NavItem): boolean {
+  return route.path.startsWith(item.to) || ui.openSidebarGroups.includes(item.to);
+}
+
 function logout() {
   auth.logout();
   router.push('/login');
 }
 </script>
 <style scoped>
-.nav {
-  display: block;
-  border-radius: 0.75rem;
-  color: #cbd5e1;
+/* Shown on hover/focus-within of the trigger icon (see the collapsed group
+   branch above). Hiding is delayed rather than instant: without it, moving
+   the pointer diagonally from the icon toward a child link crosses the gap
+   between them and closes the menu before it arrives. */
+.flyout {
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
-.nav-link {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
-}
-.nav:hover .nav-link,
-.router-link-active .nav-link {
-  background: #0b79e0;
-  color: white;
-}
-.section {
-  display: block;
-  padding: 1.25rem 1rem 0.5rem;
-  color: #94a3b8;
-  text-transform: uppercase;
-  font-size: 0.75rem;
+.group:hover .flyout,
+.group:focus-within .flyout {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 150ms ease;
 }
 </style>

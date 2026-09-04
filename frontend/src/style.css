@@ -14,3 +14,38 @@ body { @apply bg-slate-50 text-slate-900 antialiased; }
    pick out. Deliberately carries no text SIZE: most tables want text-xs, the
    alternatives strip wants 9px, and only the colour is shared. */
 .table-head { @apply bg-blue-100 uppercase text-blue-900; }
+/* Sidebar nav row: top-level items in Sidebar.vue and group children in
+   SidebarNavChild.vue share one look, so it lives here instead of scoped in
+   either — a scoped copy in each would drift the moment one changes. */
+.nav {
+  display: block;
+  border-radius: 0.75rem;
+  color: #cbd5e1;
+}
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+.nav:hover .nav-link,
+.router-link-active .nav-link {
+  background: #0b79e0;
+  color: white;
+}
+.nav.disabled {
+  cursor: not-allowed;
+  color: #64748b;
+}
+.nav.disabled .nav-link:hover {
+  background: none;
+  color: #64748b;
+}
+.section {
+  display: block;
+  padding: 1.25rem 1rem 0.5rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
