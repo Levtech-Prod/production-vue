@@ -710,6 +710,8 @@ const messages = {
         'The selected products contain no parts, so there is nothing to prepare.',
       PRODUCT_REVISION_MISMATCH:
         'The selected revision does not belong to that product.',
+      PRODUCT_REVISION_DUPLICATE:
+        'The same product revision was added more than once.',
       PROJECT_PARTS_NOT_FROZEN:
         'The parts list has not been generated for this project yet.',
       PROJECT_PART_NOT_FOUND: 'Project part not found',
@@ -1510,6 +1512,8 @@ const messages = {
         'A kiválasztott termékek nem tartalmaznak alkatrészt, így nincs mit előkészíteni.',
       PRODUCT_REVISION_MISMATCH:
         'A kiválasztott revízió nem ehhez a termékhez tartozik.',
+      PRODUCT_REVISION_DUPLICATE:
+        'Ugyanaz a termékrevízió többször szerepel a listában.',
       PROJECT_PARTS_NOT_FROZEN:
         'Ehhez a projekthez még nem készült el az alkatrészlista.',
       PROJECT_PART_NOT_FOUND: 'A projekt alkatrésze nem található',

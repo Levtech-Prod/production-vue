@@ -159,6 +159,8 @@ export const ErrorCodes = {
   PROJECT_HAS_NO_PARTS: 'PROJECT_HAS_NO_PARTS',
   // The pinned revision does not belong to the product it was added under.
   PRODUCT_REVISION_MISMATCH: 'PRODUCT_REVISION_MISMATCH',
+  // The same product revision was listed twice in one project's product set.
+  PRODUCT_REVISION_DUPLICATE: 'PRODUCT_REVISION_DUPLICATE',
   // The BOM freeze has not run, so there are no `project_parts` to act on.
   PROJECT_PARTS_NOT_FROZEN: 'PROJECT_PARTS_NOT_FROZEN',
   PROJECT_PART_NOT_FOUND: 'PROJECT_PART_NOT_FOUND',
