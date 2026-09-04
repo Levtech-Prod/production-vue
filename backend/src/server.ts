@@ -19,6 +19,7 @@ import documentRevisionRoutes from './routes/documentRevisions.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
+import projectRoutes from './routes/projects.js';
 import { ErrorCodes } from './errorCodes.js';
 import { startTmpSweeper } from './services/tmpSweeper.js';
 
@@ -39,6 +40,7 @@ app.use('/api/sub-product-types', subProductTypeRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/projects', projectRoutes);
 
 // A revision-mode document type with no extension list accepts every file
 // extension, so its version files must never be reachable as static content —
