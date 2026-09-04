@@ -42,29 +42,26 @@
     <nav class="px-3 text-sm">
       <template v-for="item in items" :key="item.to">
         <!-- Collapsed sidebar + group item: the icon still navigates to the
-             group root on click, and hovering it opens a flyout with the
-             children (the only way to reach Offer Processing while collapsed,
-             since there's no room for an inline sub-list). -->
+             group root on click, and hovering or focusing it opens a flyout
+             with the children (the only way to reach Offer Processing while
+             collapsed, since there's no room for an inline sub-list). -->
         <div v-if="item.children && ui.sidebarCollapsed" class="group relative">
           <RouterLink class="nav collapsed" :to="item.to" :title="item.label">
             <span class="nav-link justify-center">
               <component :is="item.icon" :size="20" class="shrink-0" />
             </span>
           </RouterLink>
-          <div
-            class="invisible absolute left-full top-0 z-20 ml-2 w-56 rounded-xl bg-slate-950 p-2 opacity-0 shadow-xl ring-1 ring-slate-800 transition-opacity duration-150 group-hover:visible group-hover:opacity-100"
-          >
+          <div class="flyout absolute left-full top-0 z-20 ml-2 w-56 rounded-xl bg-slate-950 p-2 shadow-xl ring-1 ring-slate-800">
             <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               {{ item.label }}
             </div>
-            <template v-for="child in item.children" :key="child.label">
-              <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
-                <span class="nav-link">{{ child.label }}</span>
-              </RouterLink>
-              <span v-else class="nav disabled" :title="t('coming_soon')">
-                <span class="nav-link">{{ child.label }}</span>
-              </span>
-            </template>
+            <SidebarNavChild
+              v-for="child in item.children"
+              :key="child.label"
+              :to="child.to"
+              :label="child.label"
+              :disabled="child.disabled"
+            />
           </div>
         </div>
 
@@ -94,14 +91,13 @@
           </RouterLink>
 
           <div v-if="item.children && !ui.sidebarCollapsed && isGroupOpen(item)" class="pl-8">
-            <template v-for="child in item.children" :key="child.label">
-              <RouterLink v-if="!child.disabled" class="nav" :to="child.to!">
-                <span class="nav-link">{{ child.label }}</span>
-              </RouterLink>
-              <span v-else class="nav disabled" :title="t('coming_soon')">
-                <span class="nav-link">{{ child.label }}</span>
-              </span>
-            </template>
+            <SidebarNavChild
+              v-for="child in item.children"
+              :key="child.label"
+              :to="child.to"
+              :label="child.label"
+              :disabled="child.disabled"
+            />
           </div>
         </template>
       </template>
@@ -124,6 +120,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/uiStore';
 import { useI18n } from 'vue-i18n';
+import SidebarNavChild from './SidebarNavChild.vue';
 import {
   LayoutDashboard,
   Users,
@@ -199,36 +196,21 @@ function logout() {
 }
 </script>
 <style scoped>
-.nav {
-  display: block;
-  border-radius: 0.75rem;
-  color: #cbd5e1;
+/* Shown on hover/focus-within of the trigger icon (see the collapsed group
+   branch above). Hiding is delayed rather than instant: without it, moving
+   the pointer diagonally from the icon toward a child link crosses the gap
+   between them and closes the menu before it arrives. */
+.flyout {
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
-.nav-link {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
-}
-.nav:hover .nav-link,
-.router-link-active .nav-link {
-  background: #0b79e0;
-  color: white;
-}
-.nav.disabled {
-  cursor: not-allowed;
-  color: #64748b;
-}
-.nav.disabled .nav-link:hover {
-  background: none;
-  color: #64748b;
-}
-.section {
-  display: block;
-  padding: 1.25rem 1rem 0.5rem;
-  color: #94a3b8;
-  text-transform: uppercase;
-  font-size: 0.75rem;
+.group:hover .flyout,
+.group:focus-within .flyout {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 150ms ease;
 }
 </style>
