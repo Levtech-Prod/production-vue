@@ -69,6 +69,21 @@ function revisionsMatchProducts(
   );
 }
 
+/** True when the same revision was pinned twice in one payload. Left
+ *  unchecked, this hits `project_products`' UNIQUE (project_id,
+ *  product_revision_id) constraint and surfaces as a raw 500 instead of a
+ *  clean 4xx — a plausible slip from a picker that lets the same product be
+ *  added twice (pinning the same product at two different revisions is
+ *  fine and stays allowed; only the same revision twice is a duplicate). */
+function hasDuplicateRevisions(products: ProjectProductInput[]): boolean {
+  const seen = new Set<number>();
+  for (const p of products) {
+    if (seen.has(p.productRevisionId)) return true;
+    seen.add(p.productRevisionId);
+  }
+  return false;
+}
+
 /** Bulk-insert the pinned product set in one round trip, position taken from
  *  array order. */
 async function insertProjectProducts(
@@ -222,6 +237,9 @@ router.post('/', requireAuth, async (req, res) => {
   if (data.products.length === 0) {
     return res.status(422).json({ code: ErrorCodes.PROJECT_HAS_NO_PRODUCTS });
   }
+  if (hasDuplicateRevisions(data.products)) {
+    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_DUPLICATE });
+  }
 
   const revisionInfo = await fetchRevisionInfo(
     pool,
@@ -287,6 +305,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
   if (data.products.length === 0) {
     return res.status(422).json({ code: ErrorCodes.PROJECT_HAS_NO_PRODUCTS });
   }
+  if (hasDuplicateRevisions(data.products)) {
+    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_DUPLICATE });
+  }
 
   const revisionInfo = await fetchRevisionInfo(
     pool,
@@ -340,21 +361,26 @@ router.patch('/:id', requireAuth, async (req, res) => {
       [projectId],
     );
 
-    await client.query(
+    // RETURNING the written row (not the raw payload) so the audit diff below
+    // reflects what's actually in the database — `data.description || null`
+    // can turn an incoming '' into a stored NULL, and the diff must agree.
+    const updated = await client.query<{
+      name: string;
+      description: string | null;
+      deadline: string | null;
+    }>(
       `UPDATE projects SET name = $1, description = $2, deadline = $3, updated_at = NOW()
-       WHERE id = $4`,
+       WHERE id = $4
+       RETURNING name, description, to_char(deadline, 'YYYY-MM-DD') AS deadline`,
       [data.name, data.description || null, data.deadline || null, projectId],
     );
+    const after = updated.rows[0];
     await client.query(`DELETE FROM project_products WHERE project_id = $1`, [projectId]);
     await insertProjectProducts(client, projectId, data.products);
 
     const fields = diffFields(
       { name: before.name, description: before.description, deadline: before.deadline },
-      {
-        name: data.name,
-        description: data.description ?? null,
-        deadline: data.deadline ?? null,
-      },
+      after,
       ['name', 'description', 'deadline'],
     );
 

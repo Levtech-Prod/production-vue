@@ -8,11 +8,19 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 // completed ones are hidden until asked for.
 export const DEFAULT_PROJECT_LIST_STATUSES: ProjectStatus[] = ['draft', 'started'];
 
+// Postgres INTEGER's max — project_products' id/revision-id/quantity columns
+// are all plain `integer`. Without this cap, a value like 99999999999 passes
+// zod (well under Number.MAX_SAFE_INTEGER) but throws a raw "integer out of
+// range" (22003) once it reaches an `::int[]` cast, since that's a hard
+// Postgres error, not a friendly 4xx.
+const POSTGRES_INT_MAX = 2147483647;
+const pgIntSchema = () => z.number().int().positive().max(POSTGRES_INT_MAX);
+
 /** One pinned product at one of its revisions, with the project's quantity. */
 export const projectProductInputSchema = z.object({
-  productId: z.number().int().positive(),
-  productRevisionId: z.number().int().positive(),
-  quantity: z.number().int().positive(),
+  productId: pgIntSchema(),
+  productRevisionId: pgIntSchema(),
+  quantity: pgIntSchema(),
 });
 export type ProjectProductInput = z.input<typeof projectProductInputSchema>;
 
@@ -23,11 +31,17 @@ export const projectPayloadSchema = z.object({
   description: z.string().optional().nullable(),
   // 'YYYY-MM-DD', matching the `deadline DATE` column; validated loosely
   // here, Postgres rejects anything that doesn't parse as a real date.
-  deadline: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
-    .optional()
-    .nullable(),
+  // '' is normalized to null before the regex runs: like `image` in
+  // products.schema.ts, the client clears an optional field by sending ''
+  // rather than omitting it or sending null.
+  deadline: z.preprocess(
+    (val) => (val === '' ? null : val),
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
+      .optional()
+      .nullable(),
+  ),
   products: z.array(projectProductInputSchema),
 });
 export type ProjectPayload = z.input<typeof projectPayloadSchema>;
