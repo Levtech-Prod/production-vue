@@ -602,6 +602,8 @@ WHERE pp.part_id = ANY($1)
 GROUP BY pp.part_id;
 ```
 
+`services/projectStock.ts`'s `getPartStock` runs both queries above as CTEs inside one statement rather than two separate round trips, so `available` and `reserved` always come from the same snapshot — see §11.8 for why. `getAvailableQuantities` / `getReservedQuantities` stay available separately, unchanged, for callers that only need one side.
+
 Free stock, used when seeding `from_stock_qty` at project start, is
 `available - reserved`. A stopped project drops out of the aggregate
 automatically, which is the whole reason there is no reservations table to
@@ -1312,3 +1314,21 @@ if a constraint is later dropped.
 The frozen BOM, the pinned revisions, the derived board, deriving reserved
 quantity instead of storing reservations, one offer sheet per project, and
 computing best price in the client.
+
+### 11.8 Sixth pass — building `services/projectStock.ts`
+
+Found by writing and then adversarially reviewing the service itself
+(§4.2's two queries) against seeded data. None of these change what §4.2
+promises the two queries compute; all three are implementation refinements
+the plan text did not anticipate, kept here so the reasoning survives the
+next person who touches this file.
+
+| # | Problem | Now |
+|---|---|---|
+| C1 | The service shipped with no test committed to the repo — the acceptance check ("no stock" / "fully consumed" / "claimed by two started projects, one stopped") had been run once by hand and then discarded. Nothing would catch a future edit that silently broke `getReservedQuantities`. | `backend/src/services/projectStock.test.ts`, run via `npm run test:projectStock`: seeds the same three scenarios plus two more (`prepared_qty` fully picked; a project excluding its own claim) inside one transaction that is always rolled back, against the real dev database — the same convention `database/tests/023-add-projects.test.sql` uses for schema constraints, extended here to service-level logic. |
+| C2 | `getAvailableQuantities` sums `quantity - quantity_consumed` per part with no per-row floor, unlike `frontend/src/utils/stock.ts`'s `availableOf()`, which clamps each row to `Math.max(0, ...)` before summing. The two are equivalent only as long as no single `stock_entries` row ever has `quantity_consumed > quantity` — true today because `routes/stockEntries.ts`'s FIFO deduction is careful never to over-consume a row, but the schema itself did not make it *impossible*. | Migration `024-guard-stock-consumption.sql` adds `CHECK (quantity_consumed <= quantity)` to `stock_entries`. The application-level guarantee becomes a database-level one; the frontend and backend can no longer silently disagree about a part's available stock. |
+| C3 | `getPartStock` computed `available` and `reserved` as two independent queries (awaited together via `Promise.all`), each its own implicit transaction against the pool. A write landing between them (a stock receipt, another project starting) could make the two numbers reflect different instants, so the returned `free` value was never guaranteed to have been true at any single point in time — a narrower, purely technical inconsistency than the "claims can go stale over time" behaviour §4.2 already accepts by design. | `getPartStock` now runs both queries as CTEs inside **one** statement (`getAvailableQuantities` / `getReservedQuantities` stay separate exports, unchanged, for callers that only need one side). One statement is one snapshot regardless of isolation level, and it also cuts the round trip from two to one — strictly better than what §4.2 literally describes (two separate queries), while composing the exact same predicates. |
+
+None of these needed a schema change beyond C2's single `CHECK`, and none
+changed the two queries' predicates — only how completely their correctness
+is guaranteed and how durably it is checked.
