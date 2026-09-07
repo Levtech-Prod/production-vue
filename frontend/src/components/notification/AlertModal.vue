@@ -1,10 +1,3 @@
-<script setup lang="ts">
-import { useNotificationStore } from '../../stores/notificationStore';
-import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
-
-const notificationStore = useNotificationStore();
-</script>
-
 <template>
   <!-- Teleported and on the `confirm` layer for the same reason as
        ConfirmModal: an alert has to be readable above whatever raised it. -->
@@ -38,6 +31,15 @@ const notificationStore = useNotificationStore();
     </Transition>
   </Teleport>
 </template>
+
+<script setup lang="ts">
+import { useNotificationStore } from '../../stores/notificationStore';
+import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
+
+const notificationStore = useNotificationStore();
+</script>
+
+
 
 <style scoped>
 .fade-enter-active,

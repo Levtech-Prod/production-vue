@@ -60,6 +60,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 ## Frontend (Vue)
 
+- Order the blocks in a `.vue` file `<template>` first, then `<script>` / `<script setup>`, then `<style>`. A component should open with what it renders, and reading two components side by side should not mean hunting for where each one starts. This holds when a file has two script blocks too — both go after the template.
 - Keep single-file components focused; split into sub-components when a file grows too large or mixes unrelated concerns.
 - Shared UI logic goes into composables, not duplicated across components.
 - Use Pinia stores for cross-component state, not prop-drilling or global mutables.
