@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
 
-defineProps<{
+const props = defineProps<{
   visible: boolean;
   title?: string;
   message?: string;
@@ -20,6 +21,35 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+// A confirmation is the only thing standing between a click and an
+// irreversible action, so it refuses to act on a click it cannot have been
+// read for: one already travelling up the DOM when the dialog mounted, or a
+// second click of a double-click landing where the button just appeared.
+const ARM_DELAY_MS = 300;
+
+const shownAt = ref(0);
+const cancelButtonRef = ref<HTMLButtonElement | null>(null);
+const confirmButtonRef = ref<HTMLButtonElement | null>(null);
+
+watch(
+  () => props.visible,
+  async (visible) => {
+    if (!visible) return;
+    shownAt.value = Date.now();
+    await nextTick();
+    // A stray Enter must not destroy anything, so a destructive dialog opens
+    // with Cancel focused. `primary` confirms a save, where Enter is what the
+    // user expects.
+    const initial = props.variant === 'primary' ? confirmButtonRef : cancelButtonRef;
+    initial.value?.focus();
+  },
+);
+
+function onConfirm() {
+  if (Date.now() - shownAt.value < ARM_DELAY_MS) return;
+  emit('confirm');
+}
 </script>
 
 <template>
@@ -44,6 +74,7 @@ const { t } = useI18n();
 
           <div class="flex justify-end gap-3">
             <button
+              ref="cancelButtonRef"
               type="button"
               class="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               :disabled="loading"
@@ -60,8 +91,9 @@ const { t } = useI18n();
                   ? 'bg-blue-600 hover:bg-blue-700'
                   : 'bg-red-600 hover:bg-red-700'
               "
+              ref="confirmButtonRef"
               :disabled="loading"
-              @click="$emit('confirm')"
+              @click="onConfirm"
             >
               {{ loading ? t('in-progress') : confirmText || t('delete') }}
             </button>

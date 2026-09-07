@@ -6,6 +6,8 @@
  * equal z-index the winner is simply whichever mounted last — i.e. template
  * order. That is what this scale removes.
  *
+ *  - `menu`    a popover anchored to a control, e.g. a card's action menu;
+ *              below `modal` so a dialog covers it
  *  - `modal`   a top-level dialog (BaseModal's default)
  *  - `nested`  a dialog opened from inside another dialog, e.g. the document
  *              name entry opened from the file-list modal
@@ -19,6 +21,7 @@
  * modals still using Tailwind's `z-50`.
  */
 export const OVERLAY_LAYERS = {
+  menu: 40,
   modal: 50,
   nested: 55,
   confirm: 60,
