@@ -42,7 +42,7 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   {
     key: 'offers',
     titleKey: 'project_column.offers',
-    emptyKey: 'project_column.empty_derived',
+    emptyKey: 'project_column.empty_until_started',
     dotClass: 'bg-violet-500',
     badgeKey: 'n_parts_to_buy',
     member: (p) => p.inOffers,
@@ -51,7 +51,7 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   {
     key: 'ordered',
     titleKey: 'project_column.ordered',
-    emptyKey: 'project_column.empty_derived',
+    emptyKey: 'project_column.empty_until_started',
     dotClass: 'bg-blue-500',
     badgeKey: 'n_parts_on_order',
     member: (p) => p.inOrdered,
@@ -60,7 +60,7 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   {
     key: 'preparation',
     titleKey: 'project_column.preparation',
-    emptyKey: 'project_column.empty_derived',
+    emptyKey: 'project_column.empty_until_started',
     dotClass: 'bg-amber-500',
     badgeKey: 'n_parts_to_pick',
     member: (p) => p.inPreparation,
@@ -69,7 +69,7 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   {
     key: 'prepared',
     titleKey: 'project_column.prepared',
-    emptyKey: 'project_column.empty_derived',
+    emptyKey: 'project_column.empty_until_started',
     dotClass: 'bg-emerald-500',
     badgeKey: 'n_parts_ready',
     member: (p) => p.inPrepared,

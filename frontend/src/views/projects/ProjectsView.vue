@@ -36,7 +36,7 @@
         </div>
 
         <span class="text-sm text-slate-400">
-          {{ store.loading ? t('loading') : store.board.length }}
+          {{ store.loading ? t('loading') : visibleProjects.length }}
         </span>
 
         <button
@@ -54,7 +54,7 @@
 
       <ProjectBoard
         class="flex-1"
-        :projects="store.board"
+        :projects="visibleProjects"
         :selected-id="selectedProjectId"
         @select="toggleSelection"
         @edit="openEdit"
@@ -111,8 +111,9 @@ const notify = useNotificationStore();
 
 // ---- Filters ----------------------------------------------------------------
 //
-// The query string is the source of truth: every filter change is a
-// `router.replace`, and the fetch reacts to the resulting route.
+// The query string is the source of truth for both filters, so a filtered
+// board is a shareable link. Only the status filter reaches the API, though:
+// the name search matches the rows already loaded.
 
 function queryParam(key: string): string | null {
   const value = route.query[key];
@@ -145,7 +146,10 @@ function toggleStatus(status: ProjectStatus) {
   setFilters({ status: next });
 }
 
-// Typed separately from the URL so each keystroke doesn't push a route.
+// The name search filters the loaded board rather than going back to the API.
+// A board is tens of rows, so matching them here is instant and costs no
+// request; the URL still carries `q` so a filtered board stays a shareable
+// link, written back on a debounce because that is a navigation, not a filter.
 const search = ref(queryParam('q') ?? '');
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -158,16 +162,21 @@ onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
 
+const visibleProjects = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  return q ? store.board.filter((p) => p.name.toLowerCase().includes(q)) : store.board;
+});
+
 async function loadBoard() {
   try {
-    await store.fetchBoard({ status: statuses.value, q: queryParam('q') ?? undefined });
+    await store.fetchBoard({ status: statuses.value });
   } catch {
     // The store holds the message; the toolbar renders it.
   }
 }
 
-// One primitive key, so the board refetches exactly when the filters change.
-watch(() => `${statuses.value.join(',')}|${queryParam('q') ?? ''}`, loadBoard);
+// Only the status filter reaches the API, so only it refetches.
+watch(() => statuses.value.join(','), loadBoard);
 
 // Keeps the box in step with the URL when the filters change from elsewhere
 // — a shared link, or the back button.

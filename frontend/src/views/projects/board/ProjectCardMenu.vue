@@ -43,20 +43,64 @@
 </template>
 
 <script lang="ts">
+import type { Component } from 'vue';
+import { Pencil, Play, Square, Trash2 } from 'lucide-vue-next';
 import type { ProjectStatus } from '../../../types/projects.ts';
 
-/** Whether a project in this state offers any card action at all — the card
- *  uses it to skip mounting the menu entirely. Kept beside `actions` below,
- *  which must stay non-empty for exactly these states. */
+export interface ProjectCardAction {
+  key: 'edit' | 'start' | 'delete' | 'stop';
+  labelKey: string;
+  icon: Component;
+  class: string;
+  /** Start and Stop have no endpoint yet (plan §7 step 8), so they are listed
+   *  disabled rather than hidden: the card still shows what comes next. */
+  disabled?: boolean;
+}
+
+/**
+ * What a project in this state offers on its card. A menu rather than a row
+ * of labelled buttons, because labels do not fit a fifth of the board's width.
+ */
+export function cardActions(status: ProjectStatus): ProjectCardAction[] {
+  if (status === 'draft') {
+    return [
+      { key: 'edit', labelKey: 'edit', icon: Pencil, class: 'text-slate-700 hover:bg-slate-50' },
+      {
+        key: 'start',
+        labelKey: 'start_project',
+        icon: Play,
+        class: 'text-emerald-700 hover:bg-emerald-50',
+        disabled: true,
+      },
+      { key: 'delete', labelKey: 'delete', icon: Trash2, class: 'text-red-600 hover:bg-red-50' },
+    ];
+  }
+  if (status === 'started') {
+    return [
+      {
+        key: 'stop',
+        labelKey: 'stop_project',
+        icon: Square,
+        class: 'text-amber-700 hover:bg-amber-50',
+        disabled: true,
+      },
+    ];
+  }
+  return [];
+}
+
+/** The card skips mounting the menu when there is nothing in it. Derived from
+ *  the list above rather than repeating its statuses, so adding an action to a
+ *  state cannot leave the card hiding it. */
 export function hasCardActions(status: ProjectStatus): boolean {
-  return status === 'draft' || status === 'started';
+  return cardActions(status).length > 0;
 }
 </script>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, type Component } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { MoreVertical, Pencil, Play, Square, Trash2 } from 'lucide-vue-next';
+import { MoreVertical } from 'lucide-vue-next';
 import { useClickOutside } from '../../../composables/useClickOutside.ts';
 import { OVERLAY_LAYERS } from '../../../utils/overlayLayers.ts';
 
@@ -75,58 +119,7 @@ useClickOutside(root, () => {
   open.value = false;
 });
 
-interface MenuAction {
-  key: string;
-  labelKey: string;
-  icon: Component;
-  class: string;
-  disabled?: boolean;
-  run?: () => void;
-}
-
-// A menu rather than a row of labelled buttons, so the card stays readable
-// at a fifth of the board's width. Start and Stop have no endpoint yet
-// (plan §7 step 8) and are listed disabled rather than hidden, so the card
-// still shows what a project can do next.
-const actions = computed<MenuAction[]>(() => {
-  if (props.status === 'draft') {
-    return [
-      {
-        key: 'edit',
-        labelKey: 'edit',
-        icon: Pencil,
-        class: 'text-slate-700 hover:bg-slate-50',
-        run: () => emit('edit'),
-      },
-      {
-        key: 'start',
-        labelKey: 'start_project',
-        icon: Play,
-        class: 'text-emerald-700 hover:bg-emerald-50',
-        disabled: true,
-      },
-      {
-        key: 'delete',
-        labelKey: 'delete',
-        icon: Trash2,
-        class: 'text-red-600 hover:bg-red-50',
-        run: () => emit('delete'),
-      },
-    ];
-  }
-  if (props.status === 'started') {
-    return [
-      {
-        key: 'stop',
-        labelKey: 'stop_project',
-        icon: Square,
-        class: 'text-amber-700 hover:bg-amber-50',
-        disabled: true,
-      },
-    ];
-  }
-  return [];
-});
+const actions = computed(() => cardActions(props.status));
 
 const MENU_WIDTH = 144;
 const ITEM_HEIGHT = 32;
@@ -164,24 +157,38 @@ function toggle() {
   open.value = true;
 }
 
+// Follow the trigger rather than closing: a scroll while reaching for Delete
+// is an accident, and losing the menu to it is worse than the stale position
+// it would otherwise have. Only a trigger that has left the viewport closes,
+// since there is nothing left to anchor to.
+function reposition() {
+  const rect = trigger.value?.getBoundingClientRect();
+  if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) {
+    close();
+    return;
+  }
+  place();
+}
+
 // `capture` so a scroll of the column — not just the window — is caught.
 watch(open, (isOpen) => {
   if (isOpen) {
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
   } else {
-    window.removeEventListener('scroll', close, true);
-    window.removeEventListener('resize', close);
+    window.removeEventListener('scroll', reposition, true);
+    window.removeEventListener('resize', reposition);
   }
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', close, true);
-  window.removeEventListener('resize', close);
+  window.removeEventListener('scroll', reposition, true);
+  window.removeEventListener('resize', reposition);
 });
 
-function run(action: MenuAction) {
+function run(action: ProjectCardAction) {
   close();
-  action.run?.();
+  if (action.key === 'edit') emit('edit');
+  else if (action.key === 'delete') emit('delete');
 }
 </script>

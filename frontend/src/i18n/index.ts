@@ -575,6 +575,7 @@ const messages = {
     show_n_more: '+{n} more',
     show_less: 'Show less',
     n_lines_ready: '{done} of {total} parts ready',
+    progress_not_started: 'Not started',
     n_parts_to_buy: '{n} to buy',
     n_parts_on_order: '{n} on order',
     n_parts_to_pick: '{n} to pick',
@@ -592,7 +593,7 @@ const messages = {
       preparation: 'Preparation',
       prepared: 'Prepared',
       empty_projects: 'No projects match the filter.',
-      empty_derived: 'Nothing here yet.',
+      empty_until_started: 'Projects appear here once they are started.',
     },
 
     errors: {
@@ -754,6 +755,8 @@ const messages = {
         'The selected revision does not belong to that product.',
       PRODUCT_REVISION_DUPLICATE:
         'The same product revision was added more than once.',
+      PRODUCT_ARCHIVED:
+        'An archived product cannot be added to a project.',
       PROJECT_PARTS_NOT_FROZEN:
         'The parts list has not been generated for this project yet.',
       PROJECT_PART_NOT_FOUND: 'Project part not found',
@@ -1435,6 +1438,7 @@ const messages = {
     show_n_more: '+{n} további',
     show_less: 'Kevesebb',
     n_lines_ready: '{total} alkatrészből {done} kész',
+    progress_not_started: 'Nincs elindítva',
     n_parts_to_buy: '{n} beszerzendő',
     n_parts_on_order: '{n} megrendelve',
     n_parts_to_pick: '{n} kivételezendő',
@@ -1452,7 +1456,7 @@ const messages = {
       preparation: 'Előkészítés',
       prepared: 'Előkészítve',
       empty_projects: 'Nincs a szűrőnek megfelelő projekt.',
-      empty_derived: 'Itt még nincs semmi.',
+      empty_until_started: 'A projektek az indításuk után jelennek meg itt.',
     },
 
     errors: {
@@ -1606,6 +1610,8 @@ const messages = {
         'A kiválasztott revízió nem ehhez a termékhez tartozik.',
       PRODUCT_REVISION_DUPLICATE:
         'Ugyanaz a termékrevízió többször szerepel a listában.',
+      PRODUCT_ARCHIVED:
+        'Archivált termék nem adható projekthez.',
       PROJECT_PARTS_NOT_FROZEN:
         'Ehhez a projekthez még nem készült el az alkatrészlista.',
       PROJECT_PART_NOT_FOUND: 'A projekt alkatrésze nem található',

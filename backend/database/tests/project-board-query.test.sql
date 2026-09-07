@@ -47,7 +47,8 @@ INSERT INTO parts (id, category_id, name, code) VALUES
   (9250003, 9250001, 'Diode',     'TEST025-DIO'),
   (9250004, 9250001, 'Capacitor', 'TEST025-CAP'),
   (9250005, 9250001, 'Resistor',  'TEST025-RES'),
-  (9250006, 9250001, 'Inductor',  'TEST025-IND');
+  (9250006, 9250001, 'Inductor',  'TEST025-IND'),
+  (9250007, 9250001, 'Fuse',      'TEST025-FUS');
 
 INSERT INTO products (id, name, sku, type) VALUES
   (9250001, 'Fuel Controller', 'TEST025-FC', 't025'),
@@ -62,7 +63,11 @@ INSERT INTO projects (id, name, status, created_at) VALUES
   (9250002, 'TEST025 mixed',     'started',   now() - interval '4 min'),
   (9250003, 'TEST025 all done',  'started',   now() - interval '3 min'),
   (9250004, 'TEST025 stopped',   'stopped',   now() - interval '2 min'),
-  (9250005, 'TEST025 completed', 'completed', now() - interval '1 min');
+  (9250005, 'TEST025 completed', 'completed', now() - interval '1 min'),
+  -- Every sourcing column zero on every line: the three outstanding counts are
+  -- all 0, so the pre-floor rule called this project Prepared while it had
+  -- obtained nothing at all.
+  (9250006, 'TEST025 unsourced',  'started',   now() - interval '30 sec');
 
 -- The draft pins two products; `position` decides the order the card lists
 -- them in, and is deliberately not the insert order here.
@@ -83,7 +88,11 @@ INSERT INTO project_parts
   (9250002, 9250005, 10, 1, 10,  4,  2,  0),   -- to buy AND on order AND to pick
   -- Pickable only because goods arrived: from_stock alone is not above
   -- prepared, so this line is what proves received_qty belongs in the sum.
-  (9250002, 9250006,  2, 0,  2,  2,  2,  0);
+  (9250002, 9250006,  2, 0,  2,  2,  2,  0),
+  -- Nothing sourced at all: every CHECK accepts this row and all three
+  -- comparisons above are equalities, so without the `prepared >= required`
+  -- floor it would count as done and the card would read 100% prepared.
+  (9250002, 9250007,  5, 0,  0,  0,  0,  0);
 
 INSERT INTO project_parts
   (project_id, part_id, required_qty, from_stock_qty, missing_qty, ordered_qty, received_qty, prepared_qty) VALUES
@@ -99,6 +108,10 @@ INSERT INTO project_parts
 INSERT INTO project_parts
   (project_id, part_id, required_qty, from_stock_qty, missing_qty, ordered_qty, received_qty, prepared_qty) VALUES
   (9250005, 9250001, 6, 6, 0, 0, 0, 6);
+
+INSERT INTO project_parts
+  (project_id, part_id, required_qty, from_stock_qty, missing_qty, ordered_qty, received_qty, prepared_qty) VALUES
+  (9250006, 9250001, 5, 0, 0, 0, 0, 0);
 
 -- ---------------------------------------------------------------------------
 -- The board query, verbatim from routes/projects.ts, into a temp table.
@@ -133,7 +146,8 @@ SELECT
   COUNT(*) FILTER (WHERE pp.missing_qty <= pp.ordered_qty
                      AND pp.ordered_qty <= pp.received_qty
                      AND pp.from_stock_qty + pp.received_qty
-                         <= pp.prepared_qty)::int               AS "doneLines"
+                         <= pp.prepared_qty
+                     AND pp.prepared_qty >= pp.required_qty)::int AS "doneLines"
 FROM projects p
 LEFT JOIN project_parts pp ON pp.project_id = p.id
 WHERE p.status = ANY(ARRAY['draft','started','stopped','completed']::text[])
@@ -150,7 +164,7 @@ SELECT id, name, status, "lineCount", "toBuyLines", "onOrderLines",
        (status IN ('started','completed') AND "onOrderLines"  > 0) AS "inOrdered",
        (status IN ('started','completed') AND "toPickLines"   > 0) AS "inPreparation",
        (status IN ('started','completed') AND "lineCount" > 0
-          AND "toBuyLines" + "onOrderLines" + "toPickLines" = 0)   AS "inPrepared"
+          AND "doneLines" = "lineCount")                          AS "inPrepared"
 FROM board;
 
 -- ---------------------------------------------------------------------------
@@ -161,12 +175,12 @@ DO $$
 DECLARE r record;
 BEGIN
   SELECT count(*)::int AS n INTO r FROM board;
-  CALL pg_temp.must_equal(r.n, 5, 'the name search returns exactly the five fixture projects');
+  CALL pg_temp.must_equal(r.n, 6, 'the name search returns exactly the six fixture projects');
 
   SELECT string_agg(name, ' | ' ORDER BY "createdAt" DESC) AS names INTO r FROM board;
   CALL pg_temp.must_equal(
     r.names,
-    'TEST025 completed | TEST025 stopped | TEST025 all done | TEST025 mixed | TEST025 draft',
+    'TEST025 unsourced | TEST025 completed | TEST025 stopped | TEST025 all done | TEST025 mixed | TEST025 draft',
     'newest project first');
 END $$;
 
@@ -201,13 +215,36 @@ DO $$
 DECLARE r record;
 BEGIN
   SELECT * INTO r FROM flags WHERE id = 9250002;
-  CALL pg_temp.must_equal(r."lineCount",    6, 'lineCount counts every frozen line');
+  CALL pg_temp.must_equal(r."lineCount",    7, 'lineCount counts every frozen line');
   CALL pg_temp.must_equal(r."toBuyLines",   2, 'toBuyLines: the to-buy line and the three-way line');
   CALL pg_temp.must_equal(r."onOrderLines", 2, 'onOrderLines: the on-order line and the three-way line');
   CALL pg_temp.must_equal(r."toPickLines",  3, 'toPickLines: the to-pick, three-way and received-not-picked lines');
   -- The point of doneLines existing at all: the three counts above overlap,
-  -- so lineCount minus their sum would be 6 - 7 = -1 here.
+  -- so lineCount minus their sum would be 7 - 7 = 0 here, not 1.
   CALL pg_temp.must_equal(r."doneLines",    1, 'doneLines counts only the line with nothing outstanding');
+END $$;
+
+-- The floor on `doneLines`: a line can be in no bucket at all — outstanding in
+-- none of the three senses, because every sourcing column is zero, yet not
+-- done because nothing was actually obtained. Counted straight off the table,
+-- so this assertion states the shape of the data rather than restating the
+-- query.
+DO $$
+DECLARE n integer;
+BEGIN
+  SELECT count(*)::int INTO n FROM project_parts
+   WHERE project_id = 9250002
+     AND NOT (missing_qty > ordered_qty)
+     AND NOT (ordered_qty > received_qty)
+     AND NOT (from_stock_qty + received_qty > prepared_qty)
+     AND NOT (prepared_qty >= required_qty);
+  CALL pg_temp.must_equal(n, 1, 'a line that sourced nothing is neither outstanding nor done');
+END $$;
+
+DO $$
+DECLARE r record;
+BEGIN
+  SELECT * INTO r FROM flags WHERE id = 9250002;
   CALL pg_temp.must_equal(r."inOffers",      true,  'a project with a line to buy is in Offers');
   CALL pg_temp.must_equal(r."inOrdered",     true,  'a project with a line on order is in Ordered');
   CALL pg_temp.must_equal(r."inPreparation", true,  'a project with a pickable line is in Preparation');
@@ -236,6 +273,21 @@ BEGIN
    WHERE derived AND ("inPrepared" <> ("lineCount" > 0 AND "doneLines" = "lineCount"));
   CALL pg_temp.must_equal(bad, 0,
     'inPrepared and doneLines = lineCount never disagree, for any fixture project');
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 4b. Nothing outstanding is not the same as finished
+-- ---------------------------------------------------------------------------
+
+DO $$
+DECLARE r record;
+BEGIN
+  SELECT * INTO r FROM flags WHERE id = 9250006;
+  CALL pg_temp.must_equal(r."toBuyLines" + r."onOrderLines" + r."toPickLines", 0,
+    'a project that sourced nothing has no outstanding lines either');
+  CALL pg_temp.must_equal(r."doneLines", 0, 'but none of its lines is done');
+  CALL pg_temp.must_equal(r."inPrepared", false,
+    'so it is NOT in Prepared — the three counts being zero is not enough');
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -273,7 +325,7 @@ DECLARE n integer;
 BEGIN
   SELECT count(*)::int INTO n FROM projects
    WHERE status = ANY(ARRAY['draft','started']::text[]) AND name ILIKE '%TEST025%';
-  CALL pg_temp.must_equal(n, 3, 'the default draft+started filter hides stopped and completed');
+  CALL pg_temp.must_equal(n, 4, 'the default draft+started filter hides stopped and completed');
 END $$;
 
 ROLLBACK;

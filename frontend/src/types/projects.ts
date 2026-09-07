@@ -69,12 +69,12 @@ export interface ProjectBoardProduct {
   quantity: number;
 }
 
-/** Board filter (§6.3), mirrored in the query string so a filtered board is a
- *  shareable link. `status` is never empty — the API defaults an absent one to
- *  draft + started, which would silently contradict an empty selection. */
+/** What the board asks the API for (§6.3). `status` is never empty — the API
+ *  defaults an absent one to draft + started, which would silently contradict
+ *  an empty selection. The name search is not here: it filters the loaded
+ *  board in the browser. */
 export interface ProjectBoardQuery {
   status: ProjectStatus[];
-  q?: string;
 }
 
 // ---- Payloads -------------------------------------------------------------

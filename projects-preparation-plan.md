@@ -1455,6 +1455,29 @@ is guaranteed and how durably it is checked.
   'primary'` confirms a save rather than a deletion, so that one focuses the
   confirm button instead. This is shared chrome — nine call sites gain the
   same guard.
+- **§4.1's *Prepared* rule needed a floor, and this is a change to the plan.**
+  As written, a line is outstanding on three comparisons between sourcing
+  columns — and zero equals zero, so a line requiring 5 pieces with nothing in
+  stock, nothing ordered and nothing prepared is outstanding on none of them.
+  Every `CHECK` on `project_parts` accepts that row, and `PATCH
+  /:id/parts/:id` reaches it by setting `missing_qty` to 0 while `ordered_qty`
+  is 0, so the board would have called such a project *Prepared* and drawn a
+  100% bar over work that had not started. `doneLines` therefore also requires
+  `prepared_qty >= required_qty`, and `inPrepared` is now read off `doneLines`
+  rather than re-testing the three counts — the same question asked twice is
+  how a board and its progress bar come to disagree about what finished means.
+  Confirmed against a real database before changing anything.
+- **`POST` and `PATCH /api/projects` reject an archived product**
+  (`PRODUCT_ARCHIVED`). The picker already hid them, but decision 1 rests on
+  the pinned BOM being trustworthy, and a rule that lives only in a modal is
+  not a rule. A product archived *after* a draft pinned it keeps its line; this
+  guards what a write sends, not what history holds.
+- **The name search filters in the browser.** `?q=` stays in the URL so a
+  filtered board is still a shareable link, but a board is tens of rows, so
+  matching them client-side is instant and deletes both the per-keystroke
+  request and the reason the store needed a stale-response guard for it. The
+  endpoint keeps its `q` parameter for a caller that one day has more rows
+  than a person can scroll.
 - **`database/tests/project-board-query.test.sql`** covers §4.1's counting
   rules, which nothing in the UI can reach until Start exists: before step 8
   every project has zero `project_parts` rows, so every count is zero and four
@@ -1466,10 +1489,12 @@ is guaranteed and how durably it is checked.
   stopped one and a completed one. The test was mutation-checked rather than
   merely run: inverting a `doneLines` comparison, dropping the stopped-project
   guard, ordering the products by id instead of `position`, counting `*`
-  instead of `pp.id`, and weakening `onOrderLines` to `ordered_qty > 0` each
-  make it fail. Dropping `received_qty` from the `toPickLines` sum did *not*
-  fail the first draft, which is what added the sixth line — goods received
-  but not yet picked, a state the fixture had missed entirely.
+  instead of `pp.id`, weakening `onOrderLines` to `ordered_qty > 0`, removing
+  the `prepared_qty >= required_qty` floor, and reverting `inPrepared` to the
+  three-counts rule each make it fail. Two mutations survived the first draft
+  and each added a fixture: dropping `received_qty` from the `toPickLines` sum
+  (fixed by a line pickable only because goods arrived) and the `inPrepared`
+  revert (fixed by a started project whose every column is zero).
 - **Start and Stop ship disabled** with a "coming soon" tooltip: their
   endpoints arrive in step 8. `useConfirmDelete` is therefore wired for Delete
   only — the Stop confirmation would be unreachable code today. It uses the

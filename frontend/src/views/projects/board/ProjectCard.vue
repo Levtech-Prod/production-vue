@@ -10,7 +10,7 @@
     class="rounded-lg border border-l-4 bg-white p-2.5 shadow-sm transition-all"
     :class="[
       selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200 hover:border-slate-300',
-      dimmed ? 'opacity-40' : '',
+      dimmed ? 'opacity-60' : '',
       project.status === 'stopped' ? 'grayscale' : '',
     ]"
     :style="{ borderLeftColor: cardAccent(project.id).stroke }"
@@ -85,19 +85,28 @@
       </span>
     </div>
 
-    <!-- Preparation progress, on the project's home card only. A draft has no
-         frozen lines yet, so it sits at 0% until the project is started. -->
+    <!-- Preparation progress, on the project's home card only. A project with
+         no frozen lines has not started, which is a different thing from 0%
+         of its work being done — saying "0%" there reads as a stalled project
+         rather than one that has not begun. -->
     <div v-if="primary" class="mt-2.5">
       <div
         class="h-1.5 overflow-hidden rounded-full bg-slate-100"
-        :title="t('n_lines_ready', { done: project.doneLines, total: project.lineCount })"
+        :title="
+          started
+            ? t('n_lines_ready', { done: project.doneLines, total: project.lineCount })
+            : t('progress_not_started')
+        "
       >
         <div
+          v-if="started"
           class="h-full rounded-full bg-emerald-500 transition-[width]"
           :style="{ width: `${donePercent}%` }"
         />
       </div>
-      <p class="mt-1 text-right text-[11px] tabular-nums text-slate-400">{{ donePercent }}%</p>
+      <p class="mt-1 text-right text-[11px] tabular-nums text-slate-400">
+        {{ started ? `${donePercent}%` : t('progress_not_started') }}
+      </p>
     </div>
   </div>
 </template>
@@ -138,10 +147,11 @@ const visibleProducts = computed(() =>
     : props.project.products.slice(0, PRODUCT_PREVIEW_COUNT),
 );
 
+/** A project only has frozen lines from Start onwards (plan §7 step 8). */
+const started = computed(() => props.project.lineCount > 0);
+
 const donePercent = computed(() =>
-  props.project.lineCount === 0
-    ? 0
-    : Math.round((props.project.doneLines / props.project.lineCount) * 100),
+  started.value ? Math.round((props.project.doneLines / props.project.lineCount) * 100) : 0,
 );
 
 // Deliberately not `utils/statusColors.ts`: that palette maps a revision's
