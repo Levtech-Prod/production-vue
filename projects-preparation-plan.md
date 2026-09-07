@@ -1108,12 +1108,17 @@ dependency, not by size.
 Items 2, 3 and 5 are settled (struck through, kept for the record). Two remain,
 both behaviour rather than structure, and neither blocks migration 023.
 
-1. **Prepared column semantics.** This plan makes *Prepared* an all-lines-done
-   card (§4.1). If it should instead mean "≥1 part is picked and ready", say
-   so. Since A1 replaced the status enums with quantities, membership is
-   derived in the API from counts and nothing about it is stored — so this is a
-   one-line change *at any time*, never a migration. Answer it when step 6
-   builds the board, not before.
+1. ~~**Prepared column semantics.**~~ **Settled at step 6: all-lines-done, as
+   the plan had it.** Decided while looking at real cards, and the board is
+   what settled it. Under "≥1 part is picked and ready" a project would sit in
+   *Preparation* and *Prepared* simultaneously for almost its whole life —
+   *Preparation* is already the ANY test over the same quantities, so the two
+   columns would light up together and neither would tell you anything. Under
+   all-lines-done, *Prepared* is the one column that means "nothing is
+   outstanding", and the per-card counts (§4.1) carry the progress that would
+   otherwise justify an early *Prepared*: the *Preparation* card reads
+   "7 to pick" and empties as they are picked. Still nothing stored, so this
+   stays a one-line change if it ever proves wrong.
 2. ~~**Does a project always start whole?**~~ **Settled: yes.** `status` stays
    on `projects`; Start freezes every product's BOM together and the board is
    one card per project per column. Making products start independently later
@@ -1332,3 +1337,115 @@ next person who touches this file.
 None of these needed a schema change beyond C2's single `CHECK`, and none
 changed the two queries' predicates — only how completely their correctness
 is guaranteed and how durably it is checked.
+
+### 11.9 Seventh pass — building the board (step 6)
+
+- **A stopped project was reaching the derived columns.** §4.1's membership
+  rule reads only the four line counts, and `routes/projects.ts` implemented it
+  literally. But a stopped project keeps its `project_parts` rows while its
+  claims are released, so as soon as the filter included `stopped` its card
+  reappeared under *Offers* or *Ordered* — contradicting §3.1, which puts a
+  stopped project in *Projects* alone, greyed. The membership block in
+  `GET /api/projects` now gates the four flags on `status IN ('started',
+  'completed')`. A draft was already excluded in practice (it has no rows at
+  all); the guard makes that explicit rather than incidental, and `completed`
+  is kept in so §3.1's "*Prepared*" still holds. Fixed in the API, not the
+  board, so the rule stays in the one readable place §4.1 asks for.
+- **`views/projects/board/columns.ts`** is one file more than §6.2 lists. The
+  five columns differ only in a title, a colour, which `in*` flag selects them
+  and which count they badge, so they are data; `ProjectBoard.vue` is a
+  `v-for` over them instead of five hand-written blocks, and
+  `ProjectBoardColumn.vue` gets the descriptor's type from a module rather
+  than from a `.vue` file — the same reason `views/products/detail/types.ts`
+  exists.
+- **Neither `AddPartsModal.vue` nor `PartsPicker.vue` was reused for
+  `ProjectProductsEditor`,** per §6.3's instruction to check them first. The
+  first is a modal in its own right and would have had to open on top of
+  `ProjectModal`; the second is a parts list whose columns are
+  quantity/unit/mount position and whose rows carry `SelectedPart`. Widening
+  either would have meant a discriminator plus a slot per column — a helper no
+  simpler than the two it replaced. The editor follows their *shape* (search,
+  add, edit the staged rows in place) over products and their revisions.
+- **The add row is `[product combobox] [revision] [Add]`.** The product side
+  is a searchable dropdown over the whole catalog (name or SKU), not a fixed
+  list occupying the modal; it reuses the popover shape `IconPicker` already
+  established — a `relative` wrapper, an absolutely positioned panel, and
+  close-on-outside-click, which is now `composables/useClickOutside.ts` shared
+  by both rather than the same eight lines written twice.
+- **`ProjectModal` is `size="xl"`,** so a handful of product lines fit before
+  `BaseModal`'s body scrolls. The editor keeps a `min-h` that reserves room
+  under the add row for the dropdown, which is absolutely positioned and was
+  otherwise clipped by the scrolling body on a project with few lines. An
+  earlier draft answered that with `scrollIntoView` when the panel opened,
+  which moved the whole form under the user every time the box took focus;
+  reserving the space instead means nothing scrolls at all.
+- **Which revision a newly added product pins:** the revision `<select>` is
+  pre-set to the product's `default_revision_id` when that is still free and
+  otherwise to its **newest** free revision — the same "which revision stands
+  for this product" rule `ProductsListView`'s `highlightedRevisionId` uses —
+  and it lists only revisions not already in the project, so `UNIQUE
+  (project_id, product_revision_id)` cannot be hit from the UI and adding the
+  same product a second time at another revision (legal per §3.2) is one
+  visible step. An earlier draft chose silently with no picker at all, which
+  made that second line look impossible, and took the first revision the API
+  happened to return — the *oldest* — which would have quietly frozen a
+  project against an obsolete BOM whenever a product had no default set.
+- **The board is one section card of five equal columns,** the shape the
+  products list and the settings sections already use: a toolbar across the
+  top and the content below. The columns are a five-column grid with
+  `min-w-0` on each, so they share the width instead of forcing a horizontal
+  scrollbar, and `divide-x` draws the line between them; below `xl` they
+  stack and the dividers turn with them. Card actions moved into a
+  three-dot menu (`board/ProjectCardMenu.vue`, reusing `useClickOutside`)
+  because labelled buttons do not fit a fifth of the board's width.
+- **The card's action menu is teleported and fixed, not anchored.** Inside
+  the column's scrolling card list an absolute popover on the last card opens
+  below the clipped edge; the menu now positions itself from the trigger's
+  rect and closes on any scroll or resize, since those coordinates go stale
+  the moment anything moves. It is also mounted only for projects that have
+  actions (`hasCardActions`), so a stopped or completed card registers no
+  outside-click listener for a menu that would render nothing.
+- **Each project gets its own accent colour** (`utils/projectColor.ts`), drawn
+  down the card's left edge, so one project is recognisable wherever it
+  appears across the five columns. Derived from the id rather than randomised
+  or stored — a colour that changes between renders identifies nothing — and
+  `id % palette.length` rather than a hash, since ids are sequential and that
+  guarantees ten projects created in a row are ten different colours where a
+  hash would let neighbours collide. Nothing is persisted, so the palette can
+  be re-tuned freely. Colour now means exactly one thing on a card: the
+  per-column badge tints went neutral and each column's colour lives in its
+  header alone.
+- **The board payload now carries each project's products** — name, SKU,
+  revision label and quantity — as a sub-select rather than a join, since
+  joining `project_products` beside `project_parts` would multiply the rows
+  the §4.1 counts are computed from. The card lists three and expands on
+  demand. `productCount` is gone: it was the same fact as the list's length.
+- **`doneLines` was added to §4.1's counts** for the card's progress bar:
+  lines with nothing outstanding at all. It is deliberately not `lineCount`
+  minus the other three — those overlap, since one line can be part-ordered
+  and part-pickable at the same time. It agrees with `inPrepared` by
+  construction (`doneLines = lineCount` is the same test), so the membership
+  rule is unchanged.
+- **The picker distinguishes its four empty states** — loading, load failed
+  (with the API error and a retry), an empty catalog, and no match for the
+  search — because a failed `GET /api/products` otherwise renders as "no
+  products" and reads like an empty database. It re-reads the catalog on
+  every modal open rather than trusting whatever `productsStore` last
+  cached, and hides only `archived` products (rather than keeping only
+  `active` ones) so a product the API sends without a status is still
+  offered.
+- **`ConfirmModal` refuses a click it cannot have been read for.** A delete
+  was reported going through with no dialog on screen while the success toast
+  still fired — which means `confirm()` ran, so the dialog had mounted. The
+  cause was never reproduced, so the fix is structural rather than a patch to
+  a path nobody found: the dialog ignores confirm clicks for 300 ms after it
+  becomes visible (a click already travelling up the DOM, or the second click
+  of a double-click landing where the button just appeared, cannot reach it),
+  and it moves focus to Cancel so a stray Enter destroys nothing. `variant:
+  'primary'` confirms a save rather than a deletion, so that one focuses the
+  confirm button instead. This is shared chrome — nine call sites gain the
+  same guard.
+- **Start and Stop ship disabled** with a "coming soon" tooltip: their
+  endpoints arrive in step 8. `useConfirmDelete` is therefore wired for Delete
+  only — the Stop confirmation would be unreachable code today. It uses the
+  same composable, unchanged, when step 8 enables the button (§11.4).

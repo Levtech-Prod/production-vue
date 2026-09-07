@@ -187,11 +187,12 @@ router.get('/', requireAuth, async (req, res) => {
     deadline: string | null;
     status: string;
     createdAt: string;
-    productCount: number;
+    products: { name: string; sku: string; revisionLabel: string; quantity: number }[];
     lineCount: number;
     toBuyLines: number;
     onOrderLines: number;
     toPickLines: number;
+    doneLines: number;
   }>(
     `SELECT
        p.id,
@@ -200,12 +201,35 @@ router.get('/', requireAuth, async (req, res) => {
        to_char(p.deadline, 'YYYY-MM-DD') AS deadline,
        p.status,
        p.created_at AS "createdAt",
-       (SELECT COUNT(*) FROM project_products WHERE project_id = p.id)::int AS "productCount",
+       -- The card lists what the project builds, so the names travel with the
+       -- board rather than costing one request per card. A sub-select, not a
+       -- join: joining project_products alongside project_parts would
+       -- multiply the rows the counts below are computed from.
+       (SELECT COALESCE(
+                 json_agg(json_build_object(
+                   'name', prod.name,
+                   'sku', prod.sku,
+                   'revisionLabel', rev.label,
+                   'quantity', pprod.quantity
+                 ) ORDER BY pprod.position, pprod.id),
+                 '[]')
+        FROM project_products pprod
+        JOIN products prod ON prod.id = pprod.product_id
+        JOIN product_revisions rev ON rev.id = pprod.product_revision_id
+        WHERE pprod.project_id = p.id) AS products,
        COUNT(pp.id)::int AS "lineCount",
        COUNT(*) FILTER (WHERE pp.missing_qty  > pp.ordered_qty)::int  AS "toBuyLines",
        COUNT(*) FILTER (WHERE pp.ordered_qty  > pp.received_qty)::int AS "onOrderLines",
        COUNT(*) FILTER (WHERE pp.from_stock_qty + pp.received_qty
-                            > pp.prepared_qty)::int                  AS "toPickLines"
+                            > pp.prepared_qty)::int                  AS "toPickLines",
+       -- Lines with nothing outstanding, for the card's progress bar. The
+       -- three counts above overlap (a line can be part-ordered and
+       -- part-pickable at once), so "done" is its own predicate rather than
+       -- lineCount minus their sum.
+       COUNT(*) FILTER (WHERE pp.missing_qty <= pp.ordered_qty
+                          AND pp.ordered_qty <= pp.received_qty
+                          AND pp.from_stock_qty + pp.received_qty
+                              <= pp.prepared_qty)::int               AS "doneLines"
      FROM projects p
      LEFT JOIN project_parts pp ON pp.project_id = p.id
      WHERE p.status = ANY($1::text[])
@@ -217,14 +241,22 @@ router.get('/', requireAuth, async (req, res) => {
 
   // Column membership (§4.1): the middle three columns are ANY ("some parts
   // still need buying"), *Prepared* is ALL ("nothing outstanding any more").
+  //
+  // Only a started or completed project reaches a derived column at all
+  // (§3.1). A draft has no `project_parts` rows so its counts are zero
+  // anyway, but a *stopped* one keeps its rows while its claims are released,
+  // and without this guard it would keep appearing under Offers or Ordered
+  // instead of sitting greyed in *Projects* alone.
   const projects = result.rows.map((row) => {
-    const { toBuyLines, onOrderLines, toPickLines, lineCount } = row;
+    const { status, toBuyLines, onOrderLines, toPickLines, lineCount } = row;
+    const derived = status === 'started' || status === 'completed';
     return {
       ...row,
-      inOffers: toBuyLines > 0,
-      inOrdered: onOrderLines > 0,
-      inPreparation: toPickLines > 0,
-      inPrepared: lineCount > 0 && toBuyLines + onOrderLines + toPickLines === 0,
+      inOffers: derived && toBuyLines > 0,
+      inOrdered: derived && onOrderLines > 0,
+      inPreparation: derived && toPickLines > 0,
+      inPrepared:
+        derived && lineCount > 0 && toBuyLines + onOrderLines + toPickLines === 0,
     };
   });
 
