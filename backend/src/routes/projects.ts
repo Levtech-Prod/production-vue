@@ -25,6 +25,7 @@ const router = Router();
 interface ProductRevisionInfo {
   productId: number;
   productName: string;
+  productStatus: string;
   revisionLabel: string;
 }
 
@@ -39,10 +40,11 @@ async function fetchRevisionInfo(
     id: number;
     productId: number;
     productName: string;
+    productStatus: string;
     revisionLabel: string;
   }>(
     `SELECT pr.id, pr.product_id AS "productId", p.name AS "productName",
-       pr.label AS "revisionLabel"
+       p.status AS "productStatus", pr.label AS "revisionLabel"
      FROM product_revisions pr
      JOIN products p ON p.id = pr.product_id
      WHERE pr.id = ANY($1::int[])`,
@@ -51,7 +53,12 @@ async function fetchRevisionInfo(
   return new Map(
     result.rows.map((r) => [
       r.id,
-      { productId: r.productId, productName: r.productName, revisionLabel: r.revisionLabel },
+      {
+        productId: r.productId,
+        productName: r.productName,
+        productStatus: r.productStatus,
+        revisionLabel: r.revisionLabel,
+      },
     ]),
   );
 }
@@ -66,6 +73,19 @@ function revisionsMatchProducts(
 ): boolean {
   return products.every(
     (p) => infoByRevisionId.get(p.productRevisionId)?.productId === p.productId,
+  );
+}
+
+/** True when any pinned product is archived. The picker already hides them,
+ *  but decision 1 rests on the pinned BOM being trustworthy, so the rule
+ *  belongs on this side of the boundary too. A product archived *after* a
+ *  draft pinned it keeps that line — this only guards what a write sends. */
+function hasArchivedProduct(
+  products: ProjectProductInput[],
+  infoByRevisionId: Map<number, ProductRevisionInfo>,
+): boolean {
+  return products.some(
+    (p) => infoByRevisionId.get(p.productRevisionId)?.productStatus === 'archived',
   );
 }
 
@@ -187,11 +207,12 @@ router.get('/', requireAuth, async (req, res) => {
     deadline: string | null;
     status: string;
     createdAt: string;
-    productCount: number;
+    products: { name: string; sku: string; revisionLabel: string; quantity: number }[];
     lineCount: number;
     toBuyLines: number;
     onOrderLines: number;
     toPickLines: number;
+    doneLines: number;
   }>(
     `SELECT
        p.id,
@@ -200,12 +221,44 @@ router.get('/', requireAuth, async (req, res) => {
        to_char(p.deadline, 'YYYY-MM-DD') AS deadline,
        p.status,
        p.created_at AS "createdAt",
-       (SELECT COUNT(*) FROM project_products WHERE project_id = p.id)::int AS "productCount",
+       -- The card lists what the project builds, so the names travel with the
+       -- board rather than costing one request per card. A sub-select, not a
+       -- join: joining project_products alongside project_parts would
+       -- multiply the rows the counts below are computed from.
+       (SELECT COALESCE(
+                 json_agg(json_build_object(
+                   'name', prod.name,
+                   'sku', prod.sku,
+                   'revisionLabel', rev.label,
+                   'quantity', pprod.quantity
+                 ) ORDER BY pprod.position, pprod.id),
+                 '[]')
+        FROM project_products pprod
+        JOIN products prod ON prod.id = pprod.product_id
+        JOIN product_revisions rev ON rev.id = pprod.product_revision_id
+        WHERE pprod.project_id = p.id) AS products,
        COUNT(pp.id)::int AS "lineCount",
        COUNT(*) FILTER (WHERE pp.missing_qty  > pp.ordered_qty)::int  AS "toBuyLines",
        COUNT(*) FILTER (WHERE pp.ordered_qty  > pp.received_qty)::int AS "onOrderLines",
        COUNT(*) FILTER (WHERE pp.from_stock_qty + pp.received_qty
-                            > pp.prepared_qty)::int                  AS "toPickLines"
+                            > pp.prepared_qty)::int                  AS "toPickLines",
+       -- Lines with nothing outstanding, for the card's progress bar and for
+       -- *Prepared*. The three counts above overlap (a line can be
+       -- part-ordered and part-pickable at once), so "done" is its own
+       -- predicate rather than lineCount minus their sum.
+       --
+       -- The last term is not in §4.1 and is deliberate: the first three are
+       -- all comparisons between sourcing columns, and zero equals zero, so a
+       -- line requiring 5 pieces with nothing in stock, nothing ordered and
+       -- nothing prepared satisfies all of them. Every CHECK on project_parts
+       -- accepts that row, and PATCH /:id/parts/:id can produce it by setting
+       -- missing_qty to 0 while ordered_qty is 0. Without the floor the card
+       -- would read 100% prepared having obtained nothing.
+       COUNT(*) FILTER (WHERE pp.missing_qty <= pp.ordered_qty
+                          AND pp.ordered_qty <= pp.received_qty
+                          AND pp.from_stock_qty + pp.received_qty
+                              <= pp.prepared_qty
+                          AND pp.prepared_qty >= pp.required_qty)::int AS "doneLines"
      FROM projects p
      LEFT JOIN project_parts pp ON pp.project_id = p.id
      WHERE p.status = ANY($1::text[])
@@ -217,14 +270,24 @@ router.get('/', requireAuth, async (req, res) => {
 
   // Column membership (§4.1): the middle three columns are ANY ("some parts
   // still need buying"), *Prepared* is ALL ("nothing outstanding any more").
+  //
+  // Only a started or completed project reaches a derived column at all
+  // (§3.1). A draft has no `project_parts` rows so its counts are zero
+  // anyway, but a *stopped* one keeps its rows while its claims are released,
+  // and without this guard it would keep appearing under Offers or Ordered
+  // instead of sitting greyed in *Projects* alone.
   const projects = result.rows.map((row) => {
-    const { toBuyLines, onOrderLines, toPickLines, lineCount } = row;
+    const { status, toBuyLines, onOrderLines, toPickLines, lineCount, doneLines } = row;
+    const derived = status === 'started' || status === 'completed';
     return {
       ...row,
-      inOffers: toBuyLines > 0,
-      inOrdered: onOrderLines > 0,
-      inPreparation: toPickLines > 0,
-      inPrepared: lineCount > 0 && toBuyLines + onOrderLines + toPickLines === 0,
+      inOffers: derived && toBuyLines > 0,
+      inOrdered: derived && onOrderLines > 0,
+      inPreparation: derived && toPickLines > 0,
+      // Read off `doneLines` rather than re-testing the three counts: they are
+      // the same question, and asking it twice is how the board and its
+      // progress bar would come to disagree about what "finished" means.
+      inPrepared: derived && lineCount > 0 && doneLines === lineCount,
     };
   });
 
@@ -247,6 +310,9 @@ router.post('/', requireAuth, async (req, res) => {
   );
   if (!revisionsMatchProducts(data.products, revisionInfo)) {
     return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_MISMATCH });
+  }
+  if (hasArchivedProduct(data.products, revisionInfo)) {
+    return res.status(422).json({ code: ErrorCodes.PRODUCT_ARCHIVED });
   }
 
   const userId = req.user?.id;
@@ -315,6 +381,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
   );
   if (!revisionsMatchProducts(data.products, revisionInfo)) {
     return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_MISMATCH });
+  }
+  if (hasArchivedProduct(data.products, revisionInfo)) {
+    return res.status(422).json({ code: ErrorCodes.PRODUCT_ARCHIVED });
   }
 
   const userId = req.user?.id;

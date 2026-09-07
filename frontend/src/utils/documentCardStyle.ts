@@ -4,27 +4,15 @@
 // reads, so a change to it has to reach both kinds.
 import { Check, Circle, X } from 'lucide-vue-next';
 import type { DocumentTypeStatus } from '../types/products.ts';
-
-// A stable pastel per card, keyed off its position in the panel, so the grid
-// reads as distinct tiles (as in the design) without storing a colour per
-// template.
-const TILES = [
-  { bg: 'bg-emerald-50', fg: 'text-emerald-600' },
-  { bg: 'bg-blue-50', fg: 'text-blue-600' },
-  { bg: 'bg-violet-50', fg: 'text-violet-600' },
-  { bg: 'bg-amber-50', fg: 'text-amber-600' },
-  { bg: 'bg-rose-50', fg: 'text-rose-600' },
-  { bg: 'bg-cyan-50', fg: 'text-cyan-600' },
-  { bg: 'bg-lime-50', fg: 'text-lime-600' },
-  { bg: 'bg-fuchsia-50', fg: 'text-fuchsia-600' },
-];
+import { cardAccent } from './cardAccent.ts';
 
 const NEUTRAL_TILE = { bg: 'bg-slate-100', fg: 'text-slate-500' };
 
-/** Tile colours for a card. Omit the seed for a card with no identity of its
- *  own, such as "Other documents". */
+/** Tile colours for a card, keyed off its position in the panel so the grid
+ *  reads as distinct tiles without storing a colour per template. Omit the
+ *  seed for a card with no identity of its own, such as "Other documents". */
 export function documentTile(colorSeed?: number) {
-  return colorSeed == null ? NEUTRAL_TILE : TILES[colorSeed % TILES.length];
+  return colorSeed == null ? NEUTRAL_TILE : cardAccent(colorSeed).tile;
 }
 
 // The wording is terse by design; the tooltip carries what each one actually

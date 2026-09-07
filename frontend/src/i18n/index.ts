@@ -553,6 +553,49 @@ const messages = {
     any_extension: 'Any file type',
     optional: 'Optional',
 
+    // Projects Preparation — the board (projects-preparation-plan.md §6.3)
+    add_project: 'Add Project',
+    edit_project: 'Edit Project',
+    delete_project: 'Delete Project',
+    project_products: 'Products in project',
+    no_products_selected: 'No products added yet.',
+    no_products_found: 'No products found.',
+    no_products_in_catalog: 'There are no products yet — create one under Products first.',
+    retry: 'Try again',
+    select_product: 'Search products by name or SKU…',
+    clear: 'Clear',
+    product: 'Product',
+    revision: 'Revision',
+    all_revisions_added: 'Every revision of this product is already in the project',
+    product_has_no_revisions: 'This product has no revisions yet',
+    deadline: 'Deadline',
+    start_project: 'Start',
+    stop_project: 'Stop',
+    at_least_one_status: 'At least one status must be shown',
+    show_n_more: '+{n} more',
+    show_less: 'Show less',
+    n_lines_ready: '{done} of {total} parts ready',
+    progress_not_started: 'Not started',
+    n_parts_to_buy: '{n} to buy',
+    n_parts_on_order: '{n} on order',
+    n_parts_to_pick: '{n} to pick',
+    n_parts_ready: '{n} ready',
+    project_status: {
+      draft: 'Draft',
+      started: 'Started',
+      stopped: 'Stopped',
+      completed: 'Completed',
+    },
+    project_column: {
+      projects: 'Projects',
+      offers: 'Offers',
+      ordered: 'Ordered',
+      preparation: 'Preparation',
+      prepared: 'Prepared',
+      empty_projects: 'No projects match the filter.',
+      empty_until_started: 'Projects appear here once they are started.',
+    },
+
     errors: {
       // Mirror the `code` field returned by the backend (see
       // backend/src/errorCodes.ts) so a failed request can be translated
@@ -712,6 +755,8 @@ const messages = {
         'The selected revision does not belong to that product.',
       PRODUCT_REVISION_DUPLICATE:
         'The same product revision was added more than once.',
+      PRODUCT_ARCHIVED:
+        'An archived product cannot be added to a project.',
       PROJECT_PARTS_NOT_FROZEN:
         'The parts list has not been generated for this project yet.',
       PROJECT_PART_NOT_FOUND: 'Project part not found',
@@ -733,6 +778,10 @@ const messages = {
       save_document_type_failed: 'The document type could not be saved',
       delete_document_type_failed: 'The document type could not be deleted',
       reorder_document_types_failed: 'The new order could not be saved',
+      load_projects_failed: 'Failed to load projects',
+      load_project_failed: 'Failed to load the project',
+      save_project_failed: 'Failed to save the project',
+      delete_project_failed: 'Failed to delete the project',
     },
 
     success: {
@@ -771,6 +820,9 @@ const messages = {
         'The document type was deleted. {count} file(s) were moved to "Other documents".',
       delete_document_type_with_versions:
         'The document type was deleted, along with its {count} version(s) and their files.',
+      save_project: 'The project was saved successfully',
+      update_project: 'The project was updated successfully',
+      delete_project: 'The project was deleted successfully.',
     },
 
     validation: {
@@ -820,6 +872,7 @@ const messages = {
         'Are you sure you want to delete this sub-product type',
       delete_document_type_msg:
         'Are you sure you want to delete this document type? Any files already uploaded under it will be moved to "Other documents" — they are not deleted',
+      delete_project_msg: 'Are you sure you want to delete this project',
     },
   },
   hu: {
@@ -1363,6 +1416,49 @@ const messages = {
     any_extension: 'Bármilyen fájltípus',
     optional: 'Opcionális',
 
+    // Projektek előkészítése — a tábla (projects-preparation-plan.md §6.3)
+    add_project: 'Projekt hozzáadása',
+    edit_project: 'Projekt szerkesztése',
+    delete_project: 'Projekt törlése',
+    project_products: 'A projekt termékei',
+    no_products_selected: 'Még nincs hozzáadott termék.',
+    no_products_found: 'Nincs találat.',
+    no_products_in_catalog: 'Még nincs termék — hozz létre egyet a Termékek oldalon.',
+    retry: 'Újra',
+    select_product: 'Keresés termék neve vagy SKU alapján…',
+    clear: 'Törlés',
+    product: 'Termék',
+    revision: 'Revízió',
+    all_revisions_added: 'A termék minden revíziója szerepel már a projektben',
+    product_has_no_revisions: 'Ennek a terméknek még nincs revíziója',
+    deadline: 'Határidő',
+    start_project: 'Indítás',
+    stop_project: 'Leállítás',
+    at_least_one_status: 'Legalább egy állapotot meg kell jeleníteni',
+    show_n_more: '+{n} további',
+    show_less: 'Kevesebb',
+    n_lines_ready: '{total} alkatrészből {done} kész',
+    progress_not_started: 'Nincs elindítva',
+    n_parts_to_buy: '{n} beszerzendő',
+    n_parts_on_order: '{n} megrendelve',
+    n_parts_to_pick: '{n} kivételezendő',
+    n_parts_ready: '{n} kész',
+    project_status: {
+      draft: 'Piszkozat',
+      started: 'Elindítva',
+      stopped: 'Leállítva',
+      completed: 'Befejezve',
+    },
+    project_column: {
+      projects: 'Projektek',
+      offers: 'Ajánlatok',
+      ordered: 'Megrendelve',
+      preparation: 'Előkészítés',
+      prepared: 'Előkészítve',
+      empty_projects: 'Nincs a szűrőnek megfelelő projekt.',
+      empty_until_started: 'A projektek az indításuk után jelennek meg itt.',
+    },
+
     errors: {
       EMAIL_ALREADY_EXISTS: 'Ez az email cím már regisztrálva van',
       INVALID_CREDENTIALS: 'Érvénytelen email cím vagy jelszó',
@@ -1514,6 +1610,8 @@ const messages = {
         'A kiválasztott revízió nem ehhez a termékhez tartozik.',
       PRODUCT_REVISION_DUPLICATE:
         'Ugyanaz a termékrevízió többször szerepel a listában.',
+      PRODUCT_ARCHIVED:
+        'Archivált termék nem adható projekthez.',
       PROJECT_PARTS_NOT_FROZEN:
         'Ehhez a projekthez még nem készült el az alkatrészlista.',
       PROJECT_PART_NOT_FOUND: 'A projekt alkatrésze nem található',
@@ -1535,6 +1633,10 @@ const messages = {
       save_document_type_failed: 'A dokumentumtípus mentése nem sikerült',
       delete_document_type_failed: 'A dokumentumtípus törlése nem sikerült',
       reorder_document_types_failed: 'Az új sorrendet nem sikerült menteni',
+      load_projects_failed: 'A projektek betöltése nem sikerült',
+      load_project_failed: 'A projekt betöltése nem sikerült',
+      save_project_failed: 'A projekt mentése nem sikerült',
+      delete_project_failed: 'A projekt törlése nem sikerült',
     },
 
     success: {
@@ -1574,6 +1676,9 @@ const messages = {
         'A dokumentumtípus törölve. {count} fájl átkerült az "Egyéb dokumentumok" közé.',
       delete_document_type_with_versions:
         'A dokumentumtípus törölve, a hozzá tartozó {count} verzióval és azok fájljaival együtt.',
+      save_project: 'A projekt mentése sikeresen megtörtént',
+      update_project: 'A projekt módosítása sikeresen megtörtént',
+      delete_project: 'A projekt sikeresen törölve.',
     },
 
     validation: {
@@ -1621,6 +1726,7 @@ const messages = {
         'Biztosan törölni szeretnéd ezt az altermék-típust',
       delete_document_type_msg:
         'Biztosan törölni szeretnéd ezt a dokumentumtípust? Az alá már feltöltött fájlok az "Egyéb dokumentumok" közé kerülnek, nem törlődnek',
+      delete_project_msg: 'Biztosan törölni szeretnéd ezt a projektet',
     },
   },
 };

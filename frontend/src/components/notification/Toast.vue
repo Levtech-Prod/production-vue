@@ -1,3 +1,16 @@
+<template>
+  <Transition name="fade">
+    <div
+      v-if="notificationStore.toast.visible"
+      class="fixed right-6 top-6 rounded-lg px-5 py-3 text-sm shadow-lg"
+      :class="toastClass"
+      :style="{ zIndex: OVERLAY_LAYERS.toast }"
+    >
+      {{ notificationStore.toast.message }}
+    </div>
+  </Transition>
+</template>
+
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useNotificationStore } from '../../stores/notificationStore';
@@ -19,18 +32,7 @@ const toastClass = computed(() => {
 });
 </script>
 
-<template>
-  <Transition name="fade">
-    <div
-      v-if="notificationStore.toast.visible"
-      class="fixed right-6 top-6 rounded-lg px-5 py-3 text-sm shadow-lg"
-      :class="toastClass"
-      :style="{ zIndex: OVERLAY_LAYERS.toast }"
-    >
-      {{ notificationStore.toast.message }}
-    </div>
-  </Transition>
-</template>
+
 
 <style scoped>
 .fade-enter-active,

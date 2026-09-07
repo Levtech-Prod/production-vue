@@ -1,3 +1,30 @@
+<template>
+  <div class="space-y-3">
+    <input
+      ref="fileInput"
+      type="file"
+      accept="image/png,image/jpeg,image/webp"
+      :required="required"
+      @change="handleFileChange"
+      class="block w-full rounded-lg border border-gray-300 p-2 text-sm"
+    />
+
+    <p v-if="uploadStore.uploading" class="text-sm text-gray-500">
+      {{ t('in-progress') }}
+    </p>
+
+    <p v-if="uploadStore.error" class="text-sm text-red-500">
+      {{ uploadStore.error }}
+    </p>
+
+    <img
+      v-if="previewUrl"
+      :src="previewUrl"
+      class="h-24 w-24 rounded-lg border object-cover"
+    />
+  </div>
+</template>
+
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useUploadStore } from '../../stores/uploadStore';
@@ -48,30 +75,3 @@ async function handleFileChange(event: Event) {
   emit('uploaded', uploadedUrl);
 }
 </script>
-
-<template>
-  <div class="space-y-3">
-    <input
-      ref="fileInput"
-      type="file"
-      accept="image/png,image/jpeg,image/webp"
-      :required="required"
-      @change="handleFileChange"
-      class="block w-full rounded-lg border border-gray-300 p-2 text-sm"
-    />
-
-    <p v-if="uploadStore.uploading" class="text-sm text-gray-500">
-      {{ t('in-progress') }}
-    </p>
-
-    <p v-if="uploadStore.error" class="text-sm text-red-500">
-      {{ uploadStore.error }}
-    </p>
-
-    <img
-      v-if="previewUrl"
-      :src="previewUrl"
-      class="h-24 w-24 rounded-lg border object-cover"
-    />
-  </div>
-</template>
