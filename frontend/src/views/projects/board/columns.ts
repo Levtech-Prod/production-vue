@@ -11,7 +11,7 @@ export type BoardColumnKey = 'projects' | 'offers' | 'ordered' | 'preparation' |
  * of the card's counts that column shows.
  *
  * `dotClass` is the only colour a column owns, and it lives in the header
- * alone: on a card, colour identifies the *project* (`utils/projectColor.ts`),
+ * alone: on a card, colour identifies the *project* (`utils/cardAccent.ts`),
  * so nothing inside a card is tinted by its column.
  */
 export interface BoardColumn {

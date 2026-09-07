@@ -1,8 +1,11 @@
 <template>
   <!-- The left edge carries the project's own colour, so the same project is
-       recognisable wherever it appears across the five columns. The inline
-       style wins over whichever border class the selection state sets, which
-       is why selection reads on the other three sides and the ring. -->
+       recognisable wherever it appears across the five columns. Seeded by id,
+       not randomised or stored — a colour that changes between renders
+       identifies nothing, and ids being sequential means ten projects in a row
+       are ten different hues. The inline style wins over whichever border
+       class the selection state sets, which is why selection reads on the
+       other three sides and the ring. -->
   <div
     class="rounded-lg border border-l-4 bg-white p-2.5 shadow-sm transition-all"
     :class="[
@@ -10,7 +13,7 @@
       dimmed ? 'opacity-40' : '',
       project.status === 'stopped' ? 'grayscale' : '',
     ]"
-    :style="{ borderLeftColor: projectColor(project.id) }"
+    :style="{ borderLeftColor: cardAccent(project.id).stroke }"
   >
     <div class="flex items-start gap-1">
       <!-- Only the tile body selects: the menu beside it is a button of its
@@ -105,7 +108,7 @@ import { useI18n } from 'vue-i18n';
 import { CalendarDays } from 'lucide-vue-next';
 import ProjectCardMenu, { hasCardActions } from './ProjectCardMenu.vue';
 import { formatDate } from '../../../utils/formatters.ts';
-import { projectColor } from '../../../utils/projectColor.ts';
+import { cardAccent } from '../../../utils/cardAccent.ts';
 import type { ProjectBoardCard, ProjectStatus } from '../../../types/projects.ts';
 
 const props = defineProps<{

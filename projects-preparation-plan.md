@@ -1405,16 +1405,26 @@ is guaranteed and how durably it is checked.
   the moment anything moves. It is also mounted only for projects that have
   actions (`hasCardActions`), so a stopped or completed card registers no
   outside-click listener for a menu that would render nothing.
-- **Each project gets its own accent colour** (`utils/projectColor.ts`), drawn
-  down the card's left edge, so one project is recognisable wherever it
-  appears across the five columns. Derived from the id rather than randomised
-  or stored — a colour that changes between renders identifies nothing — and
-  `id % palette.length` rather than a hash, since ids are sequential and that
-  guarantees ten projects created in a row are ten different colours where a
-  hash would let neighbours collide. Nothing is persisted, so the palette can
-  be re-tuned freely. Colour now means exactly one thing on a card: the
+- **Each project gets its own accent colour,** drawn down the card's left
+  edge, so one project is recognisable wherever it appears across the five
+  columns. Derived from the id rather than randomised or stored — a colour
+  that changes between renders identifies nothing — and `id % palette.length`
+  rather than a hash, since ids are sequential and that guarantees ten
+  projects created in a row are ten different colours where a hash would let
+  neighbours collide. Colour now means exactly one thing on a card: the
   per-column badge tints went neutral and each column's colour lives in its
   header alone.
+- **The palette itself is `utils/cardAccent.ts`, shared with the Documents
+  panel.** `documentCardStyle.ts` already cycled a fixed list of hues by card
+  index for its icon tiles — the same decision, written twice, in two
+  overlapping palettes that would have drifted apart on the first restyle.
+  One list now serves both, in the two renderings they need: `tile` (a pale
+  background plus a saturated glyph) and `stroke` (a raw colour for a border).
+  The Documents panel's existing order is preserved exactly, since its live
+  cards are seeded by position and reordering would repaint them; the board's
+  hues were the ones that moved, being unshipped. The list grew from eight to
+  ten, so a panel with more than eight cards now repeats later than it used
+  to.
 - **The board payload now carries each project's products** — name, SKU,
   revision label and quantity — as a sub-select rather than a join, since
   joining `project_products` beside `project_parts` would multiply the rows
