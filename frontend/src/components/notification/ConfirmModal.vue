@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
 
@@ -84,19 +84,30 @@ const shownAt = ref(0);
 const cancelButtonRef = ref<HTMLButtonElement | null>(null);
 const confirmButtonRef = ref<HTMLButtonElement | null>(null);
 
+async function arm() {
+  shownAt.value = Date.now();
+  await nextTick();
+  // A stray Enter must not destroy anything, so a destructive dialog opens
+  // with Cancel focused. `primary` confirms a save, where Enter is what the
+  // user expects.
+  const initial = props.variant === 'primary' ? confirmButtonRef : cancelButtonRef;
+  initial.value?.focus();
+}
+
 watch(
   () => props.visible,
-  async (visible) => {
-    if (!visible) return;
-    shownAt.value = Date.now();
-    await nextTick();
-    // A stray Enter must not destroy anything, so a destructive dialog opens
-    // with Cancel focused. `primary` confirms a save, where Enter is what the
-    // user expects.
-    const initial = props.variant === 'primary' ? confirmButtonRef : cancelButtonRef;
-    initial.value?.focus();
+  (visible) => {
+    if (visible) void arm();
   },
 );
+
+// Every call site today renders this dialog permanently and toggles `visible`,
+// so the watcher above is what arms it. Arming on mount as well means a call
+// site that instead mounts it already open (a `v-if`, say) still gets the
+// delay and the focus — otherwise the guard would quietly not be there.
+onMounted(() => {
+  if (props.visible) void arm();
+});
 
 function onConfirm() {
   if (Date.now() - shownAt.value < ARM_DELAY_MS) return;

@@ -1455,6 +1455,21 @@ is guaranteed and how durably it is checked.
   'primary'` confirms a save rather than a deletion, so that one focuses the
   confirm button instead. This is shared chrome — nine call sites gain the
   same guard.
+- **`database/tests/project-board-query.test.sql`** covers §4.1's counting
+  rules, which nothing in the UI can reach until Start exists: before step 8
+  every project has zero `project_parts` rows, so every count is zero and four
+  of the five columns are permanently empty. An inverted comparison would
+  therefore have stayed invisible for a whole story and then surfaced as a bug
+  in the story that merely started populating the table. Six fixture projects
+  cover a draft, a started project with one line in each state (including one
+  line that is to-buy, on-order and pickable at once), an all-done project, a
+  stopped one and a completed one. The test was mutation-checked rather than
+  merely run: inverting a `doneLines` comparison, dropping the stopped-project
+  guard, ordering the products by id instead of `position`, counting `*`
+  instead of `pp.id`, and weakening `onOrderLines` to `ordered_qty > 0` each
+  make it fail. Dropping `received_qty` from the `toPickLines` sum did *not*
+  fail the first draft, which is what added the sixth line — goods received
+  but not yet picked, a state the fixture had missed entirely.
 - **Start and Stop ship disabled** with a "coming soon" tooltip: their
   endpoints arrive in step 8. `useConfirmDelete` is therefore wired for Delete
   only — the Stop confirmation would be unreachable code today. It uses the
