@@ -209,7 +209,10 @@ CREATE TABLE IF NOT EXISTS sub_product_revision_parts (
   id                      SERIAL PRIMARY KEY,
   sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id) ON DELETE CASCADE,
   part_id                 INTEGER NOT NULL REFERENCES parts(id),
-  quantity                NUMERIC(10,3) NOT NULL,
+  -- Whole parts (migration 025). Half a part cannot be fitted, and this is
+  -- what a project's required_qty is computed from. An INTEGER column rounds
+  -- rather than refuses, so the refusal lives in parts.schema.ts.
+  quantity                INTEGER NOT NULL,
   unit                    VARCHAR(50),
   notes                   TEXT,
   UNIQUE(sub_product_revision_id, part_id)
@@ -707,13 +710,13 @@ CREATE TABLE IF NOT EXISTS project_parts (
   -- PRECONDITION: `sub_product_revision_parts.quantity` carries no CHECK of
   -- its own, so zero and negative BOM lines are representable today. Any that
   -- exist will make the freeze fail here rather than be silently rounded up.
-  required_qty   NUMERIC(12,3) NOT NULL CHECK (required_qty > 0),
+  required_qty   INTEGER NOT NULL CHECK (required_qty > 0),
   -- Claim on stock that already exists. Seeded to MIN(required_qty, free stock).
-  from_stock_qty NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
+  from_stock_qty INTEGER NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
   -- Decided purchase quantity. Seeded to required_qty - from_stock_qty, then
   -- editable upward (the surplus lands in stock on receipt) and downward, but
   -- never below what has already been ordered.
-  missing_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (missing_qty >= 0),
+  missing_qty    INTEGER NOT NULL DEFAULT 0 CHECK (missing_qty >= 0),
   -- True once the user has typed over the seeded value, so "Recalculate from
   -- stock" never discards a purchasing decision.
   missing_qty_overridden BOOLEAN NOT NULL DEFAULT FALSE,
@@ -721,9 +724,9 @@ CREATE TABLE IF NOT EXISTS project_parts (
   -- Progress. Denormalised sums of order_lines and of preparation picks,
   -- written in the same transaction as the event they summarise — exactly as
   -- stock_entries.quantity_consumed already is.
-  ordered_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (ordered_qty >= 0),
-  received_qty   NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
-  prepared_qty   NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (prepared_qty >= 0),
+  ordered_qty    INTEGER NOT NULL DEFAULT 0 CHECK (ordered_qty >= 0),
+  received_qty   INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  prepared_qty   INTEGER NOT NULL DEFAULT 0 CHECK (prepared_qty >= 0),
 
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -773,7 +776,7 @@ CREATE TABLE IF NOT EXISTS project_part_usages (
   -- pick lists from it; backfilling it later would mean re-reading revisions
   -- that may have moved.
   sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id),
-  qty_per_unit            NUMERIC(12,3) NOT NULL CHECK (qty_per_unit > 0),
+  qty_per_unit            INTEGER NOT NULL CHECK (qty_per_unit > 0),
   UNIQUE (project_part_id, project_product_id, sub_product_revision_id)
 );
 
@@ -859,11 +862,11 @@ CREATE TABLE IF NOT EXISTS order_lines (
   project_id      INTEGER NOT NULL,
   project_part_id INTEGER NOT NULL,
   part_id         INTEGER NOT NULL REFERENCES parts(id),
-  quantity        NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
+  quantity        INTEGER NOT NULL CHECK (quantity > 0),
   -- Copied from the accepted offer cell (canonical EUR) so a later re-quote
   -- cannot rewrite the price of an order already placed.
   price_per_piece NUMERIC(12,4),
-  received_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  received_qty    INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
   UNIQUE (order_id, project_part_id),
   FOREIGN KEY (order_id, project_id)
     REFERENCES orders (id, project_id) ON DELETE CASCADE,

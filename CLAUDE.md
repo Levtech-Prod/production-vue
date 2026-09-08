@@ -40,7 +40,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 ## Comments
 
 - **Primary rule: if the code is obvious, add no comment.** Default to zero comments. Before adding one, ask "would a reader understand this without it?" — if yes, don't add it. Only comment what the code truly can't say itself: a non-obvious *why*, a trap, a decision someone would otherwise undo.
-- Keep them short — one line where possible, two or three at most. Prefer a clearer name or a small helper over a comment explaining unclear code.
+- **As short as the point allows.** There is no line budget — and no licence to sprawl. Say the thing once and stop. Length is earned only by what genuinely needs it (a trap with a real failure mode, an approach worth naming as rejected); never by padding, restatement, or a second telling of what a plan or design document already says — cite the section instead. Prefer a clearer name or a small helper over a comment explaining unclear code.
 - Don't restate the code, narrate steps, label obvious blocks, or leave TODOs and commented-out code.
 - Worth a comment: why an approach was rejected, a subtle contract (`null` vs `undefined`, ordering, locking), a workaround with its reason, a non-obvious security or performance constraint.
 - Public helpers and exported types get a one-line JSDoc when the name alone isn't enough; skip it when it is.

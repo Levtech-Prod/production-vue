@@ -1,38 +1,25 @@
 // ===========================================================================
-// Unit-level verification for services/projectBom.ts against seeded data —
-// the acceptance check for that service, kept in the repo rather than run
-// once by hand, for the reason §11.8 (C1) records.
+// Acceptance check for services/projectBom.ts, kept in the repo rather than
+// run once by hand (§11.8 C1 for why).
 //
-// The fixture is §3.4's worked example, verbatim, because that is the hand
-// calculation the whole aggregation has to match:
+// The fixture is §3.4's worked example verbatim, because that is the hand
+// calculation the aggregation has to match: CTRL-100 R3 x2 and PSU-200 R1 x3
+// share a screw across three sub-products, so Screw M3 = (2 + 2) x 2 + 6 x 3
+// = 26. Checked over both forms of the BOM, including that they answer with
+// the same shape and in JS numbers rather than NUMERIC strings.
 //
-//   CTRL-100 R3 x2  — Front panel rev B: Screw 2
-//                     Base rev A:        Screw 2, Relay 1
-//   PSU-200  R1 x3  — PSU board rev C:   Screw 6, Capacitor 2
+// Runs against the dev database inside one transaction that is ALWAYS rolled
+// back. Like projectStock.test.ts, NOT safe to point at production: the
+// rollback undoes the writes, the locks it takes are real.
 //
-//   Screw M3        26 = (2 + 2) x 2 + 6 x 3     (2 products, 3 sub-products)
-//   Relay 5V         2 = 1 x 2
-//   Capacitor 100uF  6 = 2 x 3
-//
-// Checked over both forms of the BOM — computed for a draft, read back from
-// the frozen tables for a started project — including that the two produce
-// the same payload shape, which is the promise the Parts table's single code
-// path rests on.
-//
-// Runs against the real dev database (DATABASE_URL from .env, same as
-// db:test), inside one transaction that is ALWAYS rolled back — safe to run
-// repeatedly, leaves no rows behind. Like projectStock.test.ts, NOT safe to
-// point at production: the rollback undoes the writes, but the row locks
-// taken along the way are real for the duration of the run.
-//
-// Run:
-//   npm run test:projectBom
+// Run: npm run test:projectBom
 // ===========================================================================
 import { pool } from '../db.js';
 import type { Queryable } from '../db.js';
 import {
   computeProjectBom,
   loadFrozenProjectBom,
+  loadProjectPartsPayload,
   toProjectPartRows,
   type ProjectPartRow,
 } from './projectBom.js';
@@ -322,6 +309,16 @@ async function main() {
     );
     check('draft: ample stock covers it entirely', [cap.fromStockQty, cap.missingQty], [6, 0]);
 
+    // A NUMERIC column would arrive as a string and reach the table as
+    // "26.000"; migration 025 made every quantity INTEGER, so they are numbers.
+    check(
+      'draft: quantities are JS numbers, not NUMERIC strings',
+      [screw.requiredQty, screw.fromStockQty, screw.products[0].qtyForProduct].map(
+        (v) => typeof v,
+      ),
+      ['number', 'number', 'number'],
+    );
+
     const emptyRows = toProjectPartRows(await computeProjectBom(client, PROJECT_EMPTY), 'draft');
     check('draft with no products: no rows, no error', emptyRows, []);
 
@@ -407,6 +404,12 @@ async function main() {
       Object.keys(screw.products[0]).sort(),
     );
 
+    check(
+      'frozen: stored quantities come back as numbers too',
+      [frozenScrew.requiredQty, frozenScrew.orderedQty].map((v) => typeof v),
+      ['number', 'number'],
+    );
+
     // --- stopping: a status flip, and nothing else ------------------------
     const beforeStop = rowFor(
       toProjectPartRows(await computeProjectBom(client, PROJECT_DRAFT), 'draft'),
@@ -440,6 +443,24 @@ async function main() {
       [26, 6, 11],
     );
     check('a stopped project no longer flags a shortfall', stoppedScrew.stockShortfall, false);
+
+    // --- the payload switch, the decision the route used to own -----------
+    const draftPayload = await loadProjectPartsPayload(client, PROJECT_DRAFT, 'draft');
+    check(
+      'draft status picks the computed rows',
+      [draftPayload.draft, draftPayload.rows.length, draftPayload.rows[0].id],
+      [true, 3, null],
+    );
+    const startedPayload = await loadProjectPartsPayload(client, PROJECT_STARTED, 'stopped');
+    check(
+      'a non-draft status picks the frozen rows',
+      [
+        startedPayload.draft,
+        startedPayload.rows.length,
+        startedPayload.rows.every((r) => r.id !== null),
+      ],
+      [false, 3, true],
+    );
 
     // Neither reader may go per-part: one flatten plus one stock read for a
     // draft, one part read plus one usage read plus one stock read frozen.

@@ -250,7 +250,7 @@ withDefaults(
     saving?: boolean;
     /** Read off the BOM line, not the link: the alternative is fitted in
      *  that line's place. */
-    quantity?: number | string | null;
+    quantity?: number | null;
     unit?: string | null;
     mountPosition?: string | null;
     notes?: string | null;

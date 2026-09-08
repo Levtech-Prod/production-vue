@@ -1,35 +1,20 @@
 // ===========================================================================
-// Project BOM — the flattened parts list of a project.
-// (projects-preparation-plan.md §3.4, §5.3, §5.4.)
-// ---------------------------------------------------------------------------
-// A project's parts list exists in two forms, and this file is the one place
-// that knows both:
+// Project BOM — a project's flattened parts list, in both forms it has:
+// computed live from the pinned revisions while the project is a draft, and
+// read back from `project_parts` / `project_part_usages` once Start has
+// frozen it (plan §3.4 for the aggregation, §5.3, §5.4).
 //
-//   draft    — nothing is stored. `computeProjectBom` runs §3.4's aggregation
-//              against each product's PINNED revision and returns the rows in
-//              memory, so a salesman sees what a job needs, and what will have
-//              to be bought, before committing to it (§5.3). It writes nothing.
-//   started  — the same rows, frozen at Start into `project_parts` /
-//              `project_part_usages`, read back by `loadFrozenProjectBom`.
+// Both readers answer with one `ProjectBomPart` shape and one mapper builds
+// the payload from either, so the collapse to distinct products and the
+// derived to-buy / on-order / to-pick figures exist once rather than once per
+// branch. That is what lets the Parts table not care which form it got.
 //
-// Both readers answer with the SAME `ProjectBomPart` shape, and
-// `toProjectPartRows` turns either into the one payload §5.4 specifies. That
-// is deliberate: the collapse of usage rows to distinct products, and the
-// derived to-buy / on-order / to-pick figures, are one decision each and are
-// therefore written once, not once per branch. The frontend then differs only
-// in showing a draft notice.
-//
-// Three levels of quantity, per §3.4:
-//   1. one usage  — (product-in-the-project, sub-product revision, part)
-//   2. per product — SUM of level 1 over that product's usages, x its quantity
-//   3. per project — SUM of level 2; this is `required_qty`
-// Level 2 is never stored, here or in the database: it is a regrouping of
-// level 1 that nothing else depends on.
+// Quantities are whole parts (INTEGER since migration 025), so the arithmetic
+// here is exact and nothing needs rounding.
 //
 // `product-revisions/:revId/bom` was checked first and does not fit: it
-// flattens ONE revision, nested by sub-product, with no project quantities and
-// no stock — a different grain answering a different question (what is in this
-// revision, not what does this job need).
+// flattens ONE revision nested by sub-product, with no project quantities and
+// no stock — a different question at a different grain.
 // ===========================================================================
 import type { Queryable } from '../db.js';
 import type { ProjectStatus } from '../schemas/projects.schema.js';
@@ -78,6 +63,13 @@ export interface ProjectBomPart {
   usages: ProjectBomUsage[];
 }
 
+/** `GET /api/projects/:id/parts` (§5.4). `draft` says which form the rows
+ *  were built from; nothing else about them differs. */
+export interface ProjectPartsPayload {
+  draft: boolean;
+  rows: ProjectPartRow[];
+}
+
 /** A row of the Parts table (§5.4). */
 export interface ProjectPartRow {
   id: number | null;
@@ -105,17 +97,6 @@ export interface ProjectPartRow {
   stockShortfall: boolean;
 }
 
-/** Scale of every quantity column (`NUMERIC(12,3)`). */
-const QTY_SCALE = 3;
-
-/** Sums of those quantities done in JS pick up binary-float dust
- *  (0.1 + 0.2 = 0.30000000000000004). The columns cannot hold it and the
- *  table must not show it, so every derived quantity is rounded back to the
- *  scale the database stores. */
-function qty(value: number): number {
-  return Number(value.toFixed(QTY_SCALE));
-}
-
 interface ComputedUsageRow {
   partId: number;
   partName: string;
@@ -128,15 +109,13 @@ interface ComputedUsageRow {
   sku: string;
   revisionLabel: string;
   subProductRevisionId: number;
-  qtyPerUnit: string;
+  qtyPerUnit: number;
   productQuantity: number;
 }
 
-// §3.4's `usage` CTE — one row per (product-in-the-project, sub-product
-// revision, part) — with the columns the Parts table displays joined on. No
-// GROUP BY: `sub_product_revision_parts` is unique on (revision, part) and
-// `product_revision_sub_products` on (product revision, sub-product revision),
-// so every row here is already a distinct usage site.
+// §3.4's `usage` CTE with the display columns joined on. No GROUP BY: the two
+// junction tables' UNIQUE constraints already make every row a distinct usage
+// site.
 const COMPUTE_USAGES = `
   SELECT
     p.id                        AS "partId",
@@ -173,13 +152,13 @@ interface FrozenPartRow {
   image: string | null;
   categoryId: number;
   categoryName: string;
-  requiredQty: string;
-  fromStockQty: string;
-  missingQty: string;
+  requiredQty: number;
+  fromStockQty: number;
+  missingQty: number;
   missingQtyOverridden: boolean;
-  orderedQty: string;
-  receivedQty: string;
-  preparedQty: string;
+  orderedQty: number;
+  receivedQty: number;
+  preparedQty: number;
 }
 
 interface FrozenUsageRow {
@@ -189,7 +168,7 @@ interface FrozenUsageRow {
   sku: string;
   revisionLabel: string;
   subProductRevisionId: number;
-  qtyPerUnit: string;
+  qtyPerUnit: number;
   productQuantity: number;
 }
 
@@ -220,7 +199,7 @@ function groupUsages(
       sku: row.sku,
       revisionLabel: row.revisionLabel,
       subProductRevisionId: row.subProductRevisionId,
-      qtyPerUnit: Number(row.qtyPerUnit),
+      qtyPerUnit: row.qtyPerUnit,
       productQuantity: row.productQuantity,
     });
   }
@@ -229,16 +208,12 @@ function groupUsages(
 
 /** Level 3: what the whole project needs of a part. */
 function requiredFrom(usages: ProjectBomUsage[]): number {
-  return qty(usages.reduce((sum, u) => sum + u.qtyPerUnit * u.productQuantity, 0));
+  return usages.reduce((sum, u) => sum + u.qtyPerUnit * u.productQuantity, 0);
 }
 
-/**
- * The project's parts list computed live from the pinned revisions, with
- * `fromStockQty` / `missingQty` seeded from today's free stock and the
- * progress buckets at zero (§5.3). Writes nothing: this is what a draft's
- * Parts table serves, and what Start re-runs inside its transaction rather
- * than trusting numbers the browser sends back.
- */
+/** The parts list computed from the pinned revisions, seeded from today's free
+ *  stock with the progress buckets at zero (§5.3). Writes nothing — Start
+ *  re-runs it inside its transaction rather than trust the browser. */
 export async function computeProjectBom(
   db: Queryable,
   projectId: number,
@@ -252,19 +227,16 @@ export async function computeProjectBom(
   return [...byPart.values()].map(({ part, usages }) => {
     const requiredQty = requiredFrom(usages);
     const partStock = stock.get(part.id) ?? { available: 0, reserved: 0, free: 0 };
-    // §5.3's seed, MIN(required, MAX(0, free)) — clamped at zero from below as
-    // well, because a BOM line with quantity <= 0 is still representable
-    // (§11.5) and must read as nothing to claim rather than a negative one.
-    // `requiredQty` itself is left exactly as computed: the CHECK on
-    // `project_parts.required_qty` is what refuses such a project at Start,
-    // and rounding it up here would hide the reason.
-    const fromStockQty = qty(Math.max(0, Math.min(requiredQty, Math.max(0, partStock.free))));
+    // §5.3's seed, clamped at zero from below too: a BOM line of <= 0 is still
+    // representable (§11.5). `requiredQty` is left exactly as computed — the
+    // CHECK at Start is what refuses it, and hiding it here hides the reason.
+    const fromStockQty = Math.max(0, Math.min(requiredQty, Math.max(0, partStock.free)));
     return {
       id: null,
       part,
       requiredQty,
       fromStockQty,
-      missingQty: qty(Math.max(0, requiredQty - fromStockQty)),
+      missingQty: Math.max(0, requiredQty - fromStockQty),
       missingQtyOverridden: false,
       orderedQty: 0,
       receivedQty: 0,
@@ -275,11 +247,8 @@ export async function computeProjectBom(
   });
 }
 
-/**
- * The project's frozen parts list, as stored at Start. Quantities come from
- * `project_parts`; `available` / `reserved` are read live, because stock moves
- * after a project starts and the table's job is to show that it has.
- */
+/** The frozen parts list as Start stored it. `available` / `reserved` stay
+ *  live: stock moves afterwards, and showing that is the table's job. */
 export async function loadFrozenProjectBom(
   db: Queryable,
   projectId: number,
@@ -326,7 +295,7 @@ export async function loadFrozenProjectBom(
       sku: row.sku,
       revisionLabel: row.revisionLabel,
       subProductRevisionId: row.subProductRevisionId,
-      qtyPerUnit: Number(row.qtyPerUnit),
+      qtyPerUnit: row.qtyPerUnit,
       productQuantity: row.productQuantity,
     });
     usagesByPart.set(row.projectPartId, usages);
@@ -348,29 +317,27 @@ export async function loadFrozenProjectBom(
       categoryId: row.categoryId,
       categoryName: row.categoryName,
     },
-    requiredQty: Number(row.requiredQty),
-    fromStockQty: Number(row.fromStockQty),
-    missingQty: Number(row.missingQty),
+    requiredQty: row.requiredQty,
+    fromStockQty: row.fromStockQty,
+    missingQty: row.missingQty,
     missingQtyOverridden: row.missingQtyOverridden,
-    orderedQty: Number(row.orderedQty),
-    receivedQty: Number(row.receivedQty),
-    preparedQty: Number(row.preparedQty),
+    orderedQty: row.orderedQty,
+    receivedQty: row.receivedQty,
+    preparedQty: row.preparedQty,
     stock: stock.get(row.partId) ?? { available: 0, reserved: 0, free: 0 },
     usages: usagesByPart.get(row.id) ?? [],
   }));
 }
 
-/** Level 2: the usage rows collapsed to distinct products, in first-seen
- *  order. A part used in three sub-products of one product yields one entry
- *  whose `qtyPerUnit` is the sum of the three, so the `qtyForProduct` values
- *  always sum back to `requiredQty`. */
+/** Level 2 (§3.4): usages collapsed to distinct products, so a part in three
+ *  sub-products of one product is one entry whose `qtyPerUnit` is their sum. */
 function collapseToProducts(usages: ProjectBomUsage[]): ProjectPartRow['products'] {
   const byProduct = new Map<number, ProjectPartRow['products'][number]>();
   for (const usage of usages) {
     const existing = byProduct.get(usage.projectProductId);
     if (existing) {
-      existing.qtyPerUnit = qty(existing.qtyPerUnit + usage.qtyPerUnit);
-      existing.qtyForProduct = qty(existing.qtyPerUnit * usage.productQuantity);
+      existing.qtyPerUnit += usage.qtyPerUnit;
+      existing.qtyForProduct = existing.qtyPerUnit * usage.productQuantity;
       continue;
     }
     byProduct.set(usage.projectProductId, {
@@ -378,35 +345,28 @@ function collapseToProducts(usages: ProjectBomUsage[]): ProjectPartRow['products
       productId: usage.productId,
       sku: usage.sku,
       revisionLabel: usage.revisionLabel,
-      qtyPerUnit: qty(usage.qtyPerUnit),
-      qtyForProduct: qty(usage.qtyPerUnit * usage.productQuantity),
+      qtyPerUnit: usage.qtyPerUnit,
+      qtyForProduct: usage.qtyPerUnit * usage.productQuantity,
     });
   }
   return [...byProduct.values()];
 }
 
-/**
- * The Parts table payload (§5.4), from either form of the BOM. The three
- * derived quantities are computed here rather than in the browser so the
- * table and the board cannot come to disagree about what a row still owes.
- */
+/** The §5.4 payload, from either form. The derived quantities are computed
+ *  here, not in the browser, so the table and the board cannot disagree. */
 export function toProjectPartRows(
   parts: ProjectBomPart[],
   status: ProjectStatus,
 ): ProjectPartRow[] {
-  // Stopping releases a project's claim by dropping it out of §4.2's
-  // `reserved` — the status filter is the whole mechanism, no stock is
-  // written — so a stopped or completed project's sourcing numbers are a
-  // record of what it once claimed, and warning that stock is short for a
-  // claim nobody counts any more would be warning about nothing. A draft's
-  // claim is prospective and still flags: "the stock this quote counts on is
-  // already spoken for" is exactly what a salesman needs before starting.
+  // Only a claim someone else counts can fall short: §4.2 sums `reserved` over
+  // started projects alone, so a stopped or completed project's numbers are a
+  // record, not a claim. A draft's is prospective, and does flag.
   const claimIsCounted = status === 'draft' || status === 'started';
   return parts.map((row) => {
     // What this project itself still has an outstanding claim on — the same
     // expression §4.2 sums over OTHER started projects to get `reserved`, so
     // the shortfall test below compares like with like.
-    const toPickQty = qty(row.fromStockQty + row.receivedQty - row.preparedQty);
+    const toPickQty = row.fromStockQty + row.receivedQty - row.preparedQty;
     return {
       id: row.id,
       part: row.part,
@@ -420,10 +380,25 @@ export function toProjectPartRows(
       orderedQty: row.orderedQty,
       receivedQty: row.receivedQty,
       preparedQty: row.preparedQty,
-      toBuyQty: qty(row.missingQty - row.orderedQty),
-      onOrderQty: qty(row.orderedQty - row.receivedQty),
+      toBuyQty: row.missingQty - row.orderedQty,
+      onOrderQty: row.orderedQty - row.receivedQty,
       toPickQty,
       stockShortfall: claimIsCounted && row.stock.available < row.stock.reserved + toPickQty,
     };
   });
+}
+
+/** The payload for a project in whatever state it is in (§5.2). The switch
+ *  lives here, not in the route: inverted, a started project would answer with
+ *  recomputed rows carrying none of its progress — plausible, and wrong. */
+export async function loadProjectPartsPayload(
+  db: Queryable,
+  projectId: number,
+  status: ProjectStatus,
+): Promise<ProjectPartsPayload> {
+  const draft = status === 'draft';
+  const bom = draft
+    ? await computeProjectBom(db, projectId)
+    : await loadFrozenProjectBom(db, projectId);
+  return { draft, rows: toProjectPartRows(bom, status) };
 }

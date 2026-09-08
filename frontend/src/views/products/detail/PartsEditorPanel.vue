@@ -240,7 +240,7 @@ const availableParts = computed(() =>
 function toInputs(parts: RevisionPart[]): RevisionPartInput[] {
   return parts.map((p) => ({
     partId: p.id,
-    quantity: Number(p.quantity) || 0,
+    quantity: p.quantity,
     unit: p.unit || null,
     notes: p.notes || null,
     mountPosition: p.mountPosition || null,

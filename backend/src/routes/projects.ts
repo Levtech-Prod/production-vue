@@ -21,11 +21,7 @@ import {
   diffKeyedEvents,
   type KeyedValue,
 } from '../services/audit.js';
-import {
-  computeProjectBom,
-  loadFrozenProjectBom,
-  toProjectPartRows,
-} from '../services/projectBom.js';
+import { loadProjectPartsPayload } from '../services/projectBom.js';
 
 const router = Router();
 
@@ -368,11 +364,11 @@ router.get('/:id', requireAuth, async (req, res) => {
   res.json(project);
 });
 
-// GET /api/projects/:id/parts — the Parts table (§5.4). Works for a draft:
-// the rows are computed live from the pinned revisions and the response says
-// `draft: true`, so a project can be costed before it is committed to. A
-// started project reads its frozen tables instead. One payload shape either
-// way, so the page differs only by the draft notice.
+// GET /api/projects/:id/parts — the Parts table (§5.4). Works for a draft,
+// whose rows are computed live from the pinned revisions so a project can be
+// costed before it is committed to; a started one reads its frozen tables.
+// Which of the two, and the one payload shape they share, is
+// `services/projectBom.ts`'s to decide — this route only says whose.
 router.get('/:id/parts', requireAuth, async (req, res) => {
   const projectId = parseId(req.params.id);
   if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
@@ -384,12 +380,7 @@ router.get('/:id/parts', requireAuth, async (req, res) => {
   const project = projectResult.rows[0];
   if (!project) return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
 
-  const draft = project.status === 'draft';
-  const bom = draft
-    ? await computeProjectBom(pool, projectId)
-    : await loadFrozenProjectBom(pool, projectId);
-
-  res.json({ draft, rows: toProjectPartRows(bom, project.status) });
+  res.json(await loadProjectPartsPayload(pool, projectId, project.status));
 });
 
 // PATCH /api/projects/:id — replace fields and the whole product set.
