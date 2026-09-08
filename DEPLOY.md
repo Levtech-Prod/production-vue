@@ -152,8 +152,20 @@ Upload the new `prodtrack-images.tar` via File Station and import it again (**Co
 New migration files placed in `backend/database/migrations/` after the database already exists won't run automatically (the init script only runs once, against an empty database). Apply them manually:
 
 ```bash
-docker exec -i prodtrack-db-1 psql -U levtech -d levtechproduction -f /docker-entrypoint-initdb.d/source/migrations/<new-file>.sql
+docker exec -i prodtrack-db-1 psql -v ON_ERROR_STOP=1 -U levtech -d levtechproduction -f /docker-entrypoint-initdb.d/source/migrations/<new-file>.sql
 ```
+
+**Apply migrations BEFORE restarting the containers with new images, not after.**
+A migration that only adds things is safe in either order, but one that *narrows*
+a column is not: migration 025 turned the quantity columns into `INTEGER`, and
+while the old code reads the new columns perfectly well, the new code cannot
+read the old ones — `NUMERIC` reaches node as a string, so quantities
+concatenate instead of adding and the stock-shortfall flag silently reads
+false. Restart the project first and you are serving that for as long as it
+takes you to run the migration. `deploy-ssh.sh` now does this in the right
+order on its own (database up → migrate → recreate backend and frontend, and
+it stops the deploy if a migration fails); this note is for the manual
+Container Manager path, where the order is yours to get right.
 
 ## 10. One-off uploads restructure (run once, after deploying that release)
 

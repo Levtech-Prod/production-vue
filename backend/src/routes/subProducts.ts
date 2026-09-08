@@ -139,7 +139,7 @@ router.get('/revisions/compare', requireAuth, async (req, res) => {
          ),
          '[]'
        ) AS parameters,
-       sprp.quantity::integer AS quantity,
+       sprp.quantity,
        sprp.unit,
        sprp.notes,
        sprp.mount_position AS "mountPosition"
@@ -651,7 +651,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       mountPosition: string | null;
     }>(
       `SELECT sprp.part_id AS "partId", p.name,
-         sprp.quantity::integer AS quantity, sprp.unit, sprp.notes,
+         sprp.quantity, sprp.unit, sprp.notes,
          sprp.mount_position AS "mountPosition"
        FROM sub_product_revision_parts sprp
        JOIN parts p ON p.id = sprp.part_id
@@ -760,7 +760,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
     `SELECT
        p.id, p.name, p.code, p.category_id AS "categoryId",
        p.price_per_piece AS "pricePerPiece", p.image,
-       sprp.quantity::integer AS quantity, sprp.unit, sprp.notes,
+       sprp.quantity, sprp.unit, sprp.notes,
        sprp.mount_position AS "mountPosition"
      FROM sub_product_revision_parts sprp
      JOIN parts p ON p.id = sprp.part_id
@@ -785,7 +785,7 @@ router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
        p.category_id AS "categoryId",
        p.price_per_piece AS "pricePerPiece",
        p.image,
-       sprp.quantity::integer AS quantity,
+       sprp.quantity,
        sprp.unit,
        sprp.notes,
        sprp.mount_position AS "mountPosition"

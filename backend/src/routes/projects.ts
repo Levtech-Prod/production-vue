@@ -1,6 +1,7 @@
-// Projects — CRUD only (projects-preparation-plan.md §5.2). Start/Stop, the
-// Parts table and the offer/order endpoints are separate stories; this file
-// owns just `projects` and the product set pinned to it (`project_products`).
+// Projects — CRUD and the Parts table (projects-preparation-plan.md §5.2).
+// Start/Stop and the offer/order endpoints are separate stories; this file
+// owns `projects`, the product set pinned to it (`project_products`), and the
+// read of its parts list, whether that list is computed or frozen.
 import { Router } from 'express';
 import type { PoolClient } from 'pg';
 import { query, pool, type Queryable } from '../db.js';
@@ -11,6 +12,7 @@ import {
   projectPayloadSchema,
   projectListQuerySchema,
   type ProjectProductInput,
+  type ProjectStatus,
 } from '../schemas/projects.schema.js';
 import {
   logAudit,
@@ -19,6 +21,7 @@ import {
   diffKeyedEvents,
   type KeyedValue,
 } from '../services/audit.js';
+import { loadProjectPartsPayload } from '../services/projectBom.js';
 
 const router = Router();
 
@@ -359,6 +362,25 @@ router.get('/:id', requireAuth, async (req, res) => {
   const project = await loadProject(pool, projectId);
   if (!project) return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
   res.json(project);
+});
+
+// GET /api/projects/:id/parts — the Parts table (§5.4). Works for a draft,
+// whose rows are computed live from the pinned revisions so a project can be
+// costed before it is committed to; a started one reads its frozen tables.
+// Which of the two, and the one payload shape they share, is
+// `services/projectBom.ts`'s to decide — this route only says whose.
+router.get('/:id/parts', requireAuth, async (req, res) => {
+  const projectId = parseId(req.params.id);
+  if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
+
+  const projectResult = await query<{ status: ProjectStatus }>(
+    `SELECT status FROM projects WHERE id = $1`,
+    [projectId],
+  );
+  const project = projectResult.rows[0];
+  if (!project) return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
+
+  res.json(await loadProjectPartsPayload(pool, projectId, project.status));
 });
 
 // PATCH /api/projects/:id — replace fields and the whole product set.

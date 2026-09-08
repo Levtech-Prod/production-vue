@@ -120,7 +120,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
        p.name         AS "partName",
        p.code         AS "partCode",
        p.image        AS "partImage",
-       sprp.quantity::integer AS quantity,
+       sprp.quantity,
        sprp.unit,
        sprp.notes,
        sprp.mount_position AS "mountPosition"

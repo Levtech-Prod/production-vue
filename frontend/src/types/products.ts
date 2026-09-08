@@ -96,7 +96,9 @@ export interface RevisionPart {
   categoryId: number;
   pricePerPiece: number | string;
   image?: string | null;
-  quantity: number | string;
+  /** Whole parts (migration 025). `pricePerPiece` above stays a union because
+   *  money is still NUMERIC and reaches the client as a string; this does not. */
+  quantity: number;
   unit?: string | null;
   notes?: string | null;
   /** Where the part sits on this sub-product — stored per BOM line, so the

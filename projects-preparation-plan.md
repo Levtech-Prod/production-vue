@@ -150,13 +150,13 @@ CREATE TABLE IF NOT EXISTS project_parts (
   -- PRECONDITION: `sub_product_revision_parts.quantity` carries no CHECK of
   -- its own, so zero and negative BOM lines are representable today. Any that
   -- exist make the freeze fail here rather than be silently rounded up.
-  required_qty   NUMERIC(12,3) NOT NULL CHECK (required_qty > 0),
+  required_qty   INTEGER NOT NULL CHECK (required_qty > 0),
   -- Claim on stock that already exists. Seeded to MIN(required_qty, free stock).
-  from_stock_qty NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
+  from_stock_qty INTEGER NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
   -- Decided purchase quantity. Seeded to required_qty - from_stock_qty, then
   -- editable upward (the surplus lands in stock on receipt) and downward, but
   -- never below what has already been ordered.
-  missing_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (missing_qty >= 0),
+  missing_qty    INTEGER NOT NULL DEFAULT 0 CHECK (missing_qty >= 0),
   -- True once the user has typed over the seeded value, so "Recalculate from
   -- stock" (§5.2) never discards a purchasing decision.
   missing_qty_overridden BOOLEAN NOT NULL DEFAULT FALSE,
@@ -164,9 +164,9 @@ CREATE TABLE IF NOT EXISTS project_parts (
   -- Progress. Denormalised sums of order_lines and of preparation picks,
   -- written in the same transaction as the event they summarise — exactly as
   -- stock_entries.quantity_consumed already is.
-  ordered_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (ordered_qty >= 0),
-  received_qty   NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
-  prepared_qty   NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (prepared_qty >= 0),
+  ordered_qty    INTEGER NOT NULL DEFAULT 0 CHECK (ordered_qty >= 0),
+  received_qty   INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  prepared_qty   INTEGER NOT NULL DEFAULT 0 CHECK (prepared_qty >= 0),
 
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -196,6 +196,19 @@ CREATE INDEX IF NOT EXISTS idx_project_parts_project_id ON project_parts(project
 CREATE INDEX IF NOT EXISTS idx_project_parts_part_id
   ON project_parts(part_id) WHERE prepared_qty < from_stock_qty + received_qty;
 ```
+
+**Whole parts.** Every quantity above is `INTEGER` (migration 025): half a
+part cannot be needed, bought, received or picked. The BOM line these are
+computed from (`sub_product_revision_parts.quantity`) is `INTEGER` for the same
+reason, and `stock_entries` carries a whole-number CHECK, so free stock — which
+seeds `from_stock_qty` — cannot arrive as a fraction either. Note what an
+`INTEGER` column does and does not give: it **rounds** 1.5 rather than refusing
+it, so the refusal lives at the API boundary (`schemas/parts.schema.ts`
+validates a BOM line with `z.number().int()`), and any endpoint that later
+accepts a quantity — story 8's `missingQty`, story 15's order lines — must do
+the same or it becomes the way a fraction gets in. In return the service does
+no rounding at all: integers are exact in JS to 2^53, and the columns arrive as
+numbers instead of NUMERIC strings.
 
 **Quantities, not status enums.** A part is routinely *both* partly in stock
 and partly short — 3 on the shelf, 5 to buy — and the 5 can be ordered 2 from
@@ -260,7 +273,7 @@ CREATE TABLE IF NOT EXISTS project_part_usages (
   -- reads it; Preparation (phase 3) builds its pick lists from it, and
   -- backfilling it later would mean re-reading revisions that may have moved.
   sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id),
-  qty_per_unit            NUMERIC(12,3) NOT NULL CHECK (qty_per_unit > 0),
+  qty_per_unit            INTEGER NOT NULL CHECK (qty_per_unit > 0),
   UNIQUE (project_part_id, project_product_id, sub_product_revision_id)
 );
 
@@ -481,11 +494,11 @@ CREATE TABLE IF NOT EXISTS order_lines (
   project_id      INTEGER NOT NULL,
   project_part_id INTEGER NOT NULL,
   part_id         INTEGER NOT NULL REFERENCES parts(id),
-  quantity        NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
+  quantity        INTEGER NOT NULL CHECK (quantity > 0),
   -- Copied from the accepted offer cell (canonical EUR) so a later re-quote
   -- cannot rewrite the price of an order already placed.
   price_per_piece NUMERIC(12,4),
-  received_qty    NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  received_qty    INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
   UNIQUE (order_id, project_part_id),
   FOREIGN KEY (order_id, project_id)
     REFERENCES orders (id, project_id) ON DELETE CASCADE,
@@ -749,7 +762,10 @@ refused with `PROJECT_HAS_NO_PARTS` rather than started empty.
 
 ```ts
 interface ProjectPartRow {
-  id: number;                 // project_parts.id
+  id: number | null;          // project_parts.id; null while the project is a
+                              // draft and the row is computed, not stored.
+                              // Rows are keyed on `part.id`, which both forms
+                              // have (§11.10).
   part: { id: number; name: string; code: string; image: string | null;
           categoryId: number; categoryName: string };
   // The part's usage rows collapsed to distinct products: a single entry for
@@ -909,7 +925,11 @@ frontend/src/composables/useTableSort.ts            new, shared by the two new t
 - The Parts table fetch goes through **`useScopedCache`** keyed on the selected
   project id — that composable exists precisely for "fetch per scope, cache per
   scope, never let a slow response overwrite a newer selection", and the
-  product detail page already proves the pattern.
+  product detail page already proves the pattern. Because it caches per project, the
+  entry must be dropped on every write that moves the rows — editing the
+  project, Start, a Missing-quantity edit, Recalculate from stock — or the
+  table keeps showing the BOM from before. There is no server-side cache to
+  fall back on: a draft is recomputed per request on purpose (§11.10).
 - A **draft** project shows the same table, computed live (§5.3), read-only,
   under a "not started — quantities are indicative" note. Selecting a draft and
   seeing what it will cost to buy is the whole point of the page before Start.
@@ -1499,3 +1519,139 @@ is guaranteed and how durably it is checked.
   endpoints arrive in step 8. `useConfirmDelete` is therefore wired for Delete
   only — the Stop confirmation would be unreachable code today. It uses the
   same composable, unchanged, when step 8 enables the button (§11.4).
+
+### 11.10 Eighth pass — building `services/projectBom.ts` and `GET /:id/parts` (step 7)
+
+Found by building the computation and its test against seeded data. Nothing
+here changes what §3.4 computes; the first two are contract details §5.4 left
+open, the rest is how the two forms of the BOM were kept from drifting.
+
+| # | Problem | Now |
+|---|---|---|
+| D1 | §5.4 types the row's `id` as `number`, but a **draft**'s rows are computed and have no `project_parts.id` to put there. Inventing one (the part id, or 0) would put two different id spaces in one field, and the first `PATCH /:id/parts/:projectPartId` built from it would address the wrong row. | `id: number \| null`, null exactly when `draft: true`. It is not a second payload shape: the keys are identical, and a null `id` is the same kind of statement as the progress buckets being zero. Rows are keyed on `part.id`, which both forms carry and `UNIQUE (project_id, part_id)` keeps unique per project. |
+| D2 | Two different expressions for the same flag. §4.2 says the table flags `available < reserved + (from_stock_qty - prepared_qty)`; §5.4 says "available < reserved + this project's own outstanding claim". They differ by `received_qty`, and §4.2's own definition of `reserved` — `from_stock_qty + received_qty - prepared_qty` over *other* started projects — settles which is meant: goods received against this project are sitting in stock with its name on them, exactly as they are for everybody else's. | `stockShortfall` is `availableQty < reservedQty + toPickQty`, so the row is compared with other projects on identical terms. §4.2's shorter expression reads as shorthand from before `received_qty` counted toward the pick. |
+| D3 | "One payload shape either way" is a promise two independently written branches would eventually break — the draft path and the frozen path each build the same rows from a different source. | Both readers (`computeProjectBom`, `loadFrozenProjectBom`) answer with one intermediate shape, and a single mapper (`toProjectPartRows`) produces the payload from either. The collapse of usages to distinct products and the three derived quantities are therefore written once, not once per branch, and the test asserts the two forms agree key for key. |
+| D4 | §5.4 says `qtyForProduct` "is computed in the query". Doing that would mean writing the level-2 aggregation twice — once in the draft flatten, once in the frozen read — which is the same decision in two places and the way the two would come to disagree. | Level 2 is computed once in TypeScript, in the shared mapper. Exactly, with no rounding: every quantity is a whole number (§11.11), and JS holds integers to 2^53 without loss. |
+| D5 | §3.4's `usage` CTE is written for the insert-from-select the freeze will run. Read-only, it needs no CTE at all. | `computeProjectBom` is the same joins as a plain `SELECT`, with the display columns (part, category, SKU, revision label) joined on, aggregated per part in memory. Two round trips: the flatten, then §4.2's stock read for every part id at once. |
+| D6 | The frozen read is three statements (parts, usages, stock) and so is not the single snapshot §11.8 (C3) went to some trouble to give `getPartStock`. | Accepted, deliberately. C3's fix was free — one statement instead of two composing the same predicates — and it guarded a number the *freeze* writes. This endpoint only displays, over quantities §4.2 already says go stale, and buying a snapshot here would mean a `REPEATABLE READ` transaction around a read-only request. Worth knowing, not worth the machinery. |
+| D7 | A BOM line with `quantity <= 0` is still representable (§11.5), and a draft would show it. | `required_qty` is returned exactly as computed — the CHECK is what refuses the project at Start, and rounding it up here would hide the reason — while the seeded `from_stock_qty` / `missing_qty` are clamped at zero so the sourcing columns never read as a negative claim. |
+
+| D8 | The shortfall flag fired on a **stopped** project, over a claim stopping had already released — and on a **completed** one, whose rows can only be flagged by somebody else's oversubscription. Both read as a warning about stock nobody is competing for. | `toProjectPartRows` takes the project's status and flags only while the claim is one others actually count: `draft` (prospective — "the stock this quote counts on is already spoken for" is what a salesman needs before starting) and `started`. The condition is deliberately the same status filter §4.2's `reserved` uses, so a row is warned about exactly when it is competing. Nothing else in the payload changes; greying a stopped project's sourcing columns is the table's business, from the status it already has. |
+
+| D9 | A frozen row's `qtyForProduct` multiplies the **frozen** `qty_per_unit` by the **live** `project_products.quantity`, so the snapshot is not self-contained. Nothing can change that today — PATCH and DELETE both refuse a non-draft project — but the guarantee is enforced in `routes/projects.ts` while the dependency lives in `services/projectBom.ts`. | Left as computed: §3.4's three levels define level 2 as exactly that product, and level 2 is deliberately not stored. Written down here as an invariant instead, because the failure is silent and misleading — change a started project's quantity from 2 to 3 and the row reports `requiredQty` 26 with `products` summing to 34, which §5.4 says means the *freeze* got it wrong. **Any story that lets a started project's product quantities move must freeze the quantity alongside the usage**, or drop the per-product breakdown for frozen rows. |
+| D10 | The draft-versus-frozen switch, and the status that decides the shortfall flag, sat in the route — the one place with no test in this repo. Inverted, a started project answers with recomputed rows carrying none of its purchasing progress: plausible-looking output, silently wrong, and every check still green. | `loadProjectPartsPayload(db, projectId, status)` in the service returns the whole `{ draft, rows }` payload, and the route is a status lookup plus that call. The decision now sits in the file whose stated job is knowing both forms, and the test covers it directly. |
+
+**A draft is recomputed on every fetch, and that is affordable.** Measured
+against a deliberately oversized project — 4 products x 25 sub-products,
+6 000 usage rows, 800 distinct parts over 3 000 stock entries — the flatten
+runs in ~9 ms and the stock read in ~10 ms, with the whole call under ~70 ms
+warm; a real project is a fraction of that. Nothing here is cached
+server-side, deliberately: `availableQty` / `reservedQty` are live stock,
+which is the number the page exists to answer and which any receipt or
+project start elsewhere invalidates at once, and a draft's BOM itself moves
+whenever its product set or a pinned *draft* sub-product revision is edited.
+The frontend caches per selected project instead (§6.3), which is where the
+repeated-selection cost actually lives. If anything ever needs attention it
+is the payload — 800 rows serialise to ~650 KB — and the answer to that is
+trimming what a row carries, not caching a stale one.
+
+`backend/src/services/projectBom.test.ts` (`npm run test:projectBom`) is the
+acceptance check, committed for the reason C1 gives. Its fixture is §3.4's
+worked example verbatim — the same two products, three sub-products and shared
+screw — so the 26 the aggregation produces is checked against the number the
+plan works out by hand, over both forms of the BOM, plus the collapse to
+distinct products, the stock seeding, the shortfall flag, and the round-trip
+counts that keep either reader from going per part. It also covers §3.4's
+same-product-at-two-revisions case, because that is what forces the Products
+cell to be keyed per `project_products` line rather than per product — key it
+per product and the two chips silently merge, taking one revision's quantity
+with them. It also asserts that the quantities arrive as JS
+numbers rather than NUMERIC strings, which is the observable difference §11.11
+bought and the thing a column quietly reverting to `NUMERIC` would break. And it covers stopping end to end: a started
+project's outstanding claim is counted against every other project, the stop
+is a status flip that writes no stock row, and the next read of any other
+project sees the freed quantity while `available` never moved — the whole
+reason §4.2 has no reservations table to release.
+
+### 11.11 Ninth pass — quantities are whole parts (migration 025)
+
+Raised by reading the code back: the service was rounding its arithmetic to
+three decimals, and the fixture that defended that rounding had to invent a
+fractional BOM line to do it. The question that followed — why is a quantity a
+float at all — has one answer, and it is not the one the schema gave.
+
+**The application has always insisted on whole parts; only the columns
+disagreed.** A BOM line was rounded on write (`schemas/parts.schema.ts`), the
+three inputs that edit one truncate (`PartsPicker`, `AddPartsModal`,
+`PartsEditorPanel`, all via `utils/numberInput.ts`), every read of it cast
+`::integer`, and stock entries and removals are `z.number().int()`. Against
+that, `NUMERIC(12,3)` bought nothing but arithmetic that needed rounding and
+values that reached node as strings. Migration 025 makes the columns say what
+the code already meant:
+
+| | |
+|---|---|
+| `project_parts` — all six quantity columns | → `INTEGER` |
+| `project_part_usages.qty_per_unit`, `order_lines.quantity` / `received_qty` | → `INTEGER` |
+| `sub_product_revision_parts.quantity` | → `INTEGER` — `required_qty` is computed from it, so a fraction there would defeat the rest |
+| `stock_entries.quantity` / `quantity_consumed` | keeps `NUMERIC(10,3)`, gains a whole-number CHECK — available stock seeds `from_stock_qty`, but changing that type would change how stock reaches the browser, which is the stock module's call, not this one's |
+
+Three things that came out of doing it:
+
+- **An `INTEGER` column rounds 1.5; it does not refuse it.** So the type is
+  not the guarantee — the boundary is. `parts.schema.ts` now validates with
+  `z.number().int().positive()` instead of `Math.round`, turning a fractional
+  BOM line into a clean 422 rather than a silently doubled quantity. Every
+  future endpoint taking a quantity owes the same (story 8, story 15).
+- **The projects tables had no writer yet**, so the conversion moved no data.
+  The two feeder columns do hold production data, which is why the migration
+  header carries the two queries to run against production first: on
+  fractional data it fails, and that is the right outcome.
+- **`services/projectBom.ts` lost its rounding helper and its
+  `Number(...)` conversions**, and the five `::integer` casts in the products
+  module went with them — all of them were compensating for a column type that
+  no longer exists.
+
+**The frontend carried the same hedge, and lost it too.** `RevisionPart
+.quantity` was `number | string` — the shape a NUMERIC column arrives in —
+along with `BomExportRow.quantity` and `AlternativesPanel`'s quantity prop, and
+three `Number(...)` coercions existed only to undo it. All are plain `number`
+now. `pricePerPiece` deliberately keeps its union: money is still NUMERIC and
+does reach the client as a string. The projects module's own types were already
+`number`, because `project_products.quantity` was `INTEGER` from the start —
+which is the shape the Parts table's rows (story 9) inherit.
+
+**Three things the review of this pass caught, all of them in how the change
+lands rather than in what it changes.**
+
+- **`ALTER COLUMN ... TYPE INTEGER USING x::integer` rounds; it does not
+  refuse.** Verified: 1.5 becomes 2, 2.4 becomes 2. On a production BOM line
+  that is a silent rewrite with no record of itself, and the migration's first
+  draft claimed the opposite in its own header. Each conversion is now fronted
+  by a temporary `CHECK (x = round(x))` that is validated against every
+  existing row, fails by name if one is fractional, and is dropped once the
+  type carries the rule. On a database holding a 1.5 the migration now aborts
+  and the 1.5 is still 1.5 afterwards.
+- **Schema first, then code — and `deploy-ssh.sh` had it backwards.** It ran
+  `compose up -d` and migrated afterwards. Narrowing a column is only safe in
+  that direction if the new code can read the old schema, and it cannot:
+  `NUMERIC` reaches node as a string, `collapseToProducts` concatenates
+  instead of adding ("2.0002.000"), and `stockShortfall` silently reads false.
+  Running the current service against a pre-025 schema fails nine of its
+  checks. The script now brings the database up, migrates, and only then
+  recreates backend and frontend — stopping the deploy, with the old
+  containers still serving, if a migration fails. DEPLOY.md says the same for
+  the manual path.
+- **The BOM line schema enforces whole, not positive.** Tightening it to
+  `.positive()` looked like an improvement and was a regression: the parts
+  editor re-sends a revision's entire part set on every change, so one legacy
+  `quantity = 0` row (§11.5 says they may exist) would have made that whole
+  revision unsavable. `z.number().int()` it is; `required_qty > 0` at the
+  freeze is where a non-positive quantity is refused, and the three inputs
+  that can create one all require >= 1 — `PartsPicker` included, which until
+  now had `min="0"` and validated only that the field was filled in.
+
+`database/tests/025-integer-project-quantities.test.sql` asserts the column
+types (not a refusal, per the rounding note above) and that the stock CHECK
+refuses 1.5 and accepts 10; it seeds its own category, company and part rather
+than borrowing whatever the database holds, so it cannot quietly skip.

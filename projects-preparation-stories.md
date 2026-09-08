@@ -335,6 +335,12 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 > `missing_qty` below `ordered_qty`, and return both the rows changed and the
 > rows skipped so the UI can explain itself.
 >
+> Both quantities are **whole parts** (§3.3, §11.11): validate them with
+> `z.number().int()`, not a plain number. The columns are `INTEGER`, and an
+> `INTEGER` column rounds a fraction rather than refusing it — this endpoint is
+> the first one after migration 025 through which a fractional quantity could
+> otherwise enter the system.
+>
 > Log missing-quantity overrides through the audit service — that is the field
 > a purchasing dispute will be about.
 >
@@ -369,8 +375,17 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 > quantities are indicative" notice (§6.3). Nothing is selected → the table is
 > hidden.
 >
+> **Invalidate the cached rows on every write that moves them** (§6.3), using
+> `useScopedCache`'s `invalidateAndRefresh` / `dropCacheKey`: after editing the
+> project (PATCH replaces the whole product set, so a draft's parts change),
+> after **Start** (the rows go from computed to frozen and their `id` goes from
+> null to a number), and after a Missing-quantity edit or **Recalculate from
+> stock** (story 8). A draft's rows are recomputed server-side on every fetch,
+> so nothing else refreshes them.
+>
 > Acceptance: the Projects page works end to end as specified, for drafts and
-> started projects alike.
+> started projects alike; starting the selected project leaves no stale
+> computed rows on screen.
 
 ---
 
@@ -522,6 +537,10 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 > Repo: Levtech (PRODTRACK). Read `projects-preparation-plan.md` §3.6, §5.2
 > (`POST /api/projects/:id/orders`) and §6.5 (the Order Parts bullet). Follow
 > `CLAUDE.md`.
+>
+> Order quantities are **whole parts** (§3.3, §11.11) — validate with
+> `z.number().int().positive()`, since the `INTEGER` column would round a
+> fraction rather than refuse it.
 >
 > Implement `POST /api/projects/:id/orders`: group the submitted lines by
 > company, create one `orders` row per company — so one click can place three
