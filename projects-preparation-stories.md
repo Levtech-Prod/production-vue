@@ -369,8 +369,17 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 > quantities are indicative" notice (§6.3). Nothing is selected → the table is
 > hidden.
 >
+> **Invalidate the cached rows on every write that moves them** (§6.3), using
+> `useScopedCache`'s `invalidateAndRefresh` / `dropCacheKey`: after editing the
+> project (PATCH replaces the whole product set, so a draft's parts change),
+> after **Start** (the rows go from computed to frozen and their `id` goes from
+> null to a number), and after a Missing-quantity edit or **Recalculate from
+> stock** (story 8). A draft's rows are recomputed server-side on every fetch,
+> so nothing else refreshes them.
+>
 > Acceptance: the Projects page works end to end as specified, for drafts and
-> started projects alike.
+> started projects alike; starting the selected project leaves no stale
+> computed rows on screen.
 
 ---
 

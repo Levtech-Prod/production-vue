@@ -262,7 +262,7 @@ async function main() {
     await seed(client);
 
     // --- draft: computed live from the pinned revisions ---------------------
-    const draftRows = toProjectPartRows(await computeProjectBom(client, PROJECT_DRAFT));
+    const draftRows = toProjectPartRows(await computeProjectBom(client, PROJECT_DRAFT), 'draft');
 
     check(
       'draft: one row per distinct part, ordered by name',
@@ -322,7 +322,7 @@ async function main() {
     );
     check('draft: ample stock covers it entirely', [cap.fromStockQty, cap.missingQty], [6, 0]);
 
-    const emptyRows = toProjectPartRows(await computeProjectBom(client, PROJECT_EMPTY));
+    const emptyRows = toProjectPartRows(await computeProjectBom(client, PROJECT_EMPTY), 'draft');
     check('draft with no products: no rows, no error', emptyRows, []);
 
     // §3.4's edge case: the same product pinned at two revisions. The chips
@@ -330,6 +330,7 @@ async function main() {
     // collapse into one and their quantities would be lost.
     const twoRevisionRows = toProjectPartRows(
       await computeProjectBom(client, PROJECT_TWO_REVISIONS),
+      'draft',
     );
     const twoRevisionScrew = rowFor(twoRevisionRows, PART_SCREW);
     check(
@@ -344,7 +345,7 @@ async function main() {
 
     // --- started: read back from the frozen tables --------------------------
     await seedFrozen(client);
-    const frozenRows = toProjectPartRows(await loadFrozenProjectBom(client, PROJECT_STARTED));
+    const frozenRows = toProjectPartRows(await loadFrozenProjectBom(client, PROJECT_STARTED), 'started');
 
     check(
       'frozen: same parts, same order',
@@ -405,6 +406,40 @@ async function main() {
       Object.keys(frozenScrew.products[0]).sort(),
       Object.keys(screw.products[0]).sort(),
     );
+
+    // --- stopping: a status flip, and nothing else ------------------------
+    const beforeStop = rowFor(
+      toProjectPartRows(await computeProjectBom(client, PROJECT_DRAFT), 'draft'),
+      PART_SCREW,
+    );
+    check(
+      'a started claim is counted against every other project',
+      [beforeStop.availableQty, beforeStop.reservedQty],
+      [10, 15], // 4 from the other project + 6 + 8 - 3 outstanding from this one
+    );
+
+    await client.query(`UPDATE projects SET status = 'stopped' WHERE id = $1`, [PROJECT_STARTED]);
+
+    const afterStop = rowFor(
+      toProjectPartRows(await computeProjectBom(client, PROJECT_DRAFT), 'draft'),
+      PART_SCREW,
+    );
+    check(
+      'stopping releases the claim and writes no stock',
+      [afterStop.availableQty, afterStop.reservedQty],
+      [10, 4],
+    );
+
+    const stoppedScrew = rowFor(
+      toProjectPartRows(await loadFrozenProjectBom(client, PROJECT_STARTED), 'stopped'),
+      PART_SCREW,
+    );
+    check(
+      'a stopped project keeps the quantities it froze',
+      [stoppedScrew.requiredQty, stoppedScrew.fromStockQty, stoppedScrew.toPickQty],
+      [26, 6, 11],
+    );
+    check('a stopped project no longer flags a shortfall', stoppedScrew.stockShortfall, false);
 
     // Neither reader may go per-part: one flatten plus one stock read for a
     // draft, one part read plus one usage read plus one stock read frozen.

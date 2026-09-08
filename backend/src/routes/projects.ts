@@ -12,6 +12,7 @@ import {
   projectPayloadSchema,
   projectListQuerySchema,
   type ProjectProductInput,
+  type ProjectStatus,
 } from '../schemas/projects.schema.js';
 import {
   logAudit,
@@ -376,7 +377,7 @@ router.get('/:id/parts', requireAuth, async (req, res) => {
   const projectId = parseId(req.params.id);
   if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
 
-  const projectResult = await query<{ status: string }>(
+  const projectResult = await query<{ status: ProjectStatus }>(
     `SELECT status FROM projects WHERE id = $1`,
     [projectId],
   );
@@ -388,7 +389,7 @@ router.get('/:id/parts', requireAuth, async (req, res) => {
     ? await computeProjectBom(pool, projectId)
     : await loadFrozenProjectBom(pool, projectId);
 
-  res.json({ draft, rows: toProjectPartRows(bom) });
+  res.json({ draft, rows: toProjectPartRows(bom, project.status) });
 });
 
 // PATCH /api/projects/:id — replace fields and the whole product set.

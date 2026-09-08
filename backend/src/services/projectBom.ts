@@ -32,6 +32,7 @@
 // revision, not what does this job need).
 // ===========================================================================
 import type { Queryable } from '../db.js';
+import type { ProjectStatus } from '../schemas/projects.schema.js';
 import { getPartStock, type PartStock } from './projectStock.js';
 
 /** One place a part is actually used: a (product-in-the-project, sub-product
@@ -389,7 +390,18 @@ function collapseToProducts(usages: ProjectBomUsage[]): ProjectPartRow['products
  * derived quantities are computed here rather than in the browser so the
  * table and the board cannot come to disagree about what a row still owes.
  */
-export function toProjectPartRows(parts: ProjectBomPart[]): ProjectPartRow[] {
+export function toProjectPartRows(
+  parts: ProjectBomPart[],
+  status: ProjectStatus,
+): ProjectPartRow[] {
+  // Stopping releases a project's claim by dropping it out of §4.2's
+  // `reserved` — the status filter is the whole mechanism, no stock is
+  // written — so a stopped or completed project's sourcing numbers are a
+  // record of what it once claimed, and warning that stock is short for a
+  // claim nobody counts any more would be warning about nothing. A draft's
+  // claim is prospective and still flags: "the stock this quote counts on is
+  // already spoken for" is exactly what a salesman needs before starting.
+  const claimIsCounted = status === 'draft' || status === 'started';
   return parts.map((row) => {
     // What this project itself still has an outstanding claim on — the same
     // expression §4.2 sums over OTHER started projects to get `reserved`, so
@@ -411,7 +423,7 @@ export function toProjectPartRows(parts: ProjectBomPart[]): ProjectPartRow[] {
       toBuyQty: qty(row.missingQty - row.orderedQty),
       onOrderQty: qty(row.orderedQty - row.receivedQty),
       toPickQty,
-      stockShortfall: row.stock.available < row.stock.reserved + toPickQty,
+      stockShortfall: claimIsCounted && row.stock.available < row.stock.reserved + toPickQty,
     };
   });
 }

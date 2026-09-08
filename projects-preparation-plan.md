@@ -912,7 +912,11 @@ frontend/src/composables/useTableSort.ts            new, shared by the two new t
 - The Parts table fetch goes through **`useScopedCache`** keyed on the selected
   project id — that composable exists precisely for "fetch per scope, cache per
   scope, never let a slow response overwrite a newer selection", and the
-  product detail page already proves the pattern.
+  product detail page already proves the pattern. Because it caches per project, the
+  entry must be dropped on every write that moves the rows — editing the
+  project, Start, a Missing-quantity edit, Recalculate from stock — or the
+  table keeps showing the BOM from before. There is no server-side cache to
+  fall back on: a draft is recomputed per request on purpose (§11.10).
 - A **draft** project shows the same table, computed live (§5.3), read-only,
   under a "not started — quantities are indicative" note. Selecting a draft and
   seeing what it will cost to buy is the whole point of the page before Start.
@@ -1519,6 +1523,22 @@ open, the rest is how the two forms of the BOM were kept from drifting.
 | D6 | The frozen read is three statements (parts, usages, stock) and so is not the single snapshot §11.8 (C3) went to some trouble to give `getPartStock`. | Accepted, deliberately. C3's fix was free — one statement instead of two composing the same predicates — and it guarded a number the *freeze* writes. This endpoint only displays, over quantities §4.2 already says go stale, and buying a snapshot here would mean a `REPEATABLE READ` transaction around a read-only request. Worth knowing, not worth the machinery. |
 | D7 | A BOM line with `quantity <= 0` is still representable (§11.5), and a draft would show it. | `required_qty` is returned exactly as computed — the CHECK is what refuses the project at Start, and rounding it up here would hide the reason — while the seeded `from_stock_qty` / `missing_qty` are clamped at zero so the sourcing columns never read as a negative claim. |
 
+| D8 | The shortfall flag fired on a **stopped** project, over a claim stopping had already released — and on a **completed** one, whose rows can only be flagged by somebody else's oversubscription. Both read as a warning about stock nobody is competing for. | `toProjectPartRows` takes the project's status and flags only while the claim is one others actually count: `draft` (prospective — "the stock this quote counts on is already spoken for" is what a salesman needs before starting) and `started`. The condition is deliberately the same status filter §4.2's `reserved` uses, so a row is warned about exactly when it is competing. Nothing else in the payload changes; greying a stopped project's sourcing columns is the table's business, from the status it already has. |
+
+**A draft is recomputed on every fetch, and that is affordable.** Measured
+against a deliberately oversized project — 4 products x 25 sub-products,
+6 000 usage rows, 800 distinct parts over 3 000 stock entries — the flatten
+runs in ~9 ms and the stock read in ~10 ms, with the whole call under ~70 ms
+warm; a real project is a fraction of that. Nothing here is cached
+server-side, deliberately: `availableQty` / `reservedQty` are live stock,
+which is the number the page exists to answer and which any receipt or
+project start elsewhere invalidates at once, and a draft's BOM itself moves
+whenever its product set or a pinned *draft* sub-product revision is edited.
+The frontend caches per selected project instead (§6.3), which is where the
+repeated-selection cost actually lives. If anything ever needs attention it
+is the payload — 800 rows serialise to ~650 KB — and the answer to that is
+trimming what a row carries, not caching a stale one.
+
 `backend/src/services/projectBom.test.ts` (`npm run test:projectBom`) is the
 acceptance check, committed for the reason C1 gives. Its fixture is §3.4's
 worked example verbatim — the same two products, three sub-products and shared
@@ -1529,4 +1549,8 @@ counts that keep either reader from going per part. It also covers §3.4's
 same-product-at-two-revisions case, because that is what forces the Products
 cell to be keyed per `project_products` line rather than per product — key it
 per product and the two chips silently merge, taking one revision's quantity
-with them.
+with them. And it covers stopping end to end: a started
+project's outstanding claim is counted against every other project, the stop
+is a status flip that writes no stock row, and the next read of any other
+project sees the freed quantity while `available` never moved — the whole
+reason §4.2 has no reservations table to release.
