@@ -749,7 +749,10 @@ refused with `PROJECT_HAS_NO_PARTS` rather than started empty.
 
 ```ts
 interface ProjectPartRow {
-  id: number;                 // project_parts.id
+  id: number | null;          // project_parts.id; null while the project is a
+                              // draft and the row is computed, not stored.
+                              // Rows are keyed on `part.id`, which both forms
+                              // have (§11.10).
   part: { id: number; name: string; code: string; image: string | null;
           categoryId: number; categoryName: string };
   // The part's usage rows collapsed to distinct products: a single entry for
@@ -1499,3 +1502,31 @@ is guaranteed and how durably it is checked.
   endpoints arrive in step 8. `useConfirmDelete` is therefore wired for Delete
   only — the Stop confirmation would be unreachable code today. It uses the
   same composable, unchanged, when step 8 enables the button (§11.4).
+
+### 11.10 Eighth pass — building `services/projectBom.ts` and `GET /:id/parts` (step 7)
+
+Found by building the computation and its test against seeded data. Nothing
+here changes what §3.4 computes; the first two are contract details §5.4 left
+open, the rest is how the two forms of the BOM were kept from drifting.
+
+| # | Problem | Now |
+|---|---|---|
+| D1 | §5.4 types the row's `id` as `number`, but a **draft**'s rows are computed and have no `project_parts.id` to put there. Inventing one (the part id, or 0) would put two different id spaces in one field, and the first `PATCH /:id/parts/:projectPartId` built from it would address the wrong row. | `id: number \| null`, null exactly when `draft: true`. It is not a second payload shape: the keys are identical, and a null `id` is the same kind of statement as the progress buckets being zero. Rows are keyed on `part.id`, which both forms carry and `UNIQUE (project_id, part_id)` keeps unique per project. |
+| D2 | Two different expressions for the same flag. §4.2 says the table flags `available < reserved + (from_stock_qty - prepared_qty)`; §5.4 says "available < reserved + this project's own outstanding claim". They differ by `received_qty`, and §4.2's own definition of `reserved` — `from_stock_qty + received_qty - prepared_qty` over *other* started projects — settles which is meant: goods received against this project are sitting in stock with its name on them, exactly as they are for everybody else's. | `stockShortfall` is `availableQty < reservedQty + toPickQty`, so the row is compared with other projects on identical terms. §4.2's shorter expression reads as shorthand from before `received_qty` counted toward the pick. |
+| D3 | "One payload shape either way" is a promise two independently written branches would eventually break — the draft path and the frozen path each build the same rows from a different source. | Both readers (`computeProjectBom`, `loadFrozenProjectBom`) answer with one intermediate shape, and a single mapper (`toProjectPartRows`) produces the payload from either. The collapse of usages to distinct products and the three derived quantities are therefore written once, not once per branch, and the test asserts the two forms agree key for key. |
+| D4 | §5.4 says `qtyForProduct` "is computed in the query". Doing that would mean writing the level-2 aggregation twice — once in the draft flatten, once in the frozen read — which is the same decision in two places and the way the two would come to disagree. | Level 2 is computed once in TypeScript, in the shared mapper. Every derived quantity is rounded back to the `NUMERIC(12,3)` scale the columns store, because JS sums of those values pick up binary-float dust (`0.1 + 0.2`) that the database would never show. |
+| D5 | §3.4's `usage` CTE is written for the insert-from-select the freeze will run. Read-only, it needs no CTE at all. | `computeProjectBom` is the same joins as a plain `SELECT`, with the display columns (part, category, SKU, revision label) joined on, aggregated per part in memory. Two round trips: the flatten, then §4.2's stock read for every part id at once. |
+| D6 | The frozen read is three statements (parts, usages, stock) and so is not the single snapshot §11.8 (C3) went to some trouble to give `getPartStock`. | Accepted, deliberately. C3's fix was free — one statement instead of two composing the same predicates — and it guarded a number the *freeze* writes. This endpoint only displays, over quantities §4.2 already says go stale, and buying a snapshot here would mean a `REPEATABLE READ` transaction around a read-only request. Worth knowing, not worth the machinery. |
+| D7 | A BOM line with `quantity <= 0` is still representable (§11.5), and a draft would show it. | `required_qty` is returned exactly as computed — the CHECK is what refuses the project at Start, and rounding it up here would hide the reason — while the seeded `from_stock_qty` / `missing_qty` are clamped at zero so the sourcing columns never read as a negative claim. |
+
+`backend/src/services/projectBom.test.ts` (`npm run test:projectBom`) is the
+acceptance check, committed for the reason C1 gives. Its fixture is §3.4's
+worked example verbatim — the same two products, three sub-products and shared
+screw — so the 26 the aggregation produces is checked against the number the
+plan works out by hand, over both forms of the BOM, plus the collapse to
+distinct products, the stock seeding, the shortfall flag, and the round-trip
+counts that keep either reader from going per part. It also covers §3.4's
+same-product-at-two-revisions case, because that is what forces the Products
+cell to be keyed per `project_products` line rather than per product — key it
+per product and the two chips silently merge, taking one revision's quantity
+with them.
