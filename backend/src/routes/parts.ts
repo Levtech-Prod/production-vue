@@ -450,6 +450,21 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const partId = requireId(req.params.id, ErrorCodes.INVALID_PART_ID);
 
   await withTransaction(async (client) => {
+    // `parts` is referenced without ON DELETE from a project's frozen BOM and
+    // from every sub-product BOM line, so the DELETE below would be refused as
+    // a 23503 that nothing maps. Both claims are read in one statement so the
+    // answer can name which one is holding the part. The constraints stay as
+    // the backstop for a claim created between this read and the delete.
+    const claims = await client.query<{ inProject: boolean; inBom: boolean }>(
+      `SELECT
+         EXISTS (SELECT 1 FROM project_parts WHERE part_id = $1)              AS "inProject",
+         EXISTS (SELECT 1 FROM sub_product_revision_parts WHERE part_id = $1) AS "inBom"`,
+      [partId],
+    );
+    const { inProject, inBom } = claims.rows[0];
+    if (inProject) throw new ApiError(409, ErrorCodes.PART_IN_USE_BY_PROJECT);
+    if (inBom) throw new ApiError(409, ErrorCodes.PART_IN_USE_BY_BOM);
+
     // Capture identifying fields for the audit snapshot before the row is gone.
     const deleteResult = await client.query<{ id: number; name: string; code: string }>(
       `DELETE FROM parts WHERE id = $1 RETURNING id, name, code`,

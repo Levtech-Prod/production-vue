@@ -761,6 +761,12 @@ const messages = {
         'The quantity to order cannot be lower than what has already been ordered.',
       PART_IN_USE_BY_PROJECT:
         'This part cannot be deleted because a project is using it.',
+      PART_IN_USE_BY_BOM:
+        'This part cannot be deleted because it is on a sub-product\'s parts list. Remove it there first.',
+      SUB_PRODUCT_IN_USE_BY_PROJECT:
+        'This sub-product cannot be deleted because a started project has frozen one of its revisions.',
+      REVISION_IN_USE_BY_PROJECT:
+        'This revision cannot be deleted because a project is using it.',
       OFFER_COMPANY_ALREADY_ADDED:
         'This company is already a column on the offer sheet.',
       OFFER_COMPANY_IN_USE:
@@ -877,7 +883,7 @@ const messages = {
       start_project_msg:
         'The parts list will be frozen and the stock it needs claimed. A started project can no longer be edited or deleted',
       stop_project_msg:
-        'Stopping releases the stock this project has claimed. Parts already ordered will still be delivered',
+        'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed, and parts already ordered will still be delivered',
     },
   },
   hu: {
@@ -1621,6 +1627,12 @@ const messages = {
         'A rendelendő mennyiség nem lehet kevesebb a már megrendeltnél.',
       PART_IN_USE_BY_PROJECT:
         'Az alkatrész nem törölhető, mert egy projekt használja.',
+      PART_IN_USE_BY_BOM:
+        'Az alkatrész nem törölhető, mert szerepel egy alkatrész-listán. Előbb onnan kell eltávolítani.',
+      SUB_PRODUCT_IN_USE_BY_PROJECT:
+        'Az alegység nem törölhető, mert egy elindított projekt rögzítette valamelyik revízióját.',
+      REVISION_IN_USE_BY_PROJECT:
+        'A revízió nem törölhető, mert egy projekt használja.',
       OFFER_COMPANY_ALREADY_ADDED:
         'Ez a cég már szerepel az ajánlati táblázatban.',
       OFFER_COMPANY_IN_USE:
@@ -1736,7 +1748,7 @@ const messages = {
       start_project_msg:
         'Az alkatrészlista rögzül, és a szükséges készlet lefoglalásra kerül. Az elindított projekt már nem szerkeszthető és nem törölhető',
       stop_project_msg:
-        'A leállítás felszabadítja a projekt által lefoglalt készletet. A már megrendelt alkatrészek ettől még megérkeznek',
+        'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet, a már megrendelt alkatrészek pedig ettől még megérkeznek',
     },
   },
 };

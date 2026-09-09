@@ -26,11 +26,14 @@ export const ErrorCodes = {
   PART_NOT_FOUND: 'PART_NOT_FOUND',
   // Category names its parts manually ('custom' mode) but no name was given.
   PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
-  // A project's frozen BOM still claims this part. `project_parts.part_id` has
-  // no ON DELETE, so the delete is blocked at the database too — this is the
-  // friendly version of that. Also raised for the sub-product whose cascade
-  // would take a claimed revision with it.
+  // Something still references the row, so the delete is blocked at the
+  // database (none of these FKs carries an ON DELETE). Each is checked before
+  // the DELETE runs, because a raw 23503 reaches the user as a bare 500 that
+  // names neither the obstacle nor a way past it.
   PART_IN_USE_BY_PROJECT: 'PART_IN_USE_BY_PROJECT',
+  PART_IN_USE_BY_BOM: 'PART_IN_USE_BY_BOM',
+  SUB_PRODUCT_IN_USE_BY_PROJECT: 'SUB_PRODUCT_IN_USE_BY_PROJECT',
+  REVISION_IN_USE_BY_PROJECT: 'REVISION_IN_USE_BY_PROJECT',
 
   // products
   PRODUCT_SKU_ALREADY_EXISTS: 'PRODUCT_SKU_ALREADY_EXISTS',

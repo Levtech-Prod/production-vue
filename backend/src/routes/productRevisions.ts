@@ -410,6 +410,18 @@ router.delete('/:revId', requireAuth, requireAdmin, async (req, res) => {
       throw new ApiError(409, ErrorCodes.REVISION_LAST_REMAINING);
     }
 
+    // A project pins the revision it builds (§3.2), and `project_products`
+    // references it without an ON DELETE — including from a draft, whose
+    // product set was chosen before anything was frozen.
+    const pinned = await client.query<{ pinned: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM project_products WHERE product_revision_id = $1) AS pinned`,
+      [revId],
+    );
+    if (pinned.rows[0].pinned) {
+      throw new ApiError(409, ErrorCodes.REVISION_IN_USE_BY_PROJECT);
+    }
+
     // Read the document rows' files before the cascade takes them away.
     const files = await client.query<{ storedFileId: number }>(
       `SELECT DISTINCT stored_file_id AS "storedFileId"

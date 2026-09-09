@@ -465,6 +465,21 @@ router.delete('/:spId', requireAuth, async (req, res) => {
   const subProduct = existing.rows[0];
   if (!subProduct) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_FOUND);
 
+  // Deleting a sub-product cascades to its revisions, and a revision a started
+  // project froze is the one thing that will not go: `project_part_usages`
+  // references it without an ON DELETE. Refused here, since the cascade would
+  // otherwise fail as a 23503 naming nothing.
+  const claimed = await query<{ claimed: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM project_part_usages ppu
+       JOIN sub_product_revisions spr ON spr.id = ppu.sub_product_revision_id
+       WHERE spr.sub_product_id = $1) AS claimed`,
+    [spId],
+  );
+  if (claimed.rows[0].claimed) {
+    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_IN_USE_BY_PROJECT);
+  }
+
   const parent =
     subProduct.productId === null ? null : await findFolderProduct(pool, subProduct.productId);
 
@@ -586,6 +601,17 @@ router.patch('/:spId/revisions/:revId', requireAuth, async (req, res) => {
 router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
   const spId = requireId(req.params.spId, ErrorCodes.INVALID_REVISION_ID);
   const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+
+  // A project that froze this revision's parts still points at it (§3.4).
+  const claimed = await query<{ claimed: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM project_part_usages WHERE sub_product_revision_id = $1) AS claimed`,
+    [revId],
+  );
+  if (claimed.rows[0].claimed) {
+    throw new ApiError(409, ErrorCodes.REVISION_IN_USE_BY_PROJECT);
+  }
+
   const result = await query(
     `DELETE FROM sub_product_revisions
      WHERE id = $1 AND sub_product_id = $2

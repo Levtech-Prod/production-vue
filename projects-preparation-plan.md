@@ -819,10 +819,18 @@ second request, and makes a wrong `requiredQty` visible rather than silent.
 `PROJECT_HAS_NO_PARTS`, `PRODUCT_REVISION_MISMATCH`, `PROJECT_PART_NOT_FOUND`,
 `OFFER_COMPANY_ALREADY_ADDED`, `OFFER_COMPANY_IN_USE`, `OFFER_PRICE_MISSING`,
 `ORDER_QUANTITY_EXCEEDS_MISSING`, `MISSING_QTY_BELOW_ORDERED`,
-`PROJECT_PARTS_NOT_FROZEN`, `ORDER_NOT_FOUND`, and — on the existing parts
-route, because `project_parts.part_id` now blocks the delete —
-`PART_IN_USE_BY_PROJECT`. Each with an
-`errors.<CODE>` entry in `frontend/src/i18n/index.ts`.
+`PROJECT_PARTS_NOT_FROZEN`, `ORDER_NOT_FOUND`, `PROJECT_BOM_QUANTITY_INVALID`
+(§11.12 E7), and — on the existing delete routes, because migration 023's four
+restricting FKs now block them — `PART_IN_USE_BY_PROJECT`,
+`SUB_PRODUCT_IN_USE_BY_PROJECT` and `REVISION_IN_USE_BY_PROJECT`, the last on
+both the product-revision and sub-product-revision routes. Each is checked with
+an `EXISTS` before its `DELETE` rather than mapped from the constraint
+afterwards: the FK reports a name, not a reason, and a 23503 nothing maps
+reaches the user as a bare 500. The constraints remain the backstop for a claim
+created between the check and the delete. `PART_IN_USE_BY_BOM` came with them —
+the same endpoint, the same unmappable 23503, and reachable long before
+projects existed. Each with an `errors.<CODE>` entry in
+`frontend/src/i18n/index.ts`.
 
 ### 5.6 Audit
 
