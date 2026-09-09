@@ -66,7 +66,7 @@ export const usePartCategoryStore = defineStore('partCategory', () => {
       return response.data;
     } catch (err) {
       console.error(err);
-      error.value = i18n.global.t('errors.CATEGORY_UPDATE_FAILED');
+      error.value = i18n.global.t('errors.save_part_category_failed');
       throw err;
     } finally {
       loading.value = false;

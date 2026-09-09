@@ -58,7 +58,9 @@
         :selected-id="selectedProjectId"
         @select="toggleSelection"
         @edit="openEdit"
+        @start="openStartTarget"
         @delete="openDeleteTarget"
+        @stop="openStopTarget"
       />
     </div>
 
@@ -78,6 +80,35 @@
       :loading="deleteBusy"
       @confirm="confirmDeleteProject"
       @cancel="cancelDeleteProject"
+    />
+
+    <!-- Start is confirmed like the two destructive actions because it is
+         just as final: it freezes the parts list, claims stock, and leaves a
+         project that can no longer be edited or deleted. Blue rather than red
+         because nothing is being destroyed — but it keeps ConfirmModal's
+         default Cancel focus, so the one keystroke that cannot be taken back
+         is never the one already under the user's finger. -->
+    <DeleteConfirmModal
+      :target="startTarget"
+      title-key="start_project"
+      message-key="confirmations.start_project_msg"
+      confirm-text-key="start_project"
+      variant="primary"
+      :label="(project) => project.name"
+      :loading="startBusy"
+      @confirm="confirmStartProject"
+      @cancel="cancelStartProject"
+    />
+
+    <DeleteConfirmModal
+      :target="stopTarget"
+      title-key="stop_project"
+      message-key="confirmations.stop_project_msg"
+      confirm-text-key="stop_project"
+      :label="(project) => project.name"
+      :loading="stopBusy"
+      @confirm="confirmStopProject"
+      @cancel="cancelStopProject"
     />
   </div>
 </template>
@@ -198,6 +229,19 @@ function toggleSelection(id: number) {
   selectedProjectId.value = selectedProjectId.value === id ? null : id;
 }
 
+// A selection the board no longer holds would dim every remaining card with
+// nothing lit. That happens whenever the status filter narrows, and now also
+// on Stop, which moves a project out of the default statuses — so the rule
+// lives on the board rather than in each action that can drop a card.
+watch(
+  () => store.board,
+  (board) => {
+    if (selectedProjectId.value != null && !board.some((p) => p.id === selectedProjectId.value)) {
+      selectedProjectId.value = null;
+    }
+  },
+);
+
 // ---- Create / edit ----------------------------------------------------------
 
 const modalOpen = ref(false);
@@ -244,7 +288,29 @@ async function onSaved(payload: ProjectPayload) {
   }
 }
 
-// ---- Delete -----------------------------------------------------------------
+// ---- Card actions -----------------------------------------------------------
+//
+// Delete, Start and Stop are one flow — confirm, call, toast, and leave the
+// modal open on failure so the user can retry — differing only in the call and
+// the two message keys. `useConfirmDelete` is reused unchanged for all three
+// (§11.4); what is shared here is the action wrapped around it.
+
+function confirmedCardAction(
+  run: (project: ProjectBoardCard) => Promise<void>,
+  successKey: string,
+  errorKey: string,
+) {
+  return useConfirmDelete<ProjectBoardCard>(async (project) => {
+    try {
+      await run(project);
+      notify.showToast(t(successKey), 'success');
+      return true;
+    } catch (err) {
+      notify.showToast(translateApiError(err, { t, te }, errorKey), 'error');
+      return false;
+    }
+  });
+}
 
 const {
   target: deleteTarget,
@@ -252,17 +318,44 @@ const {
   open: openDeleteTarget,
   confirm: confirmDeleteProject,
   cancel: cancelDeleteProject,
-} = useConfirmDelete<ProjectBoardCard>(async (project) => {
-  try {
-    await store.deleteProject(project.id);
-    if (selectedProjectId.value === project.id) selectedProjectId.value = null;
-    notify.showToast(t('success.delete_project'), 'success');
-    return true;
-  } catch (err) {
-    notify.showToast(translateApiError(err, { t, te }, 'errors.delete_project_failed'), 'error');
-    return false;
-  }
-});
+} = confirmedCardAction(
+  (project) => store.deleteProject(project.id),
+  'success.delete_project',
+  'errors.delete_project_failed',
+);
+
+// Both transitions move the project between derived columns, and that
+// membership is the server's to compute (§4.1) — so the board is refetched
+// rather than patched from the returned project.
+const {
+  target: startTarget,
+  busy: startBusy,
+  open: openStartTarget,
+  confirm: confirmStartProject,
+  cancel: cancelStartProject,
+} = confirmedCardAction(
+  async (project) => {
+    await store.startProject(project.id);
+    await loadBoard();
+  },
+  'success.start_project',
+  'errors.start_project_failed',
+);
+
+const {
+  target: stopTarget,
+  busy: stopBusy,
+  open: openStopTarget,
+  confirm: confirmStopProject,
+  cancel: cancelStopProject,
+} = confirmedCardAction(
+  async (project) => {
+    await store.stopProject(project.id);
+    await loadBoard();
+  },
+  'success.stop_project',
+  'errors.stop_project_failed',
+);
 
 onMounted(loadBoard);
 </script>

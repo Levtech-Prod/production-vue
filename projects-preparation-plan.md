@@ -149,7 +149,9 @@ CREATE TABLE IF NOT EXISTS project_parts (
   -- Total needed by the project: SUM(bom qty x project_products.quantity).
   -- PRECONDITION: `sub_product_revision_parts.quantity` carries no CHECK of
   -- its own, so zero and negative BOM lines are representable today. Any that
-  -- exist make the freeze fail here rather than be silently rounded up.
+  -- exist make the freeze fail rather than be silently rounded up — refused
+  -- by `freezeProjectBom` with `PROJECT_BOM_QUANTITY_INVALID` and the offending
+  -- part names, since reaching this CHECK would answer a bare 500 (§11.12 E7).
   required_qty   INTEGER NOT NULL CHECK (required_qty > 0),
   -- Claim on stock that already exists. Seeded to MIN(required_qty, free stock).
   from_stock_qty INTEGER NOT NULL DEFAULT 0 CHECK (from_stock_qty >= 0),
@@ -817,10 +819,18 @@ second request, and makes a wrong `requiredQty` visible rather than silent.
 `PROJECT_HAS_NO_PARTS`, `PRODUCT_REVISION_MISMATCH`, `PROJECT_PART_NOT_FOUND`,
 `OFFER_COMPANY_ALREADY_ADDED`, `OFFER_COMPANY_IN_USE`, `OFFER_PRICE_MISSING`,
 `ORDER_QUANTITY_EXCEEDS_MISSING`, `MISSING_QTY_BELOW_ORDERED`,
-`PROJECT_PARTS_NOT_FROZEN`, `ORDER_NOT_FOUND`, and — on the existing parts
-route, because `project_parts.part_id` now blocks the delete —
-`PART_IN_USE_BY_PROJECT`. Each with an
-`errors.<CODE>` entry in `frontend/src/i18n/index.ts`.
+`PROJECT_PARTS_NOT_FROZEN`, `ORDER_NOT_FOUND`, `PROJECT_BOM_QUANTITY_INVALID`
+(§11.12 E7), and — on the existing delete routes, because migration 023's four
+restricting FKs now block them — `PART_IN_USE_BY_PROJECT`,
+`SUB_PRODUCT_IN_USE_BY_PROJECT` and `REVISION_IN_USE_BY_PROJECT`, the last on
+both the product-revision and sub-product-revision routes. Each is checked with
+an `EXISTS` before its `DELETE` rather than mapped from the constraint
+afterwards: the FK reports a name, not a reason, and a 23503 nothing maps
+reaches the user as a bare 500. The constraints remain the backstop for a claim
+created between the check and the delete. `PART_IN_USE_BY_BOM` came with them —
+the same endpoint, the same unmappable 23503, and reachable long before
+projects existed. Each with an `errors.<CODE>` entry in
+`frontend/src/i18n/index.ts`.
 
 ### 5.6 Audit
 
@@ -1125,8 +1135,8 @@ dependency, not by size.
 
 ## 8. Open questions
 
-Items 2, 3 and 5 are settled (struck through, kept for the record). Two remain,
-both behaviour rather than structure, and neither blocks migration 023.
+All five are settled, struck through and kept for the record with the reasoning
+that produced each. None of them turned out to need a change to migration 023.
 
 1. ~~**Prepared column semantics.**~~ **Settled at step 6: all-lines-done, as
    the plan had it.** Decided while looking at real cards, and the board is
@@ -1149,13 +1159,23 @@ both behaviour rather than structure, and neither blocks migration 023.
    Preparation can build per-sub-product pick lists without re-reading
    revisions that may have moved (§3.4). Nothing in phases 1–2 reads
    `sub_product_revision_id`; it is written at freeze time and left alone.
-4. **Stopped project, open orders.** Stopping releases the project's stock
-   claims automatically (they drop out of the §4.2 aggregate), but parts
-   already ordered from a supplier are a commitment the app cannot undo. Three
-   possible behaviours: leave the orders alone and let the goods arrive into
-   stock; prompt "this project has 3 open orders — cancel them too?" and set
-   `orders.status = 'cancelled'` for the ones the user picks; or refuse to stop
-   until the orders are resolved. Answer before step 8.
+4. ~~**Stopped project, open orders.**~~ **Settled at step 8: leave the orders
+   alone.** Stopping already releases the stock claims — they drop out of the
+   §4.2 aggregate — and the open orders are exactly the part the app cannot
+   undo, which is the reason not to pretend otherwise. Cancelling a supplier
+   order is a phone call; writing `orders.status = 'cancelled'` would record an
+   outcome the app has no way to know, and the goods would arrive anyway
+   against a line that says they were cancelled. Refusing to stop is worse
+   still: it withholds the stock release at the one moment the job is off, and
+   a slow supplier would hold a dead project `started` for weeks.
+
+   So `POST /:id/stop` takes no body and carries no orders branch. The goods
+   arrive, land in stock through the normal receipt, and are unreserved,
+   because the project claiming them has already left the aggregate. What
+   story 15 adds is a *count* on the Stop confirmation — "3 open orders will
+   still be delivered" — so the user knows what they are leaving running, not
+   a branch in the endpoint. If cancelling ever needs recording, it belongs on
+   the order as its own action, not as a side effect of stopping a project.
 
 5. ~~**Who may do what.**~~ **Settled: every logged-in user.** The whole
    Projects Preparation module — project CRUD, Start, Stop, editing
@@ -1534,7 +1554,7 @@ open, the rest is how the two forms of the BOM were kept from drifting.
 | D4 | §5.4 says `qtyForProduct` "is computed in the query". Doing that would mean writing the level-2 aggregation twice — once in the draft flatten, once in the frozen read — which is the same decision in two places and the way the two would come to disagree. | Level 2 is computed once in TypeScript, in the shared mapper. Exactly, with no rounding: every quantity is a whole number (§11.11), and JS holds integers to 2^53 without loss. |
 | D5 | §3.4's `usage` CTE is written for the insert-from-select the freeze will run. Read-only, it needs no CTE at all. | `computeProjectBom` is the same joins as a plain `SELECT`, with the display columns (part, category, SKU, revision label) joined on, aggregated per part in memory. Two round trips: the flatten, then §4.2's stock read for every part id at once. |
 | D6 | The frozen read is three statements (parts, usages, stock) and so is not the single snapshot §11.8 (C3) went to some trouble to give `getPartStock`. | Accepted, deliberately. C3's fix was free — one statement instead of two composing the same predicates — and it guarded a number the *freeze* writes. This endpoint only displays, over quantities §4.2 already says go stale, and buying a snapshot here would mean a `REPEATABLE READ` transaction around a read-only request. Worth knowing, not worth the machinery. |
-| D7 | A BOM line with `quantity <= 0` is still representable (§11.5), and a draft would show it. | `required_qty` is returned exactly as computed — the CHECK is what refuses the project at Start, and rounding it up here would hide the reason — while the seeded `from_stock_qty` / `missing_qty` are clamped at zero so the sourcing columns never read as a negative claim. |
+| D7 | A BOM line with `quantity <= 0` is still representable (§11.5), and a draft would show it. | `required_qty` is returned exactly as computed — rounding it up would hide the reason — while the seeded `from_stock_qty` / `missing_qty` are clamped at zero so the sourcing columns never read as a negative claim. Start refuses such a project explicitly (§11.12 E7); this reader only displays it. |
 
 | D8 | The shortfall flag fired on a **stopped** project, over a claim stopping had already released — and on a **completed** one, whose rows can only be flagged by somebody else's oversubscription. Both read as a warning about stock nobody is competing for. | `toProjectPartRows` takes the project's status and flags only while the claim is one others actually count: `draft` (prospective — "the stock this quote counts on is already spoken for" is what a salesman needs before starting) and `started`. The condition is deliberately the same status filter §4.2's `reserved` uses, so a row is warned about exactly when it is competing. Nothing else in the payload changes; greying a stopped project's sourcing columns is the table's business, from the status it already has. |
 
@@ -1572,6 +1592,33 @@ project's outstanding claim is counted against every other project, the stop
 is a status flip that writes no stock row, and the next read of any other
 project sees the freed quantity while `available` never moved — the whole
 reason §4.2 has no reservations table to release.
+
+### 11.12 Tenth pass — building Start and Stop (step 8)
+
+Found by building the freeze against the computation §11.10 had already
+settled. Nothing here changes what is stored; it is where the two endpoints
+differ from what §5.3 literally describes, and why.
+
+| # | Problem | Now |
+|---|---|---|
+| E1 | §3.4 writes the freeze as one insert-from-select, and §5.3 says to re-run `computeProjectBom` inside the transaction. Doing both would be the §3.4 aggregation written twice — the exact drift §11.10 (D3, D4) spent the previous pass eliminating between the two *readers*. | `freezeProjectBom` computes with `computeProjectBom` and writes what it returns: two bulk `unnest` inserts, no per-part loop and no second copy of the join. §3.4's SQL stays in the plan as the statement of what the aggregation *is*. The usage rows need the ids the first insert assigns, so the two statements could not have been one anyway. `RETURNING` promises no ordering, so they are matched back by part id, not by position. |
+| E2 | Two error codes could cover the refusal: `PROJECT_HAS_NO_PRODUCTS` for an empty product set, `PROJECT_HAS_NO_PARTS` for revisions that yield nothing. | One test covers both, as §5.3 says: a project with no products freezes no parts, so the row count `freezeProjectBom` returns is the whole check and the code is always `PROJECT_HAS_NO_PARTS`. 409, not the 422 the create/update path uses for the same-sounding condition — there is no request body here to be invalid, only a project that cannot be started as it stands. |
+| E3 | "Starting twice is refused" needs a code for every non-draft status, and there is no `PROJECT_NOT_DRAFT`. | `PROJECT_ALREADY_STARTED` for all of them, because it is true of all of them: `stopped` and `completed` are terminal (§3.1), so every status but `draft` means the project was started once already. A second code would say the same thing in different words. |
+| E4 | `freezeProjectBom` typed against `Queryable`, as every other function in the service is, would accept `pool` — and then the advisory lock is taken on one connection and released immediately, the two inserts run on others, and the freeze is silently unserialised. Exactly the failure §5.3.5 exists to prevent, reintroduced by a plausible call. | It takes a `PoolClient`. The transaction is not a convention the caller is asked to remember; it is the parameter type. |
+| E5 | Two locks in one transaction: the project row (`FOR UPDATE`, so a concurrent PATCH or a second Start cannot race the status check) and the global advisory lock. Taken in the wrong order by some future caller, that is a deadlock. | Row first, advisory second, and nothing else in the codebase takes the advisory lock at all. A second Start of the *same* project therefore waits on its row and finds `started` when it gets there, rather than queueing behind every other project's freeze. |
+| E6 | Start is offered from a menu, is irreversible, and leaves a project that can no longer be edited or deleted — but story 5 only spoke of confirmations for the two destructive actions. | Confirmed like them. `DeleteConfirmModal` was widened with `confirmTextKey` and `variant` rather than copied, which is §11.4's stance on `useConfirmDelete` applied to the modal that pairs with it: the name still says delete, the behaviour is "confirm an action on a named target", and renaming both would touch working call sites for nothing. |
+
+| E7 | The freeze left a `required_qty <= 0` line to `project_parts`' CHECK, as §3.3 says to. But a CHECK violation is SQLSTATE 23514, which nothing maps: the user pressing Start got `500 REQUEST_FAILED`, the project stayed a draft, and the only way to learn which part was at fault was the server log. `sub_product_revision_parts.quantity` still carries no positivity CHECK, so such rows are representable in data predating the API validation — and migration 025's production pre-flight only audited for *fractional* quantities, never for `<= 0`, so nobody has established that none exist. | `freezeProjectBom` refuses first, with `PROJECT_BOM_QUANTITY_INVALID` and the offending parts named in the payload, which the message interpolates. The CHECK stays as the backstop it was always meant to be rather than the messenger. The same pass moved `PROJECT_HAS_NO_PARTS` into the service beside it: two refusals of the same kind, and a `0` return meaning "refused" was a magic value the route had to remember to read. |
+| E8 | `ConfirmModal` derived which button opens focused from `variant`, so choosing blue for Start — it destroys nothing — also handed it Enter-to-confirm. The one action that can never be undone was the only one whose dialog opened with the confirm button under the user's finger, while Delete correctly opened on Cancel. | `initialFocus` is its own prop, defaulting to `cancel`. Colour answers "how alarming is this?", focus answers "is it safe to fire on one keystroke?", and they are not the same question. The two dialogs that really are "confirm this save" opt in explicitly. |
+| E9 | `parseId`'s docstring promised it rejected `1e3`; `Number('1e3')` is 1000, a positive integer, so it never did — nor did it reject `' 5 '` or an id past `integer`'s ceiling, which reaches Postgres as a raw 22003. Harmless while two routes used it, load-bearing now that 55 do. | A digits-only test plus the column's ceiling, and the docstring says what it does. Found by the unit test written for it, which is the point of E10. |
+| E10 | The whole refactor was verified by reading and `tsc`. Neither can see SQL text, transaction semantics, or a parameter number — and two real defects surfaced only under independent review, after it had typechecked clean. | Four DB-free suites (`npm run test:unit`, 61 assertions, no `.env` needed) cover `withTransaction`'s commit/rollback/release lifecycle against a fake client, the pg predicates, `revisionUpdateAssignments`' parameter numbering for every patch permutation, `parseId`/`requireId`'s edges, and `changeSet`/`writeAudit`'s empty-changes rule. They caught E9 within a minute of first running. The DB-backed suites keep their own scripts; `src/testing/check.ts` is now the one assertion helper all six share. |
+
+The freeze's own acceptance check is that it changes no number: `projectBom.test.ts`
+freezes the draft it has already asserted in full and compares the rows read
+back from `project_parts` with the ones `computeProjectBom` produced, field for
+field, `id` excepted. That is the property Start exists to have — the salesman
+commits to the figures he was looking at — and it is one assertion rather than a
+restatement of §3.4's arithmetic in a second place.
 
 ### 11.11 Ninth pass — quantities are whole parts (migration 025)
 

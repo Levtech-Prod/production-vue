@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import type { PoolClient } from 'pg';
-import { query, pool } from '../db.js';
+import {
+  query,
+  pool,
+  withTransaction,
+  isUniqueViolation,
+  isForeignKeyViolation,
+} from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   createSubProductSchema,
@@ -11,10 +18,13 @@ import {
   createPartAlternativeSchema,
   setPartAlternativeInUseSchema,
 } from '../schemas/subProducts.schema.js';
-import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
 import {
-  logAudit,
-  resolveActor,
+  revisionUpdateSchema,
+  revisionUpdateAssignments,
+} from '../schemas/revisions.schema.js';
+import {
+  writeAudit,
+  changeSet,
   valuesEqual,
   type AuditEvent,
   type AuditScope,
@@ -24,8 +34,9 @@ import {
   removeEntityFolder,
   type Queryable,
 } from '../services/documentFiles.js';
-import { fileStagedImage, removeImageFile } from '../services/entityImages.js';
+import { fileEntityImage, removeImageFile } from '../services/entityImages.js';
 import type { FolderEntity } from '../services/uploadPaths.js';
+import { parseId, requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -39,6 +50,17 @@ async function findFolderProduct(
     [productId],
   );
   return result.rows[0] ?? null;
+}
+
+/** The owning product, or the 404 its absence means — a sub-product's folder
+ *  lives inside its product's, so nothing can be filed without it. */
+async function requireFolderProduct(
+  db: Queryable,
+  productId: number,
+): Promise<FolderEntity> {
+  const parent = await findFolderProduct(db, productId);
+  if (!parent) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
+  return parent;
 }
 
 // Compact descriptor of a BOM line's fields (quantity, unit, mount position,
@@ -56,6 +78,66 @@ function bomLineDetails(
   if (mountPosition) bits.push(`@ ${mountPosition}`);
   if (notes) bits.push(`"${notes}"`);
   return bits.join(' · ');
+}
+
+/** Where a sub-product-revision change happened, and whose log it belongs on.
+ *  `productId` is nullable: a sub-product with no product has no product log
+ *  to write to. */
+interface RevisionContext {
+  subProductName: string;
+  productId: number | null;
+  revLabel: string;
+}
+
+/** `subProductId` scopes the lookup to one sub-product, which is also how the
+ *  write endpoints check that the revision is the one the URL claims. */
+async function loadRevisionContext(
+  db: Queryable,
+  revId: number,
+  subProductId?: number,
+): Promise<RevisionContext | null> {
+  const result = await db.query<RevisionContext>(
+    `SELECT sp.name AS "subProductName", sp.product_id AS "productId",
+       spr.label AS "revLabel"
+     FROM sub_product_revisions spr
+     JOIN sub_products sp ON sp.id = spr.sub_product_id
+     WHERE spr.id = $1 AND ($2::int IS NULL OR spr.sub_product_id = $2)`,
+    [revId, subProductId ?? null],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** One part-alternative change on the owning product's log, located at the
+ *  sub-product and revision it happened in — the shape all three alternative
+ *  endpoints write, and the reason none of them spells the scope itself. */
+async function logAlternativeChange(
+  client: PoolClient,
+  context: RevisionContext,
+  event: Pick<AuditEvent, 'tag' | 'label' | 'from' | 'to'>,
+  userId: number | undefined,
+): Promise<void> {
+  if (!context.productId) return;
+  await writeAudit(client, 'product', context.productId, 'updated', {
+    events: [
+      {
+        type: 'part_alternative',
+        scope: [
+          { type: 'sub_product', label: context.subProductName },
+          { type: 'sub_product_revision', label: context.revLabel },
+        ],
+        ...event,
+      },
+    ],
+  }, userId);
+}
+
+/** Part names by id, for the audit labels that would otherwise say a number. */
+async function partNames(db: Queryable, ids: number[]): Promise<Map<number, string>> {
+  const result = await db.query<{ id: number; name: string }>(
+    `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
+    [ids.length ? ids : [0]],
+  );
+  return new Map(result.rows.map((r) => [r.id, r.name]));
 }
 
 // A BOM line as accepted from a request payload.
@@ -108,11 +190,9 @@ async function insertRevisionParts(
 // GET /api/sub-products/revisions/compare?a=&b= — parts diff between two sub-product revisions.
 // Registered before /:spId routes so the literal path takes precedence.
 router.get('/revisions/compare', requireAuth, async (req, res) => {
-  const a = Number(req.query.a);
-  const b = Number(req.query.b);
-  if (!a || !b || Number.isNaN(a) || Number.isNaN(b)) {
-    return res.status(400).json({ code: ErrorCodes.COMPARE_INVALID_PARAMS });
-  }
+  const a = parseId(req.query.a);
+  const b = parseId(req.query.b);
+  if (!a || !b) throw new ApiError(400, ErrorCodes.COMPARE_INVALID_PARAMS);
 
   const rowsResult = await query(
     `SELECT
@@ -253,166 +333,114 @@ router.get('/', requireAuth, async (_req, res) => {
 // POST /api/sub-products — create sub-product + auto-create revision 1
 router.post('/', requireAuth, async (req, res) => {
   const data = createSubProductSchema.parse(req.body);
-  const client = await pool.connect();
   let filedImage: string | null = null;
   try {
-    await client.query('BEGIN');
+    const created = await withTransaction(async (client) => {
+      const spResult = await client.query(
+        `INSERT INTO sub_products (product_id, name, sku, type, description, image)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, product_id AS "productId", name, sku, type, description, image,
+           created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [
+          data.productId,
+          data.name,
+          data.sku || null,
+          data.type,
+          data.description || null,
+          data.image || null,
+        ],
+      );
+      const subProduct = spResult.rows[0];
 
-    const spResult = await client.query(
-      `INSERT INTO sub_products (product_id, name, sku, type, description, image)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, product_id AS "productId", name, sku, type, description, image,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [
-        data.productId,
-        data.name,
-        data.sku || null,
-        data.type,
-        data.description || null,
-        data.image || null,
-      ],
-    );
-    const subProduct = spResult.rows[0];
+      // A sub-product's folder lives inside its product's, so the parent has to
+      // be resolved before the staged image can be filed.
+      const parent = await requireFolderProduct(client, data.productId);
+      filedImage = await fileEntityImage(client, 'sub_products', subProduct, parent);
 
-    // A sub-product's folder lives inside its product's, so the parent has to
-    // be resolved before the staged image can be filed.
-    const parent = await findFolderProduct(client, data.productId);
-    if (!parent) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
-    // Image is optional now — only a present value needs filing.
-    const placed: string | null = subProduct.image
-      ? fileStagedImage(subProduct.image, subProduct, parent)
-      : null;
-    if (placed === null && subProduct.image) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
-    }
-    if (placed !== subProduct.image) {
-      filedImage = placed;
-      await client.query(`UPDATE sub_products SET image = $1 WHERE id = $2`, [
-        placed,
-        subProduct.id,
-      ]);
-      subProduct.image = placed;
-    }
+      const revResult = await client.query(
+        `INSERT INTO sub_product_revisions (sub_product_id, revision_number, label, status)
+         VALUES ($1, 1, 'Rev. 1', 'draft')
+         RETURNING id, revision_number AS "revisionNumber", label, status`,
+        [subProduct.id],
+      );
+      const rev1 = revResult.rows[0];
 
-    const revResult = await client.query(
-      `INSERT INTO sub_product_revisions (sub_product_id, revision_number, label, status)
-       VALUES ($1, 1, 'Rev. 1', 'draft')
-       RETURNING id, revision_number AS "revisionNumber", label, status`,
-      [subProduct.id],
-    );
-    const rev1 = revResult.rows[0];
+      // Attach any parts chosen at creation time to Rev. 1.
+      await insertRevisionParts(client, rev1.id, data.parts);
 
-    // Attach any parts chosen at creation time to Rev. 1.
-    await insertRevisionParts(client, rev1.id, data.parts);
+      // Product-level log: a new sub-product was added (name only, by request).
+      await writeAudit(client, 'product', data.productId, 'updated', {
+        events: [{ type: 'sub_product', tag: 'added', label: subProduct.name }],
+      }, req.user?.id);
 
-    // Product-level log: a new sub-product was added (name only, by request).
-    const actor = await resolveActor(client, req.user?.id);
-    await logAudit(client, 'product', data.productId, 'updated', {
-      events: [{ type: 'sub_product', tag: 'added', label: subProduct.name }],
-    }, actor);
+      return { ...subProduct, revisions: [rev1] };
+    });
 
-    await client.query('COMMIT');
-    res.json({ ...subProduct, revisions: [rev1] });
-  } catch (err: any) {
-    await client.query('ROLLBACK');
+    res.json(created);
+  } catch (err) {
     removeImageFile(filedImage);
-    if (err?.code === '23505') {
-      return res
-        .status(409)
-        .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
+    if (isUniqueViolation(err)) {
+      throw new ApiError(409, ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS);
     }
     // `type` must reference an existing sub_product_types.name (see schema.sql).
-    if (err?.code === '23503') {
-      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
+    if (isForeignKeyViolation(err)) {
+      throw new ApiError(422, ErrorCodes.INVALID_SUB_PRODUCT_TYPE);
     }
     throw err;
-  } finally {
-    client.release();
   }
 });
 
 // PATCH /api/sub-products/:spId — update sub-product fields (admin only)
 router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
-  const spId = Number(req.params.spId);
-  if (!spId || Number.isNaN(spId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_SUB_PRODUCT_ID);
   const data = subProductPayloadSchema.parse(req.body);
-  const client = await pool.connect();
   let filedImage: string | null = null;
 
   try {
-    await client.query('BEGIN');
-    const result = await client.query(
-      `UPDATE sub_products
-       SET name = $1, sku = $2, type = $3, description = $4, image = $5,
-           updated_at = NOW()
-       FROM (SELECT image, product_id FROM sub_products WHERE id = $6) old
-       WHERE sub_products.id = $6
-       RETURNING sub_products.id, sub_products.name, sub_products.sku,
-         sub_products.type, sub_products.description, sub_products.image,
-         sub_products.created_at AS "createdAt",
-         sub_products.updated_at AS "updatedAt",
-         old.image      AS "oldImage",
-         old.product_id AS "productId"`,
-      [
-        data.name,
-        data.sku || null,
-        data.type,
-        data.description || null,
-        data.image || null,
-        spId,
-      ],
-    );
-    if (result.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
-    }
+    const updated = await withTransaction(async (client) => {
+      const result = await client.query(
+        `UPDATE sub_products
+         SET name = $1, sku = $2, type = $3, description = $4, image = $5,
+             updated_at = NOW()
+         FROM (SELECT image, product_id FROM sub_products WHERE id = $6) old
+         WHERE sub_products.id = $6
+         RETURNING sub_products.id, sub_products.name, sub_products.sku,
+           sub_products.type, sub_products.description, sub_products.image,
+           sub_products.created_at AS "createdAt",
+           sub_products.updated_at AS "updatedAt",
+           old.image      AS "oldImage",
+           old.product_id AS "productId"`,
+        [
+          data.name,
+          data.sku || null,
+          data.type,
+          data.description || null,
+          data.image || null,
+          spId,
+        ],
+      );
+      if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_FOUND);
 
-    const row = result.rows[0];
-    const parent = await findFolderProduct(client, row.productId);
-    if (!parent) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+      const row = result.rows[0];
+      const parent = await requireFolderProduct(client, row.productId);
+      filedImage = await fileEntityImage(client, 'sub_products', row, parent);
 
-    // Image is optional now — only a present value needs filing.
-    const placed: string | null = row.image
-      ? fileStagedImage(row.image, row, parent)
-      : null;
-    if (placed === null && row.image) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
-    }
-    if (placed !== row.image) {
-      filedImage = placed;
-      await client.query(`UPDATE sub_products SET image = $1 WHERE id = $2`, [
-        placed,
-        spId,
-      ]);
-      row.image = placed;
-    }
+      const { oldImage, productId: _pid, ...subProductOut } = row;
+      return { subProductOut, replaced: valuesEqual(oldImage, row.image) ? null : oldImage };
+    });
 
-    await client.query('COMMIT');
-    if (row.oldImage !== row.image) removeImageFile(row.oldImage);
-
-    const { oldImage: _oi, productId: _pid, ...subProductOut } = row;
-    res.json(subProductOut);
-  } catch (err: any) {
-    await client.query('ROLLBACK');
+    // Post-commit: an unlink cannot be rolled back, so the replaced file only
+    // goes once the new one is durably recorded.
+    removeImageFile(updated.replaced);
+    res.json(updated.subProductOut);
+  } catch (err) {
     removeImageFile(filedImage);
-    if (err?.code === '23505') {
-      return res
-        .status(409)
-        .json({ code: ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS });
+    if (isUniqueViolation(err)) {
+      throw new ApiError(409, ErrorCodes.SUB_PRODUCT_SKU_ALREADY_EXISTS);
     }
     // `type` must reference an existing sub_product_types.name (see schema.sql).
-    if (err?.code === '23503') {
-      return res.status(422).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_TYPE });
+    if (isForeignKeyViolation(err)) {
+      throw new ApiError(422, ErrorCodes.INVALID_SUB_PRODUCT_TYPE);
     }
     throw err;
   }
@@ -422,10 +450,7 @@ router.patch('/:spId', requireAuth, requireAdmin, async (req, res) => {
 // Cascades (see schema.sql FKs) remove its revisions, their parts,
 // documents, and any product-revision membership links.
 router.delete('/:spId', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  if (!spId || Number.isNaN(spId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_SUB_PRODUCT_ID);
   // Read the folder identity before the row is gone — afterwards there is
   // nothing left to derive the path from.
   const existing = await query<{
@@ -438,8 +463,21 @@ router.delete('/:spId', requireAuth, async (req, res) => {
     [spId],
   );
   const subProduct = existing.rows[0];
-  if (!subProduct) {
-    return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
+  if (!subProduct) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_FOUND);
+
+  // Deleting a sub-product cascades to its revisions, and a revision a started
+  // project froze is the one thing that will not go: `project_part_usages`
+  // references it without an ON DELETE. Refused here, since the cascade would
+  // otherwise fail as a 23503 naming nothing.
+  const claimed = await query<{ claimed: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM project_part_usages ppu
+       JOIN sub_product_revisions spr ON spr.id = ppu.sub_product_revision_id
+       WHERE spr.sub_product_id = $1) AS claimed`,
+    [spId],
+  );
+  if (claimed.rows[0].claimed) {
+    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_IN_USE_BY_PROJECT);
   }
 
   const parent =
@@ -449,9 +487,7 @@ router.delete('/:spId', requireAuth, async (req, res) => {
     `DELETE FROM sub_products WHERE id = $1 RETURNING id`,
     [spId],
   );
-  if (result.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
-  }
+  if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_FOUND);
 
   // Post-delete: the cascade has removed every row pointing into this folder,
   // so the whole thing goes. Previously these files were left behind on disk.
@@ -464,24 +500,15 @@ router.delete('/:spId', requireAuth, async (req, res) => {
 
 // POST /api/sub-products/:spId/revisions — new revision (parts + optional duplicate)
 router.post('/:spId/revisions', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  if (!spId || Number.isNaN(spId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_SUB_PRODUCT_ID);
   const data = newSubProductRevisionSchema.parse(req.body);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const newRevision = await withTransaction(async (client) => {
     const spExists = await client.query(
       `SELECT id FROM sub_products WHERE id = $1`,
       [spId],
     );
-    if (spExists.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.SUB_PRODUCT_NOT_FOUND });
-    }
+    if (spExists.rowCount === 0) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_FOUND);
 
     const newRevResult = await client.query(
       `INSERT INTO sub_product_revisions (sub_product_id, revision_number, label, status, change_notes)
@@ -495,7 +522,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
          change_notes AS "changeNotes", created_at AS "createdAt"`,
       [spId, data.label, data.changeNotes || null],
     );
-    const newRevision = newRevResult.rows[0];
+    const revision = newRevResult.rows[0];
 
     // Copy parts from a source revision when duplicating.
     if (data.duplicateFromId) {
@@ -505,7 +532,7 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
          SELECT $1, part_id, quantity, unit, notes, mount_position
          FROM sub_product_revision_parts
          WHERE sub_product_revision_id = $2`,
-        [newRevision.id, data.duplicateFromId],
+        [revision.id, data.duplicateFromId],
       );
 
       // Alternative-part links (see migration 021) are per-revision too —
@@ -517,13 +544,13 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
          SELECT $1, part_id, alternate_part_id, created_by
          FROM part_alternatives
          WHERE sub_product_revision_id = $2`,
-        [newRevision.id, data.duplicateFromId],
+        [revision.id, data.duplicateFromId],
       );
     }
 
     // Explicitly provided parts are inserted (and override duplicated ones
     // for the same part via upsert).
-    await insertRevisionParts(client, newRevision.id, data.parts);
+    await insertRevisionParts(client, revision.id, data.parts);
 
     // Carry-forward (document-system-plan.md §3.4): inherit the source
     // revision's documents — or, with no explicit source, the previous
@@ -533,112 +560,81 @@ router.post('/:spId/revisions', requireAuth, async (req, res) => {
       client,
       'subProduct',
       spId,
-      newRevision.id,
+      revision.id,
       data.duplicateFromId,
       data.documentsFromId,
     );
 
-    await client.query('COMMIT');
-    res.json(newRevision);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return revision;
+  });
+
+  res.json(newRevision);
 });
 
 // PATCH /api/sub-products/:spId/revisions/:revId — update label, status, change_notes
 router.patch('/:spId/revisions/:revId', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  const revId = Number(req.params.revId);
-  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_REVISION_ID);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const data = revisionUpdateSchema.parse(req.body);
 
-  const fields: string[] = [];
-  const values: unknown[] = [];
-  let i = 1;
-  if (data.label !== undefined) {
-    fields.push(`label = $${i++}`);
-    values.push(data.label);
-  }
-  if (data.status !== undefined) {
-    fields.push(`status = $${i++}`);
-    values.push(data.status);
-  }
-  if (data.changeNotes !== undefined) {
-    fields.push(`change_notes = $${i++}`);
-    values.push(data.changeNotes || null);
-  }
-  if (fields.length === 0) {
-    return res.status(400).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
+  const { assignments, values } = revisionUpdateAssignments(data);
+  if (assignments.length === 0) {
+    throw new ApiError(400, ErrorCodes.REVISION_UPDATE_FAILED);
   }
   values.push(spId, revId);
 
-  try {
-    const result = await query(
-      `UPDATE sub_product_revisions
-       SET ${fields.join(', ')}
-       WHERE sub_product_id = $${i} AND id = $${i + 1}
-       RETURNING id, sub_product_id AS "subProductId",
-         revision_number AS "revisionNumber", label, status,
-         change_notes AS "changeNotes", created_at AS "createdAt"`,
-      values,
-    );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
-  }
+  const result = await query(
+    `UPDATE sub_product_revisions
+     SET ${assignments.join(', ')}
+     WHERE sub_product_id = $${values.length - 1} AND id = $${values.length}
+     RETURNING id, sub_product_id AS "subProductId",
+       revision_number AS "revisionNumber", label, status,
+       change_notes AS "changeNotes", created_at AS "createdAt"`,
+    values,
+  );
+  if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
+  res.json(result.rows[0]);
 });
 
 // DELETE /api/sub-products/:spId/revisions/:revId — delete a revision.
 // Cascades remove its parts, documents and product-revision links.
 router.delete('/:spId/revisions/:revId', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  const revId = Number(req.params.revId);
-  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_REVISION_ID);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+
+  // A project that froze this revision's parts still points at it (§3.4).
+  const claimed = await query<{ claimed: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM project_part_usages WHERE sub_product_revision_id = $1) AS claimed`,
+    [revId],
+  );
+  if (claimed.rows[0].claimed) {
+    throw new ApiError(409, ErrorCodes.REVISION_IN_USE_BY_PROJECT);
   }
+
   const result = await query(
     `DELETE FROM sub_product_revisions
      WHERE id = $1 AND sub_product_id = $2
      RETURNING id`,
     [revId, spId],
   );
-  if (result.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-  }
+  if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
 
   res.json({ id: revId, deleted: true });
 });
 
 // PUT /api/sub-products/:spId/revisions/:revId/parts — replace the part set
 router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  const revId = Number(req.params.revId);
-  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_REVISION_ID);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const data = replaceRevisionPartsSchema.parse(req.body);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  await withTransaction(async (client) => {
     const revCheck = await client.query(
       `SELECT id FROM sub_product_revisions WHERE id = $1 AND sub_product_id = $2`,
       [revId, spId],
     );
-    if (revCheck.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
+    if (revCheck.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
 
     // Snapshot the current BOM (with part names) before the replace, so we can
     // diff old vs new for the product change log.
@@ -689,11 +685,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       : [];
 
     const incomingIds = data.parts.map((p) => p.partId);
-    const nameRes = await client.query<{ id: number; name: string }>(
-      `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
-      [incomingIds.length ? incomingIds : [0]],
-    );
-    const nameById = new Map(nameRes.rows.map((r) => [r.id, r.name]));
+    const nameById = await partNames(client, incomingIds);
     const oldByPart = new Map(oldParts.rows.map((r) => [r.partId, r]));
     const newIds = new Set(incomingIds);
 
@@ -742,18 +734,10 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
       }
     }
 
-    if (events.length > 0 && productId) {
-      const actor = await resolveActor(client, req.user?.id);
-      await logAudit(client, 'product', productId, 'updated', { events }, actor);
+    if (productId) {
+      await writeAudit(client, 'product', productId, 'updated', changeSet({}, events), req.user?.id);
     }
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 
   // Return the fresh part list (same shape as the GET endpoint).
   const result = await query(
@@ -773,10 +757,7 @@ router.put('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
 
 // GET /api/sub-products/:spId/revisions/:revId/parts — parts for one revision
 router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const result = await query(
     `SELECT
        p.id,
@@ -800,10 +781,7 @@ router.get('/:spId/revisions/:revId/parts', requireAuth, async (req, res) => {
 
 // Ids only: the frontend holds the parts catalog and resolves the rest.
 router.get('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const result = await query<{
     id: number;
     partId: number;
@@ -825,45 +803,19 @@ router.get('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req,
 // SET this part's alternative — a part carries at most one, so posting a
 // different one DROPS the existing link rather than adding to a list.
 router.post('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req, res) => {
-  const spId = Number(req.params.spId);
-  const revId = Number(req.params.revId);
-  if (!spId || !revId || Number.isNaN(spId) || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_REVISION_ID);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const data = createPartAlternativeSchema.parse(req.body);
   if (data.partId === data.alternatePartId) {
-    return res.status(400).json({ code: ErrorCodes.PART_ALTERNATIVE_SAME_PART });
+    throw new ApiError(400, ErrorCodes.PART_ALTERNATIVE_SAME_PART);
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const link = await withTransaction(async (client) => {
+    const context = await loadRevisionContext(client, revId, spId);
+    if (!context) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
 
-    const rev = await client.query<{
-      subProductName: string;
-      productId: number | null;
-      revLabel: string;
-    }>(
-      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
-       FROM sub_product_revisions spr
-       JOIN sub_products sp ON sp.id = spr.sub_product_id
-       WHERE spr.id = $1 AND spr.sub_product_id = $2`,
-      [revId, spId],
-    );
-    if (rev.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
-    const names = await client.query<{ id: number; name: string }>(
-      `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
-      [[data.partId, data.alternatePartId]],
-    );
-    if (names.rowCount !== 2) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PART_NOT_FOUND });
-    }
-    const nameById = new Map(names.rows.map((r) => [r.id, r.name]));
+    const nameById = await partNames(client, [data.partId, data.alternatePartId]);
+    if (nameById.size !== 2) throw new ApiError(404, ErrorCodes.PART_NOT_FOUND);
 
     // Read before the delete; name joined so the audit can say what it replaced.
     const previous = await client.query<{
@@ -885,13 +837,12 @@ router.post('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req
 
     // Already set: skip the write so the log doesn't gain a no-op entry.
     if (before?.alternatePartId === data.alternatePartId) {
-      await client.query('COMMIT');
-      return res.json({
+      return {
         id: before.id,
         partId: data.partId,
         alternatePartId: data.alternatePartId,
         alternateInUse: before.alternateInUse,
-      });
+      };
     }
 
     if (before) {
@@ -910,61 +861,37 @@ router.post('/:spId/revisions/:revId/part-alternatives', requireAuth, async (req
       [revId, data.partId, data.alternatePartId, inUse, req.user?.id ?? null],
     );
 
-    if (rev.rows[0].productId) {
-      const actor = await resolveActor(client, req.user?.id);
-      await logAudit(
-        client,
-        'product',
-        rev.rows[0].productId,
-        'updated',
-        {
-          events: [
-            {
-              type: 'part_alternative',
-              tag: before ? 'changed' : 'added',
-              label: nameById.get(data.partId),
-              scope: [
-                { type: 'sub_product', label: rev.rows[0].subProductName },
-                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
-              ],
-              from: before ? before.alternatePartName : null,
-              to: nameById.get(data.alternatePartId),
-            },
-          ],
-        },
-        actor,
-      );
-    }
+    await logAlternativeChange(
+      client,
+      context,
+      {
+        tag: before ? 'changed' : 'added',
+        label: nameById.get(data.partId),
+        from: before ? before.alternatePartName : null,
+        to: nameById.get(data.alternatePartId),
+      },
+      req.user?.id,
+    );
 
-    await client.query('COMMIT');
-    res.json({
+    return {
       id: inserted.rows[0].id,
       partId: data.partId,
       alternatePartId: data.alternatePartId,
       alternateInUse: inUse,
-    });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    };
+  });
+
+  res.json(link);
 });
 
 // Switch which half of the pair is fitted. Its own route rather than a POST
 // field, so it reads as its own line in the change log.
 router.patch('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  const id = Number(req.params.id);
-  if (!revId || !id || Number.isNaN(revId) || Number.isNaN(id)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+  const id = requireId(req.params.id, ErrorCodes.INVALID_REVISION_ID);
   const data = setPartAlternativeInUseSchema.parse(req.body);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const link = await withTransaction(async (client) => {
     const updated = await client.query<{
       partId: number;
       alternatePartId: number;
@@ -985,77 +912,43 @@ router.patch('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, async
       [data.alternateInUse, id, revId],
     );
     if (updated.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PART_ALTERNATIVE_NOT_FOUND });
+      throw new ApiError(404, ErrorCodes.PART_ALTERNATIVE_NOT_FOUND);
     }
     const row = updated.rows[0];
 
-    const rev = await client.query<{
-      subProductName: string;
-      productId: number | null;
-      revLabel: string;
-    }>(
-      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
-       FROM sub_product_revisions spr
-       JOIN sub_products sp ON sp.id = spr.sub_product_id
-       WHERE spr.id = $1`,
-      [revId],
-    );
-
-    if (rev.rows[0]?.productId) {
-      const actor = await resolveActor(client, req.user?.id);
-      await logAudit(
+    const context = await loadRevisionContext(client, revId);
+    if (context) {
+      await logAlternativeChange(
         client,
-        'product',
-        rev.rows[0].productId,
-        'updated',
+        context,
         {
-          events: [
-            {
-              type: 'part_alternative',
-              tag: 'changed',
-              label: row.partName,
-              scope: [
-                { type: 'sub_product', label: rev.rows[0].subProductName },
-                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
-              ],
-              // Named parts, not a boolean, so the log names what is fitted.
-              from: data.alternateInUse ? row.partName : row.alternatePartName,
-              to: data.alternateInUse ? row.alternatePartName : row.partName,
-            },
-          ],
+          tag: 'changed',
+          label: row.partName,
+          // Named parts, not a boolean, so the log names what is fitted.
+          from: data.alternateInUse ? row.partName : row.alternatePartName,
+          to: data.alternateInUse ? row.alternatePartName : row.partName,
         },
-        actor,
+        req.user?.id,
       );
     }
 
-    await client.query('COMMIT');
-    res.json({
+    return {
       id,
       partId: row.partId,
       alternatePartId: row.alternatePartId,
       alternateInUse: data.alternateInUse,
-    });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    };
+  });
+
+  res.json(link);
 });
 
 // DELETE /api/sub-products/:spId/revisions/:revId/part-alternatives/:id — unlink.
 router.delete('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  const id = Number(req.params.id);
-  if (!revId || !id || Number.isNaN(revId) || Number.isNaN(id)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+  const id = requireId(req.params.id, ErrorCodes.INVALID_REVISION_ID);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  await withTransaction(async (client) => {
     const existing = await client.query<{ partId: number; alternatePartId: number }>(
       `DELETE FROM part_alternatives
        WHERE id = $1 AND sub_product_revision_id = $2
@@ -1063,61 +956,27 @@ router.delete('/:spId/revisions/:revId/part-alternatives/:id', requireAuth, asyn
       [id, revId],
     );
     if (existing.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PART_ALTERNATIVE_NOT_FOUND });
+      throw new ApiError(404, ErrorCodes.PART_ALTERNATIVE_NOT_FOUND);
     }
     const { partId, alternatePartId } = existing.rows[0];
 
-    const rev = await client.query<{
-      subProductName: string;
-      productId: number | null;
-      revLabel: string;
-    }>(
-      `SELECT sp.name AS "subProductName", sp.product_id AS "productId", spr.label AS "revLabel"
-       FROM sub_product_revisions spr
-       JOIN sub_products sp ON sp.id = spr.sub_product_id
-       WHERE spr.id = $1`,
-      [revId],
-    );
-
-    if (rev.rows[0]?.productId) {
-      const names = await client.query<{ id: number; name: string }>(
-        `SELECT id, name FROM parts WHERE id = ANY($1::int[])`,
-        [[partId, alternatePartId]],
-      );
-      const nameById = new Map(names.rows.map((r) => [r.id, r.name]));
-      const actor = await resolveActor(client, req.user?.id);
-      await logAudit(
+    const context = await loadRevisionContext(client, revId);
+    if (context?.productId) {
+      const nameById = await partNames(client, [partId, alternatePartId]);
+      await logAlternativeChange(
         client,
-        'product',
-        rev.rows[0].productId,
-        'updated',
+        context,
         {
-          events: [
-            {
-              type: 'part_alternative',
-              tag: 'removed',
-              label: nameById.get(partId) ?? String(partId),
-              scope: [
-                { type: 'sub_product', label: rev.rows[0].subProductName },
-                { type: 'sub_product_revision', label: rev.rows[0].revLabel },
-              ],
-              from: nameById.get(alternatePartId) ?? String(alternatePartId),
-            },
-          ],
+          tag: 'removed',
+          label: nameById.get(partId) ?? String(partId),
+          from: nameById.get(alternatePartId) ?? String(alternatePartId),
         },
-        actor,
+        req.user?.id,
       );
     }
+  });
 
-    await client.query('COMMIT');
-    res.json({ id, deleted: true });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  res.json({ id, deleted: true });
 });
 
 export default router;

@@ -51,6 +51,19 @@ export const useProjectsStore = defineStore('projects', () => {
     board.value = board.value.filter((p) => p.id !== id);
   }
 
+  // Neither transition patches the board in place: both change which derived
+  // columns the project belongs to (§4.1), and those counts are the server's
+  // to compute. The caller refetches.
+  async function startProject(id: number): Promise<Project> {
+    const response = await projectsApi.start(id);
+    return response.data;
+  }
+
+  async function stopProject(id: number): Promise<Project> {
+    const response = await projectsApi.stop(id);
+    return response.data;
+  }
+
   return {
     board,
     loading,
@@ -60,5 +73,7 @@ export const useProjectsStore = defineStore('projects', () => {
     createProject,
     updateProject,
     deleteProject,
+    startProject,
+    stopProject,
   };
 });

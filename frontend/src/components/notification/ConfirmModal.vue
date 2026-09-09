@@ -65,6 +65,16 @@ const props = defineProps<{
   /** Colour of the confirm button. Defaults to the destructive red this
    *  dialog was written for; 'primary' is for confirming a plain save. */
   variant?: 'danger' | 'primary';
+  /**
+   * Which button opens focused, and therefore what a stray Enter does.
+   *
+   * Deliberately NOT derived from `variant`: colour answers "how alarming is
+   * this?", focus answers "is it safe to fire on one keystroke?", and they are
+   * not the same question. Starting a project is blue and utterly
+   * irreversible. Defaults to `cancel` so a dialog has to ask for the risky
+   * behaviour rather than inherit it.
+   */
+  initialFocus?: 'cancel' | 'confirm';
 }>();
 
 const emit = defineEmits<{
@@ -87,10 +97,9 @@ const confirmButtonRef = ref<HTMLButtonElement | null>(null);
 async function arm() {
   shownAt.value = Date.now();
   await nextTick();
-  // A stray Enter must not destroy anything, so a destructive dialog opens
-  // with Cancel focused. `primary` confirms a save, where Enter is what the
-  // user expects.
-  const initial = props.variant === 'primary' ? confirmButtonRef : cancelButtonRef;
+  // A stray Enter must not do anything irreversible, so Cancel is focused
+  // unless the call site has said its confirm is safe to fire blind.
+  const initial = props.initialFocus === 'confirm' ? confirmButtonRef : cancelButtonRef;
   initial.value?.focus();
 }
 

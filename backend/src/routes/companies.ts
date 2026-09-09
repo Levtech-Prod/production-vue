@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { query } from '../db.js';
+import { query, isUniqueViolation, isForeignKeyViolation } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { companyPayloadSchema } from '../schemas/companies.schema.js';
+import { requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -22,33 +24,21 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [data.name],
     );
     res.status(201).json(result.rows[0]);
-  } catch (err: any) {
-    if (err?.code === '23505') {
-      return res.status(409).json({ code: ErrorCodes.COMPANY_ALREADY_EXISTS });
-    }
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new ApiError(409, ErrorCodes.COMPANY_ALREADY_EXISTS);
     throw err;
   }
 });
 
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  if (!id || Number.isNaN(id)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_COMPANY_ID });
-  }
+  const id = requireId(req.params.id, ErrorCodes.INVALID_COMPANY_ID);
   try {
-    const result = await query(
-      `DELETE FROM companies WHERE id = $1 RETURNING id`,
-      [id],
-    );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ code: ErrorCodes.COMPANY_NOT_FOUND });
-    }
+    const result = await query(`DELETE FROM companies WHERE id = $1 RETURNING id`, [id]);
+    if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.COMPANY_NOT_FOUND);
     res.json({ id });
-  } catch (err: any) {
-    if (err?.code === '23503') {
-      // FK violation: company is referenced by stock_entries
-      return res.status(409).json({ code: ErrorCodes.COMPANY_DELETE_FAILED });
-    }
+  } catch (err) {
+    // Referenced by stock_entries, which have no ON DELETE clause.
+    if (isForeignKeyViolation(err)) throw new ApiError(409, ErrorCodes.COMPANY_DELETE_FAILED);
     throw err;
   }
 });

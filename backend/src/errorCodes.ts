@@ -17,25 +17,23 @@ export const ErrorCodes = {
   CATEGORY_NOT_FOUND: 'CATEGORY_NOT_FOUND',
   INVALID_PARAMETER_ID: 'INVALID_PARAMETER_ID',
   PARAMETER_NOT_FOUND: 'PARAMETER_NOT_FOUND',
-  PARAMETER_UPDATE_FAILED: 'PARAMETER_UPDATE_FAILED',
   CATEGORY_PARAMETERS_IN_USE: 'CATEGORY_PARAMETERS_IN_USE',
-  CATEGORY_UPDATE_FAILED: 'CATEGORY_UPDATE_FAILED',
   CATEGORY_HAS_PARTS: 'CATEGORY_HAS_PARTS',
-  CATEGORY_DELETE_FAILED: 'CATEGORY_DELETE_FAILED',
 
   // parts
   PART_CODE_ALREADY_EXISTS: 'PART_CODE_ALREADY_EXISTS',
   INVALID_PART_ID: 'INVALID_PART_ID',
   PART_NOT_FOUND: 'PART_NOT_FOUND',
-  PART_UPDATE_FAILED: 'PART_UPDATE_FAILED',
   // Category names its parts manually ('custom' mode) but no name was given.
   PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
-  PART_DELETE_FAILED: 'PART_DELETE_FAILED',
-  // A project's frozen BOM still claims this part. `project_parts.part_id` has
-  // no ON DELETE, so the delete is blocked at the database too — this is the
-  // friendly version of that. Also raised for the sub-product whose cascade
-  // would take a claimed revision with it.
+  // Something still references the row, so the delete is blocked at the
+  // database (none of these FKs carries an ON DELETE). Each is checked before
+  // the DELETE runs, because a raw 23503 reaches the user as a bare 500 that
+  // names neither the obstacle nor a way past it.
   PART_IN_USE_BY_PROJECT: 'PART_IN_USE_BY_PROJECT',
+  PART_IN_USE_BY_BOM: 'PART_IN_USE_BY_BOM',
+  SUB_PRODUCT_IN_USE_BY_PROJECT: 'SUB_PRODUCT_IN_USE_BY_PROJECT',
+  REVISION_IN_USE_BY_PROJECT: 'REVISION_IN_USE_BY_PROJECT',
 
   // products
   PRODUCT_SKU_ALREADY_EXISTS: 'PRODUCT_SKU_ALREADY_EXISTS',
@@ -157,6 +155,12 @@ export const ErrorCodes = {
   PROJECT_NOT_STARTED: 'PROJECT_NOT_STARTED',
   PROJECT_HAS_NO_PRODUCTS: 'PROJECT_HAS_NO_PRODUCTS',
   PROJECT_HAS_NO_PARTS: 'PROJECT_HAS_NO_PARTS',
+  // A BOM line the project depends on has a quantity of zero or less.
+  // `sub_product_revision_parts.quantity` carries no positivity CHECK, so such
+  // rows are representable in data predating the API validation, and
+  // `project_parts.required_qty > 0` would otherwise refuse the freeze as an
+  // unattributable constraint violation.
+  PROJECT_BOM_QUANTITY_INVALID: 'PROJECT_BOM_QUANTITY_INVALID',
   // The pinned revision does not belong to the product it was added under.
   PRODUCT_REVISION_MISMATCH: 'PRODUCT_REVISION_MISMATCH',
   // The same product revision was listed twice in one project's product set.

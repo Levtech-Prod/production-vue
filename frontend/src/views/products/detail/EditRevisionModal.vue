@@ -74,6 +74,7 @@
     :cancel-text="t('cancel')"
     :loading="saving"
     variant="primary"
+    initial-focus="confirm"
     @confirm="confirmSave"
     @cancel="confirmOpen = false"
   />

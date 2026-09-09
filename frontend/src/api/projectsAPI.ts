@@ -30,4 +30,16 @@ export const projectsApi = {
   remove(id: number) {
     return api.delete<{ id: number; deleted: boolean }>(`/projects/${id}`);
   },
+  /** Freezes the flattened BOM and claims stock for it (plan §5.3). Drafts
+   *  only, and there is no way back: a started project is neither editable
+   *  nor deletable. */
+  start(id: number) {
+    return api.post<Project>(`/projects/${id}/start`);
+  },
+  /** Releases the project's stock claims by dropping it out of the §4.2
+   *  aggregate — there is no reservation row to clean up. Parts already on
+   *  order are left alone and still arrive (§8.4). */
+  stop(id: number) {
+    return api.post<Project>(`/projects/${id}/stop`);
+  },
 };

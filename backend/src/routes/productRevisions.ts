@@ -1,17 +1,22 @@
 import { Router } from 'express';
-import { query, pool } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { releaseStoredFile, unlinkStoredFile } from '../services/documentFiles.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { revisionUpdateSchema } from '../schemas/revisions.schema.js';
+import {
+  revisionUpdateSchema,
+  revisionUpdateAssignments,
+} from '../schemas/revisions.schema.js';
 import { setRevisionSubProductsSchema } from '../schemas/subProducts.schema.js';
 import {
-  logAudit,
-  resolveActor,
+  writeAudit,
+  changeSet,
   valuesEqual,
   type AuditEvent,
   type AuditScope,
 } from '../services/audit.js';
+import { parseId, requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -27,11 +32,9 @@ interface SubProductRevisionDetail {
 // GET /api/product-revisions/compare?a=&b= — structured diff (server-side).
 // Registered before /:revId routes so the literal path takes precedence.
 router.get('/compare', requireAuth, async (req, res) => {
-  const a = Number(req.query.a);
-  const b = Number(req.query.b);
-  if (!a || !b || Number.isNaN(a) || Number.isNaN(b)) {
-    return res.status(400).json({ code: ErrorCodes.COMPARE_INVALID_PARAMS });
-  }
+  const a = parseId(req.query.a);
+  const b = parseId(req.query.b);
+  if (!a || !b) throw new ApiError(400, ErrorCodes.COMPARE_INVALID_PARAMS);
 
   // Sub-product revisions belonging to each of the two product revisions.
   const rowsResult = await query(
@@ -103,10 +106,7 @@ router.get('/compare', requireAuth, async (req, res) => {
 
 // GET /api/product-revisions/:revId/bom — aggregated parts for all sub-products in a revision
 router.get('/:revId/bom', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
 
   const result = await query(
     `SELECT
@@ -135,6 +135,16 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
   );
 
   // Group flat rows into sub-products with nested parts
+  interface BomPart {
+    id: number;
+    name: string;
+    code: string;
+    image: string | null;
+    quantity: number;
+    unit: string | null;
+    notes: string | null;
+    mountPosition: string | null;
+  }
   const map = new Map<number, {
     subProductId: number;
     subProductName: string;
@@ -142,7 +152,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
     subProductImage: string | null;
     subProductRevisionId: number;
     subProductRevisionLabel: string;
-    parts: any[];
+    parts: BomPart[];
   }>();
 
   for (const row of result.rows) {
@@ -178,10 +188,7 @@ router.get('/:revId/bom', requireAuth, async (req, res) => {
 // product view opens every sub-product at once, so per-sub-product fetching
 // would be N requests per page load.
 router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
 
   const result = await query<{
     id: number;
@@ -207,73 +214,39 @@ router.get('/:revId/part-alternatives', requireAuth, async (req, res) => {
 
 // PATCH /api/product-revisions/:revId — update status, change_notes, label
 router.patch('/:revId', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const data = revisionUpdateSchema.parse(req.body);
 
-  // Build a dynamic SET clause from only the provided fields.
-  const fields: string[] = [];
-  const values: unknown[] = [];
-  let i = 1;
-  if (data.label !== undefined) {
-    fields.push(`label = $${i++}`);
-    values.push(data.label);
-  }
-  if (data.status !== undefined) {
-    fields.push(`status = $${i++}`);
-    values.push(data.status);
-  }
-  if (data.changeNotes !== undefined) {
-    fields.push(`change_notes = $${i++}`);
-    values.push(data.changeNotes || null);
-  }
-  if (fields.length === 0) {
-    return res.status(400).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
+  const { assignments, values } = revisionUpdateAssignments(data);
+  if (assignments.length === 0) {
+    throw new ApiError(400, ErrorCodes.REVISION_UPDATE_FAILED);
   }
   values.push(revId);
 
-  try {
-    const result = await query(
-      `UPDATE product_revisions
-       SET ${fields.join(', ')}
-       WHERE id = $${i}
-       RETURNING id, product_id AS "productId",
-         revision_number AS "revisionNumber", label, status,
-         change_notes AS "changeNotes", created_at AS "createdAt"`,
-      values,
-    );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ code: ErrorCodes.REVISION_UPDATE_FAILED });
-  }
+  const result = await query(
+    `UPDATE product_revisions
+     SET ${assignments.join(', ')}
+     WHERE id = $${values.length}
+     RETURNING id, product_id AS "productId",
+       revision_number AS "revisionNumber", label, status,
+       change_notes AS "changeNotes", created_at AS "createdAt"`,
+    values,
+  );
+  if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
+  res.json(result.rows[0]);
 });
 
 // PATCH /api/product-revisions/:revId/sub-products — replace the linked set
 router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const data = setRevisionSubProductsSchema.parse(req.body);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  await withTransaction(async (client) => {
     const revInfo = await client.query<{ productId: number; label: string }>(
       `SELECT product_id AS "productId", label FROM product_revisions WHERE id = $1`,
       [revId],
     );
-    if (revInfo.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
+    if (revInfo.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
 
     // Snapshot the current membership (keyed by sub-product, since a product
     // revision holds at most one revision per sub-product) so we can diff it
@@ -379,27 +352,27 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
       }
     }
 
-    if (events.length > 0) {
-      const actor = await resolveActor(client, req.user?.id);
-      await logAudit(client, 'product', revInfo.rows[0].productId, 'updated', { events }, actor);
-    }
-
-    await client.query('COMMIT');
-
-    const result = await client.query(
-      `SELECT sub_product_revision_id AS "subProductRevisionId", position
-       FROM product_revision_sub_products
-       WHERE product_revision_id = $1
-       ORDER BY position`,
-      [revId],
+    await writeAudit(
+      client,
+      'product',
+      revInfo.rows[0].productId,
+      'updated',
+      changeSet({}, events),
+      req.user?.id,
     );
-    res.json(result.rows);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
+
+  // Read back after the commit: this is a plain read of the set just written,
+  // and inside the transaction it sat past COMMIT under a catch that would
+  // have rolled back an already-finished transaction.
+  const result = await query(
+    `SELECT sub_product_revision_id AS "subProductRevisionId", position
+     FROM product_revision_sub_products
+     WHERE product_revision_id = $1
+     ORDER BY position`,
+    [revId],
+  );
+  res.json(result.rows);
 });
 
 // DELETE /api/product-revisions/:revId — remove a product revision entirely.
@@ -407,15 +380,9 @@ router.patch('/:revId/sub-products', requireAuth, async (req, res) => {
 // good. Two states a product must never be left in are refused up front: no
 // default revision, and no revisions at all.
 router.delete('/:revId', requireAuth, requireAdmin, async (req, res) => {
-  const revId = Number(req.params.revId);
-  if (!revId || Number.isNaN(revId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  }
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const orphanKeys = await withTransaction(async (client) => {
     // Guards read inside the transaction, so a concurrent "set as default"
     // can't slip between the check and the delete.
     const info = await client.query<{
@@ -432,22 +399,27 @@ router.delete('/:revId', requireAuth, requireAdmin, async (req, res) => {
       [revId],
     );
     const revision = info.rows[0];
-    if (!revision) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-    if (revision.isDefault) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.REVISION_IS_DEFAULT });
-    }
+    if (!revision) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
+    if (revision.isDefault) throw new ApiError(409, ErrorCodes.REVISION_IS_DEFAULT);
 
     const siblings = await client.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM product_revisions WHERE product_id = $1`,
       [revision.productId],
     );
     if ((siblings.rows[0]?.count ?? 0) <= 1) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.REVISION_LAST_REMAINING });
+      throw new ApiError(409, ErrorCodes.REVISION_LAST_REMAINING);
+    }
+
+    // A project pins the revision it builds (§3.2), and `project_products`
+    // references it without an ON DELETE — including from a draft, whose
+    // product set was chosen before anything was frozen.
+    const pinned = await client.query<{ pinned: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM project_products WHERE product_revision_id = $1) AS pinned`,
+      [revId],
+    );
+    if (pinned.rows[0].pinned) {
+      throw new ApiError(409, ErrorCodes.REVISION_IN_USE_BY_PROJECT);
     }
 
     // Read the document rows' files before the cascade takes them away.
@@ -463,33 +435,28 @@ router.delete('/:revId', requireAuth, requireAdmin, async (req, res) => {
     // released one by one below rather than deleted with them.
     await client.query(`DELETE FROM product_revisions WHERE id = $1`, [revId]);
 
-    const orphanKeys: string[] = [];
+    const keys: string[] = [];
     for (const row of files.rows) {
       const key = await releaseStoredFile(client, row.storedFileId);
-      if (key) orphanKeys.push(key);
+      if (key) keys.push(key);
     }
 
-    const actor = await resolveActor(client, req.user?.id);
-    await logAudit(
+    await writeAudit(
       client,
       'product',
       revision.productId,
       'updated',
       { events: [{ type: 'revision', tag: 'removed', label: revision.label }] },
-      actor,
+      req.user?.id,
     );
 
-    await client.query('COMMIT');
-    // Post-commit: an unlink cannot be rolled back.
-    for (const key of orphanKeys) unlinkStoredFile(key);
+    return keys;
+  });
 
-    res.json({ id: revId, deleted: true });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  // Post-commit: an unlink cannot be rolled back.
+  for (const key of orphanKeys) unlinkStoredFile(key);
+
+  res.json({ id: revId, deleted: true });
 });
 
 export default router;

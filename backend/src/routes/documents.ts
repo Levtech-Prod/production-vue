@@ -16,8 +16,9 @@ import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { pool } from '../db.js';
+import { pool, withTransaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   documentLinkSchema,
@@ -55,7 +56,7 @@ import {
   type RevisionTypeStats,
 } from '../services/documentRevisions.js';
 import { ensureTmpDir } from '../services/uploadPaths.js';
-import { parseId } from './routeParams.js';
+import { parseId, requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -101,10 +102,10 @@ function uploadSingle(req: Request, res: Response, next: NextFunction) {
   upload.single('file')(req, res, (err: unknown) => {
     if (!err) return next();
     if (err instanceof UnsupportedFileTypeError) {
-      return res.status(400).json({ code: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED });
+      return next(new ApiError(400, ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED));
     }
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({ code: ErrorCodes.DOCUMENT_TOO_LARGE });
+      return next(new ApiError(413, ErrorCodes.DOCUMENT_TOO_LARGE));
     }
     return next(err);
   });
@@ -245,20 +246,17 @@ function extensionAllowed(template: DocumentTypeTemplate, fileName: string): boo
 /**
  * Shared preamble for upload and replace: resolve the owning entity, check the
  * target card if one was named, and move the file into the entity's folder.
- * Returns an error code instead when the request can't proceed — the temp file
- * is removed on every rejection path so nothing accumulates on disk.
+ * Every refusal throws; `withUploadCleanup` takes the temp file with it, so
+ * nothing accumulates on disk.
  */
 async function prepareIncomingFile(
   scope: DocumentScope,
   revisionId: number,
   file: Express.Multer.File,
   body: DocumentUploadPayload,
-): Promise<{ storageKey: string; displayName: string } | { error: string }> {
+): Promise<{ storageKey: string; displayName: string }> {
   const entity = await findEntityForRevision(pool, scope, revisionId);
-  if (!entity) {
-    safeUnlink(file.path);
-    return { error: ErrorCodes.REVISION_NOT_FOUND };
-  }
+  if (!entity) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
 
   if (body.documentTypeId != null) {
     const template = await findDocumentTypeForRevision(
@@ -271,8 +269,7 @@ async function prepareIncomingFile(
     // different product/sub-product type than this revision's entity, or a
     // versioned card, whose files go through routes/documentRevisions.ts.
     if (!template || template.revision_mode) {
-      safeUnlink(file.path);
-      return { error: ErrorCodes.DOCUMENT_TYPE_MISMATCH };
+      throw new ApiError(400, ErrorCodes.DOCUMENT_TYPE_MISMATCH);
     }
     // Always the UPLOADED file's name, never `body.name`: the rule is about
     // the bytes, and a custom name is only a label. Checking the label
@@ -281,8 +278,7 @@ async function prepareIncomingFile(
     // gate — `resolveDisplayName` guarantees the stored name ends in this
     // same, already-validated extension.
     if (!extensionAllowed(template, file.originalname)) {
-      safeUnlink(file.path);
-      return { error: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED };
+      throw new ApiError(400, ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED);
     }
   }
 
@@ -296,7 +292,6 @@ async function prepareIncomingFile(
  * again so a rolled-back upload leaves nothing behind.
  */
 async function handleUpload(
-  res: Response,
   scope: DocumentScope,
   revisionId: number,
   file: Express.Multer.File,
@@ -304,18 +299,13 @@ async function handleUpload(
   userId: number | null,
 ) {
   const placed = await prepareIncomingFile(scope, revisionId, file, body);
-  if ('error' in placed) {
-    const status = placed.error === ErrorCodes.REVISION_NOT_FOUND ? 404 : 400;
-    return res.status(status).json({ code: placed.error });
-  }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const storedFileId = await insertStoredFile(client, {
-      storageKey: placed.storageKey,
-      sizeBytes: file.size,
-      mimeType: file.mimetype,
+    return await withTransaction(async (client) => {
+      const storedFileId = await insertStoredFile(client, {
+        storageKey: placed.storageKey,
+        sizeBytes: file.size,
+        mimeType: file.mimetype,
     });
     const row = await insertDocument(client, scope, {
       revisionId,
@@ -324,14 +314,13 @@ async function handleUpload(
       documentTypeId: body.documentTypeId,
       uploadedBy: userId,
     });
-    await client.query('COMMIT');
-    res.status(201).json(docResponse(scope, row));
+    return docResponse(scope, row);
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
+    // The file is already on disk and outside `_tmp`, so nothing else would
+    // reclaim it.
     unlinkStoredFile(placed.storageKey);
     throw err;
-  } finally {
-    client.release();
   }
 }
 
@@ -343,7 +332,6 @@ async function handleUpload(
  * since an unlink cannot be rolled back.
  */
 async function handleReplace(
-  res: Response,
   scope: DocumentScope,
   revisionId: number,
   docId: number,
@@ -351,18 +339,14 @@ async function handleReplace(
   body: DocumentUploadPayload,
 ) {
   const placed = await prepareIncomingFile(scope, revisionId, file, body);
-  if ('error' in placed) {
-    const status = placed.error === ErrorCodes.REVISION_NOT_FOUND ? 404 : 400;
-    return res.status(status).json({ code: placed.error });
-  }
 
-  const client = await pool.connect();
+  let replaced;
   try {
-    await client.query('BEGIN');
-    const storedFileId = await insertStoredFile(client, {
-      storageKey: placed.storageKey,
-      sizeBytes: file.size,
-      mimeType: file.mimetype,
+    replaced = await withTransaction(async (client) => {
+      const storedFileId = await insertStoredFile(client, {
+        storageKey: placed.storageKey,
+        sizeBytes: file.size,
+        mimeType: file.mimetype,
     });
     const result = await repointDocument(client, scope, {
       revisionId,
@@ -370,21 +354,18 @@ async function handleReplace(
       storedFileId,
       originalName: placed.displayName,
     });
-    if (!result) {
-      await client.query('ROLLBACK');
-      unlinkStoredFile(placed.storageKey);
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
-    }
-    await client.query('COMMIT');
-    unlinkStoredFile(result.orphanKey);
-    res.json(docResponse(scope, result.row));
+    if (!result) throw new ApiError(404, ErrorCodes.DOCUMENT_NOT_FOUND);
+    return result;
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
     unlinkStoredFile(placed.storageKey);
     throw err;
-  } finally {
-    client.release();
   }
+
+  // Post-commit: an unlink cannot be rolled back, so the file this row used to
+  // point at only goes once the new one is durably recorded.
+  unlinkStoredFile(replaced.orphanKey);
+  return docResponse(scope, replaced.row);
 }
 
 /** The picker payload, grouped by the revision each file sits on. */
@@ -417,7 +398,6 @@ function groupLinkable(scope: DocumentScope, rows: LinkableDocumentRow[]) {
 /** Link a file a sibling revision holds: a document row over the same
  *  `stored_file_id`. Nothing is written to disk. */
 async function handleLink(
-  res: Response,
   scope: DocumentScope,
   revisionId: number,
   body: { sourceDocumentId: number; documentTypeId?: number | null },
@@ -426,26 +406,24 @@ async function handleLink(
   const documentTypeId = body.documentTypeId ?? null;
 
   const source = await findLinkSource(pool, scope, revisionId, body.sourceDocumentId);
-  if (!source) {
-    return res.status(404).json({ code: ErrorCodes.DOCUMENT_LINK_SOURCE_NOT_FOUND });
-  }
+  if (!source) throw new ApiError(404, ErrorCodes.DOCUMENT_LINK_SOURCE_NOT_FOUND);
 
   if (documentTypeId != null) {
     // Same rule as upload: the card must belong to this entity's type, and
     // must not be a versioned one.
     const template = await findDocumentTypeForRevision(pool, scope, revisionId, documentTypeId);
     if (!template || template.revision_mode) {
-      return res.status(400).json({ code: ErrorCodes.DOCUMENT_TYPE_MISMATCH });
+      throw new ApiError(400, ErrorCodes.DOCUMENT_TYPE_MISMATCH);
     }
 
     // The target card's extension rule applies to a borrowed file too.
     if (!extensionAllowed(template, source.original_name)) {
-      return res.status(400).json({ code: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED });
+      throw new ApiError(400, ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED);
     }
   }
 
   if (await isStoredFileLinked(pool, scope, revisionId, source.stored_file_id, documentTypeId)) {
-    return res.status(409).json({ code: ErrorCodes.DOCUMENT_ALREADY_LINKED });
+    throw new ApiError(409, ErrorCodes.DOCUMENT_ALREADY_LINKED);
   }
 
   // Single INSERT: no second write to keep in step, no file to roll back.
@@ -456,49 +434,60 @@ async function handleLink(
     documentTypeId,
     uploadedBy: userId,
   });
-  return res.status(201).json(docResponse(scope, row));
+  return docResponse(scope, row);
 }
 
 /** Delete one revision's document row, unlinking the file only if unshared. */
-async function handleDelete(
-  res: Response,
-  scope: DocumentScope,
-  revisionId: number,
-  docId: number,
-) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { found, orphanKey } = await deleteDocument(client, scope, revisionId, docId);
-    if (!found) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
-    }
-    await client.query('COMMIT');
-    unlinkStoredFile(orphanKey);
-    res.status(204).end();
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+async function handleDelete(scope: DocumentScope, revisionId: number, docId: number) {
+  const orphanKey = await withTransaction(async (client) => {
+    const deleted = await deleteDocument(client, scope, revisionId, docId);
+    if (!deleted.found) throw new ApiError(404, ErrorCodes.DOCUMENT_NOT_FOUND);
+    return deleted.orphanKey;
+  });
+
+  // Post-commit: an unlink cannot be rolled back.
+  unlinkStoredFile(orphanKey);
 }
 
 // ── Parameter parsing ──────────────────────────────────────────────────────
 
 /**
- * Validate the multipart text fields. Multer has already written the file to
- * disk by this point, so a rejected body takes the temp file with it rather
- * than leaving it behind.
+ * Multer has already written the upload by the time a handler runs, so every
+ * exit that is not a success has to take it with it — a bad id, a rejected
+ * body, an unknown card, a failed insert. Wrapping the handler once means each
+ * of those can simply throw.
  */
-function parseUploadBody(req: Request): DocumentUploadPayload {
-  try {
-    return documentUploadSchema.parse(req.body ?? {});
-  } catch (err) {
-    if (req.file) safeUnlink(req.file.path);
-    throw err;
+function withUploadCleanup(
+  handler: (req: Request, res: Response) => Promise<void>,
+): (req: Request, res: Response) => Promise<void> {
+  return async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      if (req.file) safeUnlink(req.file.path);
+      throw err;
+    }
+  };
+}
+
+/** The uploaded file, or the 400 its absence means. */
+function requireUploadedFile(req: Request): Express.Multer.File {
+  if (!req.file) throw new ApiError(400, ErrorCodes.NO_FILE_UPLOADED);
+  return req.file;
+}
+
+/**
+ * The sub-product revision a URL names, proven to belong to the sub-product it
+ * names too — without the check, `/sub-products/9/revisions/4/...` would read
+ * and write sub-product 3's revision 4. Six routes need exactly this.
+ */
+async function requireSubProductRevision(req: Request): Promise<number> {
+  const spId = requireId(req.params.spId, ErrorCodes.INVALID_SUB_PRODUCT_ID);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+  if (!(await spRevisionBelongsTo(spId, revId))) {
+    throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
   }
+  return revId;
 }
 
 /**
@@ -536,11 +525,11 @@ async function loadPanel(scope: DocumentScope, revisionId: number) {
  */
 async function handleDownload(res: Response, scope: DocumentScope, docId: number) {
   const row = await findDocument(pool, scope, docId);
-  if (!row) return res.status(404).json({ code: ErrorCodes.DOCUMENT_NOT_FOUND });
+  if (!row) throw new ApiError(404, ErrorCodes.DOCUMENT_NOT_FOUND);
 
   const absolute = resolveStoredFilePath(row.storage_key);
   if (!absolute || !fs.existsSync(absolute)) {
-    return res.status(404).json({ code: ErrorCodes.DOCUMENT_FILE_MISSING });
+    throw new ApiError(404, ErrorCodes.DOCUMENT_FILE_MISSING);
   }
   if (row.mime_type) res.type(row.mime_type);
   return res.download(absolute, row.original_name);
@@ -550,36 +539,28 @@ async function handleDownload(res: Response, scope: DocumentScope, docId: number
 
 // GET /api/product-revisions/:revId/documents — grouped panel payload
 router.get('/product-revisions/:revId/documents', requireAuth, async (req, res) => {
-  const revId = parseId(req.params.revId);
-  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   res.json(await loadPanel('product', revId));
 });
 
 // GET /api/product-revisions/:revId/documents/linkable?documentTypeId=
 router.get('/product-revisions/:revId/documents/linkable', requireAuth, async (req, res) => {
-  const revId = parseId(req.params.revId);
-  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-
-  const documentTypeId = parseId(req.query.documentTypeId as string | undefined);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+  const documentTypeId = parseId(req.query.documentTypeId);
   const rows = await listLinkableDocuments(pool, 'product', revId, documentTypeId);
   res.json(groupLinkable('product', rows));
 });
 
 // POST /api/product-revisions/:revId/documents/link
 router.post('/product-revisions/:revId/documents/link', requireAuth, async (req, res) => {
-  const revId = parseId(req.params.revId);
-  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
   const body = documentLinkSchema.parse(req.body ?? {});
-  return handleLink(res, 'product', revId, body, req.user?.id ?? null);
+  res.status(201).json(await handleLink('product', revId, body, req.user?.id ?? null));
 });
 
 // GET /api/product-revision-documents/:docId/download
 router.get('/product-revision-documents/:docId/download', requireAuth, async (req, res) => {
-  const docId = parseId(req.params.docId);
-  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
-
+  const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
   return handleDownload(res, 'product', docId);
 });
 
@@ -588,17 +569,13 @@ router.post(
   '/product-revisions/:revId/documents',
   requireAuth,
   uploadSingle,
-  async (req, res) => {
-    const revId = parseId(req.params.revId);
-    if (!revId) {
-      if (req.file) safeUnlink(req.file.path);
-      return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-    }
-    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-
-    const body = parseUploadBody(req);
-    return handleUpload(res, 'product', revId, req.file, body, req.user?.id ?? null);
-  },
+  withUploadCleanup(async (req, res) => {
+    const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+    const file = requireUploadedFile(req);
+    const body = documentUploadSchema.parse(req.body ?? {});
+    const doc = await handleUpload('product', revId, file, body, req.user?.id ?? null);
+    res.status(201).json(doc);
+  }),
 );
 
 // PUT /api/product-revisions/:revId/documents/:docId — replace (copy-on-write)
@@ -606,30 +583,21 @@ router.put(
   '/product-revisions/:revId/documents/:docId',
   requireAuth,
   uploadSingle,
-  async (req, res) => {
-    const revId = parseId(req.params.revId);
-    const docId = parseId(req.params.docId);
-    if (!revId || !docId) {
-      if (req.file) safeUnlink(req.file.path);
-      return res.status(400).json({
-        code: revId ? ErrorCodes.INVALID_DOCUMENT_ID : ErrorCodes.INVALID_REVISION_ID,
-      });
-    }
-    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-
-    const body = parseUploadBody(req);
-    return handleReplace(res, 'product', revId, docId, req.file, body);
-  },
+  withUploadCleanup(async (req, res) => {
+    const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+    const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
+    const file = requireUploadedFile(req);
+    const body = documentUploadSchema.parse(req.body ?? {});
+    res.json(await handleReplace('product', revId, docId, file, body));
+  }),
 );
 
 // DELETE /api/product-revisions/:revId/documents/:docId
 router.delete('/product-revisions/:revId/documents/:docId', requireAuth, async (req, res) => {
-  const revId = parseId(req.params.revId);
-  const docId = parseId(req.params.docId);
-  if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
-
-  return handleDelete(res, 'product', revId, docId);
+  const revId = requireId(req.params.revId, ErrorCodes.INVALID_REVISION_ID);
+  const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
+  await handleDelete('product', revId, docId);
+  res.status(204).end();
 });
 
 // ── Sub-product revision documents ─────────────────────────────────────────
@@ -639,14 +607,7 @@ router.get(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
   async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
+    const revId = await requireSubProductRevision(req);
     res.json(await loadPanel('subProduct', revId));
   },
 );
@@ -656,15 +617,8 @@ router.get(
   '/sub-products/:spId/revisions/:revId/documents/linkable',
   requireAuth,
   async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
-    const documentTypeId = parseId(req.query.documentTypeId as string | undefined);
+    const revId = await requireSubProductRevision(req);
+    const documentTypeId = parseId(req.query.documentTypeId);
     const rows = await listLinkableDocuments(pool, 'subProduct', revId, documentTypeId);
     res.json(groupLinkable('subProduct', rows));
   },
@@ -675,24 +629,15 @@ router.post(
   '/sub-products/:spId/revisions/:revId/documents/link',
   requireAuth,
   async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
+    const revId = await requireSubProductRevision(req);
     const body = documentLinkSchema.parse(req.body ?? {});
-    return handleLink(res, 'subProduct', revId, body, req.user?.id ?? null);
+    res.status(201).json(await handleLink('subProduct', revId, body, req.user?.id ?? null));
   },
 );
 
 // GET /api/sub-product-revision-documents/:docId/download
 router.get('/sub-product-revision-documents/:docId/download', requireAuth, async (req, res) => {
-  const docId = parseId(req.params.docId);
-  if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
-
+  const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
   return handleDownload(res, 'subProduct', docId);
 });
 
@@ -701,24 +646,13 @@ router.post(
   '/sub-products/:spId/revisions/:revId/documents',
   requireAuth,
   uploadSingle,
-  async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    if (!spId || !revId) {
-      if (req.file) safeUnlink(req.file.path);
-      return res.status(400).json({
-        code: spId ? ErrorCodes.INVALID_REVISION_ID : ErrorCodes.INVALID_SUB_PRODUCT_ID,
-      });
-    }
-    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      safeUnlink(req.file.path);
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
-    const body = parseUploadBody(req);
-    return handleUpload(res, 'subProduct', revId, req.file, body, req.user?.id ?? null);
-  },
+  withUploadCleanup(async (req, res) => {
+    const revId = await requireSubProductRevision(req);
+    const file = requireUploadedFile(req);
+    const body = documentUploadSchema.parse(req.body ?? {});
+    const doc = await handleUpload('subProduct', revId, file, body, req.user?.id ?? null);
+    res.status(201).json(doc);
+  }),
 );
 
 // PUT /api/sub-products/:spId/revisions/:revId/documents/:docId — replace
@@ -726,29 +660,13 @@ router.put(
   '/sub-products/:spId/revisions/:revId/documents/:docId',
   requireAuth,
   uploadSingle,
-  async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    const docId = parseId(req.params.docId);
-    if (!spId || !revId || !docId) {
-      if (req.file) safeUnlink(req.file.path);
-      return res.status(400).json({
-        code: !spId
-          ? ErrorCodes.INVALID_SUB_PRODUCT_ID
-          : !revId
-            ? ErrorCodes.INVALID_REVISION_ID
-            : ErrorCodes.INVALID_DOCUMENT_ID,
-      });
-    }
-    if (!req.file) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      safeUnlink(req.file.path);
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
-    const body = parseUploadBody(req);
-    return handleReplace(res, 'subProduct', revId, docId, req.file, body);
-  },
+  withUploadCleanup(async (req, res) => {
+    const revId = await requireSubProductRevision(req);
+    const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
+    const file = requireUploadedFile(req);
+    const body = documentUploadSchema.parse(req.body ?? {});
+    res.json(await handleReplace('subProduct', revId, docId, file, body));
+  }),
 );
 
 // DELETE /api/sub-products/:spId/revisions/:revId/documents/:docId
@@ -756,17 +674,10 @@ router.delete(
   '/sub-products/:spId/revisions/:revId/documents/:docId',
   requireAuth,
   async (req, res) => {
-    const spId = parseId(req.params.spId);
-    const revId = parseId(req.params.revId);
-    const docId = parseId(req.params.docId);
-    if (!spId) return res.status(400).json({ code: ErrorCodes.INVALID_SUB_PRODUCT_ID });
-    if (!revId) return res.status(400).json({ code: ErrorCodes.INVALID_REVISION_ID });
-    if (!docId) return res.status(400).json({ code: ErrorCodes.INVALID_DOCUMENT_ID });
-    if (!(await spRevisionBelongsTo(spId, revId))) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
-
-    return handleDelete(res, 'subProduct', revId, docId);
+    const revId = await requireSubProductRevision(req);
+    const docId = requireId(req.params.docId, ErrorCodes.INVALID_DOCUMENT_ID);
+    await handleDelete('subProduct', revId, docId);
+    res.status(204).end();
   },
 );
 

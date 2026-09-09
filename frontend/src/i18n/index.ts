@@ -609,18 +609,13 @@ const messages = {
       CATEGORY_NOT_FOUND: 'Part category not found',
       INVALID_PARAMETER_ID: 'Invalid parameter id',
       PARAMETER_NOT_FOUND: 'Parameter not found',
-      PARAMETER_UPDATE_FAILED: 'Failed to update parameter',
       CATEGORY_PARAMETERS_IN_USE:
         'One or more removed parameters are already used by parts and cannot be deleted.',
-      CATEGORY_UPDATE_FAILED: 'Failed to update part category',
       CATEGORY_HAS_PARTS:
         'This category cannot be deleted because it already has parts assigned to it.',
-      CATEGORY_DELETE_FAILED: 'An error occurred while deleting the category.',
       PART_CODE_ALREADY_EXISTS: 'The provided part code already exists.',
       INVALID_PART_ID: 'Invalid part id',
       PART_NOT_FOUND: 'Part not found',
-      PART_UPDATE_FAILED: 'Failed to update part',
-      PART_DELETE_FAILED: 'An error occurred while deleting the part.',
       PART_NAME_REQUIRED: 'A part name is required for this category.',
       INVALID_UPLOAD_TARGET: 'Invalid upload target',
       NO_FILE_UPLOADED: 'No file uploaded',
@@ -751,6 +746,8 @@ const messages = {
         'Add at least one product before starting the project.',
       PROJECT_HAS_NO_PARTS:
         'The selected products contain no parts, so there is nothing to prepare.',
+      PROJECT_BOM_QUANTITY_INVALID:
+        'These parts have a quantity of zero or less and must be corrected on the product revision before the project can be started: {parts}',
       PRODUCT_REVISION_MISMATCH:
         'The selected revision does not belong to that product.',
       PRODUCT_REVISION_DUPLICATE:
@@ -764,6 +761,12 @@ const messages = {
         'The quantity to order cannot be lower than what has already been ordered.',
       PART_IN_USE_BY_PROJECT:
         'This part cannot be deleted because a project is using it.',
+      PART_IN_USE_BY_BOM:
+        'This part cannot be deleted because it is on a sub-product\'s parts list. Remove it there first.',
+      SUB_PRODUCT_IN_USE_BY_PROJECT:
+        'This sub-product cannot be deleted because a started project has frozen one of its revisions.',
+      REVISION_IN_USE_BY_PROJECT:
+        'This revision cannot be deleted because a project is using it.',
       OFFER_COMPANY_ALREADY_ADDED:
         'This company is already a column on the offer sheet.',
       OFFER_COMPANY_IN_USE:
@@ -782,6 +785,8 @@ const messages = {
       load_project_failed: 'Failed to load the project',
       save_project_failed: 'Failed to save the project',
       delete_project_failed: 'Failed to delete the project',
+      start_project_failed: 'Failed to start the project',
+      stop_project_failed: 'Failed to stop the project',
     },
 
     success: {
@@ -823,6 +828,8 @@ const messages = {
       save_project: 'The project was saved successfully',
       update_project: 'The project was updated successfully',
       delete_project: 'The project was deleted successfully.',
+      start_project: 'The project was started successfully',
+      stop_project: 'The project was stopped successfully',
     },
 
     validation: {
@@ -873,6 +880,10 @@ const messages = {
       delete_document_type_msg:
         'Are you sure you want to delete this document type? Any files already uploaded under it will be moved to "Other documents" — they are not deleted',
       delete_project_msg: 'Are you sure you want to delete this project',
+      start_project_msg:
+        'The parts list will be frozen and the stock it needs claimed. A started project can no longer be edited or deleted',
+      stop_project_msg:
+        'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed, and parts already ordered will still be delivered',
     },
   },
   hu: {
@@ -1469,18 +1480,13 @@ const messages = {
       CATEGORY_NOT_FOUND: 'A kategória nem található',
       INVALID_PARAMETER_ID: 'Érvénytelen paraméter azonosító',
       PARAMETER_NOT_FOUND: 'A paraméter nem található',
-      PARAMETER_UPDATE_FAILED: 'Nem sikerült módosítani a paramétert',
       CATEGORY_PARAMETERS_IN_USE:
         'Egy vagy több eltávolított paramétert már használnak alkatrészek, ezért nem törölhetők.',
-      CATEGORY_UPDATE_FAILED: 'Nem sikerült módosítani a kategóriát',
       CATEGORY_HAS_PARTS:
         'A kategória nem törölhető, mert már tartozik hozzá létrehozott alkatrész.',
-      CATEGORY_DELETE_FAILED: 'Hiba történt a kategória törlése közben.',
       PART_CODE_ALREADY_EXISTS: 'A megadott alkatrész kód már létezik.',
       INVALID_PART_ID: 'Érvénytelen alkatrész azonosító',
       PART_NOT_FOUND: 'Az alkatrész nem található',
-      PART_UPDATE_FAILED: 'Nem sikerült módosítani az alkatrészt',
-      PART_DELETE_FAILED: 'Hiba történt az alkatrész törlése közben.',
       PART_NAME_REQUIRED: 'Ehhez a kategóriához kötelező alkatrésznevet megadni.',
       INVALID_UPLOAD_TARGET: 'Érvénytelen feltöltési cél',
       NO_FILE_UPLOADED: 'Nincs feltöltött fájl',
@@ -1606,6 +1612,8 @@ const messages = {
         'A projekt indításához legalább egy terméket hozzá kell adni.',
       PROJECT_HAS_NO_PARTS:
         'A kiválasztott termékek nem tartalmaznak alkatrészt, így nincs mit előkészíteni.',
+      PROJECT_BOM_QUANTITY_INVALID:
+        'Az alábbi alkatrészek mennyisége nulla vagy annál kevesebb, ezt a termék revízióján javítani kell a projekt indítása előtt: {parts}',
       PRODUCT_REVISION_MISMATCH:
         'A kiválasztott revízió nem ehhez a termékhez tartozik.',
       PRODUCT_REVISION_DUPLICATE:
@@ -1619,6 +1627,12 @@ const messages = {
         'A rendelendő mennyiség nem lehet kevesebb a már megrendeltnél.',
       PART_IN_USE_BY_PROJECT:
         'Az alkatrész nem törölhető, mert egy projekt használja.',
+      PART_IN_USE_BY_BOM:
+        'Az alkatrész nem törölhető, mert szerepel egy alkatrész-listán. Előbb onnan kell eltávolítani.',
+      SUB_PRODUCT_IN_USE_BY_PROJECT:
+        'Az alegység nem törölhető, mert egy elindított projekt rögzítette valamelyik revízióját.',
+      REVISION_IN_USE_BY_PROJECT:
+        'A revízió nem törölhető, mert egy projekt használja.',
       OFFER_COMPANY_ALREADY_ADDED:
         'Ez a cég már szerepel az ajánlati táblázatban.',
       OFFER_COMPANY_IN_USE:
@@ -1637,6 +1651,8 @@ const messages = {
       load_project_failed: 'A projekt betöltése nem sikerült',
       save_project_failed: 'A projekt mentése nem sikerült',
       delete_project_failed: 'A projekt törlése nem sikerült',
+      start_project_failed: 'A projekt indítása nem sikerült',
+      stop_project_failed: 'A projekt leállítása nem sikerült',
     },
 
     success: {
@@ -1679,6 +1695,8 @@ const messages = {
       save_project: 'A projekt mentése sikeresen megtörtént',
       update_project: 'A projekt módosítása sikeresen megtörtént',
       delete_project: 'A projekt sikeresen törölve.',
+      start_project: 'A projekt elindítása sikeresen megtörtént',
+      stop_project: 'A projekt leállítása sikeresen megtörtént',
     },
 
     validation: {
@@ -1727,6 +1745,10 @@ const messages = {
       delete_document_type_msg:
         'Biztosan törölni szeretnéd ezt a dokumentumtípust? Az alá már feltöltött fájlok az "Egyéb dokumentumok" közé kerülnek, nem törlődnek',
       delete_project_msg: 'Biztosan törölni szeretnéd ezt a projektet',
+      start_project_msg:
+        'Az alkatrészlista rögzül, és a szükséges készlet lefoglalásra kerül. Az elindított projekt már nem szerkeszthető és nem törölhető',
+      stop_project_msg:
+        'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet, a már megrendelt alkatrészek pedig ettől még megérkeznek',
     },
   },
 };

@@ -53,7 +53,32 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 ## Backend (Express + PostgreSQL)
 
-- All DB queries must be parameterized (no string-concatenated SQL).
+- **Use the shared route helpers.** These exist because the same block was
+  written 40 times; reaching for the raw version is how that comes back.
+  - `withTransaction(fn)` (`src/db.ts`) instead of `pool.connect()` + BEGIN /
+    COMMIT / ROLLBACK / release. Return the response payload from the callback;
+    anything a rollback could not undo (unlinking a file, sending the response)
+    goes *after* the call.
+  - `throw new ApiError(status, ErrorCodes.X)` (`src/apiError.ts`) instead of
+    `return res.status(...).json({ code })`. Throwing is what rolls the
+    transaction back, so a refusal reads as a guard wherever it is discovered.
+    `server.ts` turns it into the response.
+  - `requireId(raw, code)` (`src/routes/routeParams.ts`) for id params — never
+    `Number(req.params.x)`, which accepts `1.5` and `-3`.
+  - `writeAudit(client, entity, id, action, changes, userId)` and
+    `changeSet(fields, events)` (`src/services/audit.ts`) instead of
+    `resolveActor` + `logAudit` and a hand-written "did anything change?" guard.
+  - `isUniqueViolation(err)` / `isForeignKeyViolation(err)` (`src/db.ts`)
+    instead of `catch (err: any)` and a bare `'23505'`.
+- **Tests come in two tiers, and new logic belongs in the first one wherever it
+  can.** `npm run test:unit` runs the suites that need no database or `.env` —
+  pure helpers, and anything testable against a fake client — so they run
+  anywhere, including CI. `npm run test:projectBom` / `test:projectStock` need
+  a dev database and are never pointed at production. All of them share
+  `src/testing/check.ts`; don't hand-roll another `check()`.
+- All DB queries must be parameterized (no string-concatenated SQL). The one
+  exception is a table or column *identifier* that cannot be a bind parameter;
+  it must come from a literal config in the same file, never from request data.
 - Schema/data changes go through `backend/database/migrations`, never manual edits to `schema.sql` alone.
 - Routes return a consistent error shape; no silent `catch` blocks — log or rethrow.
 - Secrets and config only via `.env`, never hardcoded. Update `.env.example` when adding a new var.

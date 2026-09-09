@@ -2,7 +2,8 @@
 // Project BOM — a project's flattened parts list, in both forms it has:
 // computed live from the pinned revisions while the project is a draft, and
 // read back from `project_parts` / `project_part_usages` once Start has
-// frozen it (plan §3.4 for the aggregation, §5.3, §5.4).
+// frozen it (plan §3.4 for the aggregation, §5.3, §5.4). `freezeProjectBom`
+// is the step between the two.
 //
 // Both readers answer with one `ProjectBomPart` shape and one mapper builds
 // the payload from either, so the collapse to distinct products and the
@@ -16,6 +17,9 @@
 // flattens ONE revision nested by sub-product, with no project quantities and
 // no stock — a different question at a different grain.
 // ===========================================================================
+import type { PoolClient } from 'pg';
+import { ApiError } from '../apiError.js';
+import { ErrorCodes } from '../errorCodes.js';
 import type { Queryable } from '../db.js';
 import type { ProjectStatus } from '../schemas/projects.schema.js';
 import { getPartStock, type PartStock } from './projectStock.js';
@@ -245,6 +249,98 @@ export async function computeProjectBom(
       usages,
     };
   });
+}
+
+// Serialises every project start against every other, so two of them cannot
+// read the same free stock and both claim the last five capacitors (§5.3.5).
+// One fixed key rather than a lock per part: starts run a handful of times a
+// day, and per-part locks would have to be acquired in a fixed order to stay
+// deadlock-free.
+const PROJECT_START_LOCK_KEY = 23_000_001;
+
+/**
+ * Persist what `computeProjectBom` produces into `project_parts` /
+ * `project_part_usages`, seeded from today's free stock (§5.3).
+ *
+ * Must run inside the Start transaction, which is why it takes a client and
+ * not a `Queryable`: the advisory lock is held only until that transaction
+ * ends, and the seeded claims are only true if the status flip commits with
+ * them. Returns the number of part rows written.
+ *
+ * Both ways a project can fail to freeze are refused here rather than left to
+ * the table's constraints, because a constraint violation reaches the user as
+ * a bare 500 that names nothing.
+ */
+export async function freezeProjectBom(
+  client: PoolClient,
+  projectId: number,
+): Promise<number> {
+  await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [PROJECT_START_LOCK_KEY]);
+
+  // Recomputed rather than taking the numbers the browser is showing: stock
+  // moves between opening the page and pressing Start. Under READ COMMITTED
+  // this reads after any start that held the lock before us has committed, so
+  // its claim is already part of `reserved`.
+  const bom = await computeProjectBom(client, projectId);
+  // No products, or products whose revisions carry no parts (§5.3).
+  if (bom.length === 0) throw new ApiError(409, ErrorCodes.PROJECT_HAS_NO_PARTS);
+
+  // §3.3's precondition: `sub_product_revision_parts.quantity` has no
+  // positivity CHECK of its own, so a zero or negative BOM line is
+  // representable in older data. `project_parts.required_qty > 0` would refuse
+  // it a statement later as SQLSTATE 23514 — a 500 naming nothing — so it is
+  // caught here instead, naming the parts whose quantity has to be fixed.
+  const invalid = bom.filter((row) => row.requiredQty <= 0);
+  if (invalid.length > 0) {
+    throw new ApiError(409, ErrorCodes.PROJECT_BOM_QUANTITY_INVALID, {
+      parts: invalid.map((row) => `${row.part.name} (${row.part.code})`).join(', '),
+    });
+  }
+
+  // Two bulk inserts rather than §3.4's insert-from-select: that would be the
+  // §3.4 aggregation written a second time, and the two would drift. The
+  // usage rows need the ids the first insert assigns, so they could not share
+  // one statement without re-deriving the join anyway.
+  //
+  // The progress buckets and `missing_qty_overridden` are left to their
+  // column defaults — zero and false is exactly what Start means.
+  const inserted = await client.query<{ id: number; partId: number }>(
+    `INSERT INTO project_parts (project_id, part_id, required_qty, from_stock_qty, missing_qty)
+     SELECT $1::int, part_id, required_qty, from_stock_qty, missing_qty
+     FROM unnest($2::int[], $3::int[], $4::int[], $5::int[])
+       AS t(part_id, required_qty, from_stock_qty, missing_qty)
+     RETURNING id, part_id AS "partId"`,
+    [
+      projectId,
+      bom.map((row) => row.part.id),
+      bom.map((row) => row.requiredQty),
+      bom.map((row) => row.fromStockQty),
+      bom.map((row) => row.missingQty),
+    ],
+  );
+
+  // RETURNING promises no ordering, so the usage rows are matched by part id.
+  const projectPartIdByPart = new Map(inserted.rows.map((row) => [row.partId, row.id]));
+  const usages = bom.flatMap((row) =>
+    row.usages.map((usage) => ({
+      projectPartId: projectPartIdByPart.get(row.part.id)!,
+      usage,
+    })),
+  );
+
+  await client.query(
+    `INSERT INTO project_part_usages
+       (project_part_id, project_product_id, sub_product_revision_id, qty_per_unit)
+     SELECT * FROM unnest($1::int[], $2::int[], $3::int[], $4::int[])`,
+    [
+      usages.map((u) => u.projectPartId),
+      usages.map((u) => u.usage.projectProductId),
+      usages.map((u) => u.usage.subProductRevisionId),
+      usages.map((u) => u.usage.qtyPerUnit),
+    ],
+  );
+
+  return bom.length;
 }
 
 /** The frozen parts list as Start stored it. `available` / `reserved` stay

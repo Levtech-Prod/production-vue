@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { POSTGRES_INT_MAX } from '../db.js';
 
 export const projectStatusSchema = z.enum(['draft', 'started', 'stopped', 'completed']);
 export type ProjectStatus = z.infer<typeof projectStatusSchema>;
@@ -8,12 +9,10 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 // completed ones are hidden until asked for.
 export const DEFAULT_PROJECT_LIST_STATUSES: ProjectStatus[] = ['draft', 'started'];
 
-// Postgres INTEGER's max — project_products' id/revision-id/quantity columns
-// are all plain `integer`. Without this cap, a value like 99999999999 passes
-// zod (well under Number.MAX_SAFE_INTEGER) but throws a raw "integer out of
-// range" (22003) once it reaches an `::int[]` cast, since that's a hard
-// Postgres error, not a friendly 4xx.
-const POSTGRES_INT_MAX = 2147483647;
+// project_products' id/revision-id/quantity columns are all plain `integer`,
+// so a value like 99999999999 passes zod (well under Number.MAX_SAFE_INTEGER)
+// but throws a raw "integer out of range" (22003) once it reaches an `::int[]`
+// cast. Same ceiling the id parser applies to route params.
 const pgIntSchema = () => z.number().int().positive().max(POSTGRES_INT_MAX);
 
 /** One pinned product at one of its revisions, with the project's quantity. */
