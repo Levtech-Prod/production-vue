@@ -66,7 +66,7 @@ export const usePartsStore = defineStore('parts', () => {
       return response.data;
     } catch (err) {
       console.error(err);
-      error.value = i18n.global.t('errors.PART_UPDATE_FAILED');
+      error.value = i18n.global.t('errors.save_part_failed');
       throw err;
     } finally {
       loading.value = false;

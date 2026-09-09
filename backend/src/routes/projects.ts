@@ -1,13 +1,15 @@
-// Projects — CRUD and the Parts table (projects-preparation-plan.md §5.2).
-// Start/Stop and the offer/order endpoints are separate stories; this file
-// owns `projects`, the product set pinned to it (`project_products`), and the
-// read of its parts list, whether that list is computed or frozen.
+// Projects — CRUD, Start/Stop and the Parts table
+// (projects-preparation-plan.md §5.2). The offer and order endpoints are
+// separate stories; this file owns `projects`, the product set pinned to it
+// (`project_products`), the read of its parts list — computed or frozen —
+// and the two transitions that turn one into the other.
 import { Router } from 'express';
 import type { PoolClient } from 'pg';
-import { query, pool, type Queryable } from '../db.js';
+import { query, pool, withTransaction, type Queryable } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
-import { parseId } from './routeParams.js';
+import { requireId } from './routeParams.js';
 import {
   projectPayloadSchema,
   projectListQuerySchema,
@@ -15,13 +17,13 @@ import {
   type ProjectStatus,
 } from '../schemas/projects.schema.js';
 import {
-  logAudit,
-  resolveActor,
+  writeAudit,
+  changeSet,
   diffFields,
   diffKeyedEvents,
   type KeyedValue,
 } from '../services/audit.js';
-import { loadProjectPartsPayload } from '../services/projectBom.js';
+import { freezeProjectBom, loadProjectPartsPayload } from '../services/projectBom.js';
 
 const router = Router();
 
@@ -107,6 +109,37 @@ function hasDuplicateRevisions(products: ProjectProductInput[]): boolean {
   return false;
 }
 
+/**
+ * Everything a write must know about the product set before it touches the
+ * database: that it is not empty, that no revision is pinned twice, that each
+ * revision belongs to the product it was added under, and that none of the
+ * products is archived. Answers with the revision info the caller then needs
+ * for its audit labels, so the lookup is not repeated.
+ *
+ * Create and update run exactly these four checks in this order; splitting
+ * them apart is how one of the two would eventually lose one.
+ */
+async function validateProductSet(
+  products: ProjectProductInput[],
+): Promise<Map<number, ProductRevisionInfo>> {
+  if (products.length === 0) throw new ApiError(422, ErrorCodes.PROJECT_HAS_NO_PRODUCTS);
+  if (hasDuplicateRevisions(products)) {
+    throw new ApiError(422, ErrorCodes.PRODUCT_REVISION_DUPLICATE);
+  }
+
+  const revisionInfo = await fetchRevisionInfo(
+    pool,
+    products.map((p) => p.productRevisionId),
+  );
+  if (!revisionsMatchProducts(products, revisionInfo)) {
+    throw new ApiError(422, ErrorCodes.PRODUCT_REVISION_MISMATCH);
+  }
+  if (hasArchivedProduct(products, revisionInfo)) {
+    throw new ApiError(422, ErrorCodes.PRODUCT_ARCHIVED);
+  }
+  return revisionInfo;
+}
+
 /** Bulk-insert the pinned product set in one round trip, position taken from
  *  array order. */
 async function insertProjectProducts(
@@ -181,6 +214,33 @@ async function loadProject(
   );
 
   return { ...project, products: productsResult.rows };
+}
+
+interface LockedProject {
+  name: string;
+  description: string | null;
+  deadline: string | null;
+  status: ProjectStatus;
+}
+
+/**
+ * Lock the project row and read what any transition or edit needs of it, or
+ * 404. Taking the lock as the status is read is the point: without it a Start
+ * and a PATCH can both pass their own draft check and then both write.
+ *
+ * One column list for all four callers rather than four tailored SELECTs —
+ * on a single row by primary key the extra columns cost nothing, and one
+ * shape is one thing to keep true.
+ */
+async function lockProject(client: PoolClient, projectId: number): Promise<LockedProject> {
+  const result = await client.query<LockedProject>(
+    `SELECT name, description, to_char(deadline, 'YYYY-MM-DD') AS deadline, status
+     FROM projects WHERE id = $1 FOR UPDATE`,
+    [projectId],
+  );
+  const project = result.rows[0];
+  if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
+  return project;
 }
 
 /** Keyed by revision id — the same product pinned to a different revision
@@ -300,29 +360,10 @@ router.get('/', requireAuth, async (req, res) => {
 // POST /api/projects — create as `draft` with its pinned products.
 router.post('/', requireAuth, async (req, res) => {
   const data = projectPayloadSchema.parse(req.body);
-  if (data.products.length === 0) {
-    return res.status(422).json({ code: ErrorCodes.PROJECT_HAS_NO_PRODUCTS });
-  }
-  if (hasDuplicateRevisions(data.products)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_DUPLICATE });
-  }
-
-  const revisionInfo = await fetchRevisionInfo(
-    pool,
-    data.products.map((p) => p.productRevisionId),
-  );
-  if (!revisionsMatchProducts(data.products, revisionInfo)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_MISMATCH });
-  }
-  if (hasArchivedProduct(data.products, revisionInfo)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_ARCHIVED });
-  }
+  await validateProductSet(data.products);
 
   const userId = req.user?.id;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const project = await withTransaction(async (client) => {
     const projectResult = await client.query<{ id: number }>(
       `INSERT INTO projects (name, description, deadline, created_by)
        VALUES ($1, $2, $3, $4)
@@ -332,35 +373,27 @@ router.post('/', requireAuth, async (req, res) => {
     const projectId = projectResult.rows[0].id;
 
     await insertProjectProducts(client, projectId, data.products);
-
-    const actor = await resolveActor(client, userId);
-    await logAudit(
+    await writeAudit(
       client,
       'project',
       projectId,
       'created',
       { snapshot: { name: data.name, productCount: data.products.length } },
-      actor,
+      userId,
     );
 
-    const project = await loadProject(client, projectId);
-    await client.query('COMMIT');
-    res.json(project);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return loadProject(client, projectId);
+  });
+
+  res.json(project);
 });
 
 // GET /api/projects/:id — project + its pinned products.
 router.get('/:id', requireAuth, async (req, res) => {
-  const projectId = parseId(req.params.id);
-  if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 
   const project = await loadProject(pool, projectId);
-  if (!project) return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
+  if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
   res.json(project);
 });
 
@@ -370,69 +403,114 @@ router.get('/:id', requireAuth, async (req, res) => {
 // Which of the two, and the one payload shape they share, is
 // `services/projectBom.ts`'s to decide — this route only says whose.
 router.get('/:id/parts', requireAuth, async (req, res) => {
-  const projectId = parseId(req.params.id);
-  if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 
   const projectResult = await query<{ status: ProjectStatus }>(
     `SELECT status FROM projects WHERE id = $1`,
     [projectId],
   );
   const project = projectResult.rows[0];
-  if (!project) return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
+  if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
 
   res.json(await loadProjectPartsPayload(pool, projectId, project.status));
+});
+
+// POST /api/projects/:id/start — freeze the BOM and claim stock (§5.2, §5.3).
+// One transaction: the parts list is recomputed inside it, the sourcing
+// columns are seeded from free stock, and the status flip lands with them or
+// not at all. A started project is then neither editable nor deletable, which
+// is what makes the frozen numbers trustworthy (decision 1).
+router.post('/:id/start', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+
+  const project = await withTransaction(async (client) => {
+    const before = await lockProject(client, projectId);
+    // Every non-draft status means the project was already started once:
+    // stopped and completed are terminal (migration 023), so there is no path
+    // back to a second freeze.
+    if (before.status !== 'draft') {
+      throw new ApiError(409, ErrorCodes.PROJECT_ALREADY_STARTED);
+    }
+
+    // Covers both refusals §5.3 asks for: a project with no products and one
+    // whose revisions carry no parts each freeze nothing.
+    if ((await freezeProjectBom(client, projectId)) === 0) {
+      throw new ApiError(409, ErrorCodes.PROJECT_HAS_NO_PARTS);
+    }
+
+    await client.query(
+      `UPDATE projects SET status = 'started', started_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [projectId],
+    );
+    await writeAudit(
+      client,
+      'project',
+      projectId,
+      'updated',
+      { fields: { status: { from: before.status, to: 'started' } } },
+      req.user?.id,
+    );
+
+    return loadProject(client, projectId);
+  });
+
+  res.json(project);
+});
+
+// POST /api/projects/:id/stop — a status flip, and deliberately nothing else.
+// The project's stock claims are released by the flip itself: §4.2 sums
+// `reserved` over started projects only, so a stopped one stops competing
+// without a row to delete. Its own frozen quantities are kept as the record
+// of what it had claimed.
+//
+// §8.4, settled here: open supplier orders are LEFT ALONE. The app cannot
+// cancel a real order — that is a phone call — so writing `cancelled` would
+// record something it has no way to know. The goods still arrive and land in
+// stock unreserved, because the project claiming them has already dropped out
+// of the aggregate. Story 15 therefore adds only a count to the Stop
+// confirmation ("3 open orders will still be delivered"), not a branch here.
+router.post('/:id/stop', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+
+  const project = await withTransaction(async (client) => {
+    const before = await lockProject(client, projectId);
+    if (before.status !== 'started') {
+      throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
+    }
+
+    await client.query(
+      `UPDATE projects SET status = 'stopped', stopped_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [projectId],
+    );
+    await writeAudit(
+      client,
+      'project',
+      projectId,
+      'updated',
+      { fields: { status: { from: before.status, to: 'stopped' } } },
+      req.user?.id,
+    );
+
+    return loadProject(client, projectId);
+  });
+
+  res.json(project);
 });
 
 // PATCH /api/projects/:id — replace fields and the whole product set.
 // Draft only: 409 PROJECT_NOT_EDITABLE otherwise.
 router.patch('/:id', requireAuth, async (req, res) => {
-  const projectId = parseId(req.params.id);
-  if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
-
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
   const data = projectPayloadSchema.parse(req.body);
-  if (data.products.length === 0) {
-    return res.status(422).json({ code: ErrorCodes.PROJECT_HAS_NO_PRODUCTS });
-  }
-  if (hasDuplicateRevisions(data.products)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_DUPLICATE });
-  }
-
-  const revisionInfo = await fetchRevisionInfo(
-    pool,
-    data.products.map((p) => p.productRevisionId),
-  );
-  if (!revisionsMatchProducts(data.products, revisionInfo)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_REVISION_MISMATCH });
-  }
-  if (hasArchivedProduct(data.products, revisionInfo)) {
-    return res.status(422).json({ code: ErrorCodes.PRODUCT_ARCHIVED });
-  }
+  const revisionInfo = await validateProductSet(data.products);
 
   const userId = req.user?.id;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    // Lock the row before checking status: a concurrent start must not race
-    // this edit into a project that is no longer a draft.
-    const existing = await client.query<{
-      name: string;
-      description: string | null;
-      deadline: string | null;
-      status: string;
-    }>(
-      `SELECT name, description, to_char(deadline, 'YYYY-MM-DD') AS deadline, status
-       FROM projects WHERE id = $1 FOR UPDATE`,
-      [projectId],
-    );
-    const before = existing.rows[0];
-    if (!before) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
-    }
+  const project = await withTransaction(async (client) => {
+    const before = await lockProject(client, projectId);
     if (before.status !== 'draft') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.PROJECT_NOT_EDITABLE });
+      throw new ApiError(409, ErrorCodes.PROJECT_NOT_EDITABLE);
     }
 
     // Snapshot the current product set (with names) before replacing it, so
@@ -485,70 +563,45 @@ router.patch('/:id', requireAuth, async (req, res) => {
     );
     const events = diffKeyedEvents(productsToKeyed(oldProducts.rows), newKeyed, 'product');
 
-    const changes: Record<string, unknown> = {};
-    if (Object.keys(fields).length > 0) changes.fields = fields;
-    if (events.length > 0) changes.events = events;
-    if (Object.keys(changes).length > 0) {
-      const actor = await resolveActor(client, userId);
-      await logAudit(client, 'project', projectId, 'updated', changes, actor);
-    }
+    await writeAudit(
+      client,
+      'project',
+      projectId,
+      'updated',
+      changeSet(fields, events),
+      userId,
+    );
 
-    const project = await loadProject(client, projectId);
-    await client.query('COMMIT');
-    res.json(project);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return loadProject(client, projectId);
+  });
+
+  res.json(project);
 });
 
 // DELETE /api/projects/:id — draft only: 409 PROJECT_NOT_EDITABLE otherwise.
 // Cascades (see migration 023) remove its products; nothing else can
 // reference a draft project since the BOM only freezes at Start.
 router.delete('/:id', requireAuth, async (req, res) => {
-  const projectId = parseId(req.params.id);
-  if (!projectId) return res.status(400).json({ code: ErrorCodes.INVALID_PROJECT_ID });
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const existing = await client.query<{ name: string; status: string }>(
-      `SELECT name, status FROM projects WHERE id = $1 FOR UPDATE`,
-      [projectId],
-    );
-    const project = existing.rows[0];
-    if (!project) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PROJECT_NOT_FOUND });
-    }
+  await withTransaction(async (client) => {
+    const project = await lockProject(client, projectId);
     if (project.status !== 'draft') {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.PROJECT_NOT_EDITABLE });
+      throw new ApiError(409, ErrorCodes.PROJECT_NOT_EDITABLE);
     }
 
     await client.query(`DELETE FROM projects WHERE id = $1`, [projectId]);
-
-    const actor = await resolveActor(client, req.user?.id);
-    await logAudit(
+    await writeAudit(
       client,
       'project',
       projectId,
       'deleted',
       { snapshot: { name: project.name } },
-      actor,
+      req.user?.id,
     );
+  });
 
-    await client.query('COMMIT');
-    res.json({ id: projectId, deleted: true });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  res.json({ id: projectId, deleted: true });
 });
 
 export default router;

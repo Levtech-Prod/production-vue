@@ -17,20 +17,15 @@ export const ErrorCodes = {
   CATEGORY_NOT_FOUND: 'CATEGORY_NOT_FOUND',
   INVALID_PARAMETER_ID: 'INVALID_PARAMETER_ID',
   PARAMETER_NOT_FOUND: 'PARAMETER_NOT_FOUND',
-  PARAMETER_UPDATE_FAILED: 'PARAMETER_UPDATE_FAILED',
   CATEGORY_PARAMETERS_IN_USE: 'CATEGORY_PARAMETERS_IN_USE',
-  CATEGORY_UPDATE_FAILED: 'CATEGORY_UPDATE_FAILED',
   CATEGORY_HAS_PARTS: 'CATEGORY_HAS_PARTS',
-  CATEGORY_DELETE_FAILED: 'CATEGORY_DELETE_FAILED',
 
   // parts
   PART_CODE_ALREADY_EXISTS: 'PART_CODE_ALREADY_EXISTS',
   INVALID_PART_ID: 'INVALID_PART_ID',
   PART_NOT_FOUND: 'PART_NOT_FOUND',
-  PART_UPDATE_FAILED: 'PART_UPDATE_FAILED',
   // Category names its parts manually ('custom' mode) but no name was given.
   PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
-  PART_DELETE_FAILED: 'PART_DELETE_FAILED',
   // A project's frozen BOM still claims this part. `project_parts.part_id` has
   // no ON DELETE, so the delete is blocked at the database too — this is the
   // friendly version of that. Also raised for the sub-product whose cascade

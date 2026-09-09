@@ -53,6 +53,59 @@ export interface AuditEvent {
 }
 
 /**
+ * How an image change is recorded: that it changed, never the value, which is
+ * a path or a data blob nobody wants in a log. Shared by parts, part
+ * categories and products because it is one decision about the log's shape,
+ * not three coincidences. Null when nothing changed, so the caller's guard is
+ * the assignment itself.
+ */
+export function imageChange(from: unknown, to: unknown): FieldChange | null {
+  if (valuesEqual(from, to)) return null;
+  return { from: from ? '(image)' : null, to: to ? '(image)' : null };
+}
+
+/**
+ * Assemble a `changes` payload, leaving out the parts that carry nothing.
+ *
+ * Every writer builds the same object and then guards on whether it is worth
+ * logging; doing it here is what lets `writeAudit` make that call instead of
+ * each caller spelling the guard its own way. `extra` is for the few payloads
+ * that carry something besides fields and events.
+ */
+export function changeSet(
+  fields: Record<string, FieldChange>,
+  events: AuditEvent[] = [],
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    ...(Object.keys(fields).length > 0 ? { fields } : {}),
+    ...(events.length > 0 ? { events } : {}),
+    ...extra,
+  };
+}
+
+/**
+ * Resolve the actor and write the row — the two calls every writer makes back
+ * to back, and the only reason `resolveActor` is exported separately.
+ *
+ * An empty `changes` writes nothing: an update that changed no field should
+ * leave no trail, and having that rule here rather than at each call site is
+ * what stops "did anything actually change?" being answered four ways.
+ */
+export async function writeAudit(
+  client: PoolClient,
+  entityType: string,
+  entityId: number,
+  action: AuditAction,
+  changes: Record<string, unknown>,
+  userId: number | null | undefined,
+): Promise<void> {
+  if (Object.keys(changes).length === 0) return;
+  const actor = await resolveActor(client, userId);
+  await logAudit(client, entityType, entityId, action, changes, actor);
+}
+
+/**
  * Insert one audit row on the given transaction client. Call before COMMIT so
  * the log and the underlying change succeed or fail together.
  */

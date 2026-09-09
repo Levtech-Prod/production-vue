@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { query, pool } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   partCategoryPayloadSchema,
@@ -8,14 +9,15 @@ import {
 } from '../schemas/partCategories.schema.js';
 import { regenerateCategoryPartNames } from '../services/partName.js';
 import {
-  logAudit,
-  resolveActor,
+  writeAudit,
+  changeSet,
   diffFields,
-  valuesEqual,
+  imageChange,
   diffKeyedEvents,
   type AuditEvent,
   type KeyedValue,
 } from '../services/audit.js';
+import { requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -84,9 +86,7 @@ router.get('/', requireAuth, async (_req, res) => {
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const data = partCategoryPayloadSchema.parse(req.body);
   const userId = req.user?.id;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const created = await withTransaction(async (client) => {
     const categoryResult = await client.query(
       `INSERT INTO part_categories (name, description, image, part_name_mode)
        VALUES ($1, $2, $3, $4)
@@ -119,38 +119,25 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       parameters.push(pResult.rows[0]);
     }
 
-    const actor = await resolveActor(client, userId);
-    await logAudit(client, 'part_category', category.id, 'created', {
+    await writeAudit(client, 'part_category', category.id, 'created', {
       snapshot: { name: data.name, description: data.description },
-    }, actor);
+    }, userId);
 
-    await client.query('COMMIT');
-    res.json({ ...category, parameters });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return { ...category, parameters };
+  });
+
+  res.json(created);
 });
 
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
-  const categoryId = Number(req.params.id);
-
-  if (!categoryId || Number.isNaN(categoryId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
-  }
-
+  const categoryId = requireId(req.params.id, ErrorCodes.INVALID_CATEGORY_ID);
   const data = partCategoryPayloadSchema.parse(req.body);
   const userId = req.user?.id;
-  const client = await pool.connect();
 
   // Parameter change events for the audit log; empty when `parameters` was omitted.
   let paramEvents: AuditEvent[] = [];
 
-  try {
-    await client.query('BEGIN');
-
+  const updated = await withTransaction(async (client) => {
     // Snapshot the pre-update row in the same statement (see parts.ts) so we get
     // old + new values without an extra query.
     const categoryResult = await client.query(
@@ -178,8 +165,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     );
 
     if (categoryResult.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.CATEGORY_NOT_FOUND });
+      throw new ApiError(404, ErrorCodes.CATEGORY_NOT_FOUND);
     }
 
     // Parameters are managed inline on the categories page, separately from
@@ -254,10 +240,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
         );
 
         if (usedResult.rowCount && usedResult.rowCount > 0) {
-          await client.query('ROLLBACK');
-
-          return res.status(409).json({
-            code: ErrorCodes.CATEGORY_PARAMETERS_IN_USE,
+          throw new ApiError(409, ErrorCodes.CATEGORY_PARAMETERS_IN_USE, {
             usedParameterIds: usedResult.rows.map((row) => row.parameter_id),
           });
         }
@@ -349,26 +332,20 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       ['name', 'description', 'part_name_mode'],
     ) as Record<string, { from: unknown; to: unknown }>;
 
-    if (!valuesEqual(row.oldImage, row.image)) {
-      fields.image = {
-        from: row.oldImage ? '(image)' : null,
-        to: row.image ? '(image)' : null,
-      };
-    }
+    const image = imageChange(row.oldImage, row.image);
+    if (image) fields.image = image;
 
-    const changes: Record<string, unknown> = {};
-    if (Object.keys(fields).length > 0) changes.fields = fields;
-    if (paramEvents.length > 0) changes.events = paramEvents;
-    // Logged once on the category — a rename can rewrite hundreds of part
-    // names, and one audit row each would drown the log.
-    if (regeneratedParts > 0) changes.regeneratedPartNames = regeneratedParts;
-
-    if (Object.keys(changes).length > 0) {
-      const actor = await resolveActor(client, userId);
-      await logAudit(client, 'part_category', categoryId, 'updated', changes, actor);
-    }
-
-    await client.query('COMMIT');
+    await writeAudit(
+      client,
+      'part_category',
+      categoryId,
+      'updated',
+      // The regenerated count is logged once on the category — a rename can
+      // rewrite hundreds of part names, and one audit row each would drown
+      // the log.
+      changeSet(fields, paramEvents, regeneratedParts > 0 ? { regeneratedPartNames: regeneratedParts } : {}),
+      userId,
+    );
 
     // Drop the old* snapshot columns — audit-only.
     const {
@@ -379,20 +356,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       ...categoryOut
     } = row;
 
-    res.json({
-      ...categoryOut,
-      parameters: updatedParametersResult.rows,
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error(error);
+    return { ...categoryOut, parameters: updatedParametersResult.rows };
+  });
 
-    res.status(500).json({
-      code: ErrorCodes.CATEGORY_UPDATE_FAILED,
-    });
-  } finally {
-    client.release();
-  }
+  res.json(updated);
 });
 
 // Toggle a single parameter's "show as column" flag. A focused endpoint so
@@ -403,16 +370,8 @@ router.patch(
   requireAuth,
   requireAdmin,
   async (req, res) => {
-    const categoryId = Number(req.params.categoryId);
-    const parameterId = Number(req.params.parameterId);
-
-    if (!categoryId || Number.isNaN(categoryId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_CATEGORY_ID });
-    }
-
-    if (!parameterId || Number.isNaN(parameterId)) {
-      return res.status(400).json({ code: ErrorCodes.INVALID_PARAMETER_ID });
-    }
+    const categoryId = requireId(req.params.categoryId, ErrorCodes.INVALID_CATEGORY_ID);
+    const parameterId = requireId(req.params.parameterId, ErrorCodes.INVALID_PARAMETER_ID);
 
     // Validated before touching the DB; a ZodError propagates to the global
     // handler and is returned as structured, localizable validation issues.
@@ -421,11 +380,7 @@ router.patch(
     // Transactional because the column flag also decides which parameters feed
     // generated part names: the toggle and the rename of every affected part
     // have to land together.
-    const client = await pool.connect();
-
-    try {
-      await client.query('BEGIN');
-
+    const parameter = await withTransaction(async (client) => {
       const result = await client.query(
         `UPDATE part_category_parameters
          SET show_as_column = $1
@@ -438,38 +393,21 @@ router.patch(
       );
 
       if (result.rowCount === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ code: ErrorCodes.PARAMETER_NOT_FOUND });
+        throw new ApiError(404, ErrorCodes.PARAMETER_NOT_FOUND);
       }
 
       await regenerateCategoryPartNames(client, categoryId);
-      await client.query('COMMIT');
+      return result.rows[0];
+    });
 
-      res.json(result.rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error(error);
-      res.status(500).json({ code: ErrorCodes.PARAMETER_UPDATE_FAILED });
-    } finally {
-      client.release();
-    }
+    res.json(parameter);
   },
 );
 
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
-  const client = await pool.connect();
+  const categoryId = requireId(req.params.id, ErrorCodes.INVALID_CATEGORY_ID);
 
-  try {
-    const categoryId = Number(req.params.id);
-
-    if (!categoryId || Number.isNaN(categoryId)) {
-      return res.status(400).json({
-        code: ErrorCodes.INVALID_CATEGORY_ID,
-      });
-    }
-
-    await client.query('BEGIN');
-
+  await withTransaction(async (client) => {
     const linkedPartsResult = await client.query(
       `
       SELECT COUNT(*)::int AS count
@@ -480,11 +418,7 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     );
 
     if (linkedPartsResult.rows[0].count > 0) {
-      await client.query('ROLLBACK');
-
-      return res.status(409).json({
-        code: ErrorCodes.CATEGORY_HAS_PARTS,
-      });
+      throw new ApiError(409, ErrorCodes.CATEGORY_HAS_PARTS);
     }
 
     await client.query(
@@ -505,34 +439,15 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     );
 
     if (deleteResult.rowCount === 0) {
-      await client.query('ROLLBACK');
-
-      return res.status(404).json({
-        code: ErrorCodes.CATEGORY_NOT_FOUND,
-      });
+      throw new ApiError(404, ErrorCodes.CATEGORY_NOT_FOUND);
     }
 
-    const actor = await resolveActor(client, req.user?.id);
-    await logAudit(client, 'part_category', categoryId, 'deleted', {
+    await writeAudit(client, 'part_category', categoryId, 'deleted', {
       snapshot: { name: deleteResult.rows[0].name },
-    }, actor);
+    }, req.user?.id);
+  });
 
-    await client.query('COMMIT');
-
-    res.json({
-      message: 'Kategória sikeresen törölve.',
-      id: categoryId,
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error(error);
-
-    res.status(500).json({
-      code: ErrorCodes.CATEGORY_DELETE_FAILED,
-    });
-  } finally {
-    client.release();
-  }
+  res.json({ message: 'Kategória sikeresen törölve.', id: categoryId });
 });
 
 export default router;

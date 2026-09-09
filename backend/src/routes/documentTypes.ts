@@ -12,10 +12,10 @@
 // column names interpolated into the SQL come only from the SCOPES literal
 // below, never from request input; all values stay parameterized.
 import { Router } from 'express';
-import type { Response } from 'express';
-import { query, pool } from '../db.js';
+import { query, pool, withTransaction, isUniqueViolation } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { ErrorCodes } from '../errorCodes.js';
+import { ApiError } from '../apiError.js';
+import { ErrorCodes, type ErrorCode } from '../errorCodes.js';
 import {
   documentTypePayloadSchema,
   documentTypeReorderSchema,
@@ -51,14 +51,14 @@ interface ScopeConfig {
   /** Which family the document-revision helpers should act on. */
   documentScope: DocumentScope;
   errors: {
-    invalidEntityId: string;
-    entityNotFound: string;
-    invalidTypeId: string;
-    typeNotFound: string;
-    invalidTemplateId: string;
-    templateNotFound: string;
-    alreadyExists: string;
-    reorderMismatch: string;
+    invalidEntityId: ErrorCode;
+    entityNotFound: ErrorCode;
+    invalidTypeId: ErrorCode;
+    typeNotFound: ErrorCode;
+    invalidTemplateId: ErrorCode;
+    templateNotFound: ErrorCode;
+    alreadyExists: ErrorCode;
+    reorderMismatch: ErrorCode;
   };
 }
 
@@ -142,17 +142,12 @@ function documentTypeRow(row: DocumentTypeDbRow) {
   };
 }
 
-/** Postgres unique violation — a name already taken within one scope. */
-function isUniqueViolation(err: unknown): boolean {
-  return (err as { code?: string })?.code === '23505';
-}
-
 // ── Type-scoped templates (settings page) ──────────────────────────────────
 
 /** The type's own templates, in display order. Templates a single entity
  *  defines for itself are deliberately absent: this is the settings list, and
  *  those are managed from that entity's Documents panel. */
-async function listForType(res: Response, config: ScopeConfig, typeId: number) {
+async function listForType(config: ScopeConfig, typeId: number) {
   const result = await query<DocumentTypeDbRow>(
     `SELECT ${columns(config)}
      FROM ${config.table}
@@ -160,19 +155,14 @@ async function listForType(res: Response, config: ScopeConfig, typeId: number) {
      ORDER BY sort_order ASC, name ASC`,
     [typeId],
   );
-  return res.json(result.rows.map(documentTypeRow));
+  return result.rows.map(documentTypeRow);
 }
 
-async function createForType(
-  res: Response,
-  config: ScopeConfig,
-  typeId: number,
-  data: DocumentTypePayload,
-) {
+async function createForType(config: ScopeConfig, typeId: number, data: DocumentTypePayload) {
   const { table, typeColumn, typeTable, errors } = config;
 
   const typeExists = await query(`SELECT 1 FROM ${typeTable} WHERE id = $1`, [typeId]);
-  if (typeExists.rowCount === 0) return res.status(404).json({ code: errors.typeNotFound });
+  if (typeExists.rowCount === 0) throw new ApiError(404, errors.typeNotFound);
 
   try {
     const result = await query<DocumentTypeDbRow>(
@@ -185,9 +175,9 @@ async function createForType(
        RETURNING ${columns(config)}`,
       [typeId, data.name, data.icon, data.allowedExtensions, data.required],
     );
-    return res.status(201).json(documentTypeRow(result.rows[0]));
+    return documentTypeRow(result.rows[0]);
   } catch (err) {
-    if (isUniqueViolation(err)) return res.status(409).json({ code: errors.alreadyExists });
+    if (isUniqueViolation(err)) throw new ApiError(409, errors.alreadyExists);
     throw err;
   }
 }
@@ -198,18 +188,10 @@ async function createForType(
  * partial list would silently leave the rest at stale positions, so a mismatch
  * is rejected rather than half-applied.
  */
-async function reorderForType(
-  res: Response,
-  config: ScopeConfig,
-  typeId: number,
-  orderedIds: number[],
-) {
+async function reorderForType(config: ScopeConfig, typeId: number, orderedIds: number[]) {
   const { table, typeColumn, errors } = config;
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  return withTransaction(async (client) => {
     const existing = await client.query<{ id: number }>(
       `SELECT id FROM ${table} WHERE ${typeColumn} = $1`,
       [typeId],
@@ -219,10 +201,7 @@ async function reorderForType(
     const sameSet =
       existingIds.size === incomingIds.size && [...existingIds].every((id) => incomingIds.has(id));
 
-    if (!sameSet) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ code: errors.reorderMismatch });
-    }
+    if (!sameSet) throw new ApiError(400, errors.reorderMismatch);
 
     // One statement rather than a round trip per row: `WITH ORDINALITY`
     // numbers the array 1..n, and `- 1` keeps the stored order zero-based.
@@ -242,14 +221,8 @@ async function reorderForType(
       [typeId],
     );
 
-    await client.query('COMMIT');
-    return res.json(result.rows.map(documentTypeRow));
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return result.rows.map(documentTypeRow);
+  });
 }
 
 // ── Entity-scoped templates (Documents panel) ──────────────────────────────
@@ -290,58 +263,44 @@ async function nameTaken(
 }
 
 /** Create a template belonging to one entity rather than to its type. */
-async function createForEntity(
-  res: Response,
-  config: ScopeConfig,
-  entityId: number,
-  data: DocumentTypePayload,
-) {
+async function createForEntity(config: ScopeConfig, entityId: number, data: DocumentTypePayload) {
   const { entityTable, table, entityColumn, errors } = config;
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    return await withTransaction(async (client) => {
+      // FOR UPDATE, so two concurrent creates on the same entity serialise. The
+      // unique index catches a same-scope duplicate on its own, but the
+      // cross-scope check above it is a read followed by a write, and without
+      // the lock both requests could pass it and both insert.
+      const entity = await client.query(
+        `SELECT 1 FROM ${entityTable} WHERE id = $1 FOR UPDATE`,
+        [entityId],
+      );
+      if (entity.rowCount === 0) throw new ApiError(404, errors.entityNotFound);
 
-    // FOR UPDATE, so two concurrent creates on the same entity serialise. The
-    // unique index catches a same-scope duplicate on its own, but the
-    // cross-scope check above it is a read followed by a write, and without
-    // the lock both requests could pass it and both insert.
-    const entity = await client.query(
-      `SELECT 1 FROM ${entityTable} WHERE id = $1 FOR UPDATE`,
-      [entityId],
-    );
-    if (entity.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: errors.entityNotFound });
-    }
+      if (await nameTaken(client, config, entityId, data.name)) {
+        throw new ApiError(409, errors.alreadyExists);
+      }
 
-    if (await nameTaken(client, config, entityId, data.name)) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: errors.alreadyExists });
-    }
+      // sort_order counts only the entity's OWN templates; inherited ones have
+      // their own sequence and the two are separated by the panel's ordering
+      // (see documentTypesQuery), never interleaved by number.
+      const result = await client.query<DocumentTypeDbRow>(
+        `INSERT INTO ${table}
+           (${entityColumn}, name, icon, allowed_extensions, required, revision_mode, sort_order)
+         VALUES (
+           $1, $2, $3, $4::text[], $5, $6,
+           COALESCE((SELECT MAX(sort_order) + 1 FROM ${table} WHERE ${entityColumn} = $1), 0)
+         )
+         RETURNING ${columns(config)}`,
+        [entityId, data.name, data.icon, data.allowedExtensions, data.required, data.revisionMode],
+      );
 
-    // sort_order counts only the entity's OWN templates; inherited ones have
-    // their own sequence and the two are separated by the panel's ordering
-    // (see documentTypesQuery), never interleaved by number.
-    const result = await client.query<DocumentTypeDbRow>(
-      `INSERT INTO ${table}
-         (${entityColumn}, name, icon, allowed_extensions, required, revision_mode, sort_order)
-       VALUES (
-         $1, $2, $3, $4::text[], $5, $6,
-         COALESCE((SELECT MAX(sort_order) + 1 FROM ${table} WHERE ${entityColumn} = $1), 0)
-       )
-       RETURNING ${columns(config)}`,
-      [entityId, data.name, data.icon, data.allowedExtensions, data.required, data.revisionMode],
-    );
-
-    await client.query('COMMIT');
-    return res.status(201).json(documentTypeRow(result.rows[0]));
+      return documentTypeRow(result.rows[0]);
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
-    if (isUniqueViolation(err)) return res.status(409).json({ code: errors.alreadyExists });
+    if (isUniqueViolation(err)) throw new ApiError(409, errors.alreadyExists);
     throw err;
-  } finally {
-    client.release();
   }
 }
 
@@ -371,69 +330,54 @@ async function templateHasContent(
  *
  * `sort_order` is intentionally left untouched: only reorder changes ordering.
  */
-async function updateTemplate(
-  res: Response,
-  config: ScopeConfig,
-  id: number,
-  data: DocumentTypePayload,
-) {
+async function updateTemplate(config: ScopeConfig, id: number, data: DocumentTypePayload) {
   const { table, entityColumn, errors } = config;
 
-  // One transaction with the row locked: the mode check below is a read
-  // followed by a write, and a version created in between would be stranded on
-  // a card that is no longer versioned.
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    // One transaction with the row locked: the mode check below is a read
+    // followed by a write, and a version created in between would be stranded
+    // on a card that is no longer versioned.
+    return await withTransaction(async (client) => {
+      const existing = await client.query<{ entity_id: number | null; revision_mode: boolean }>(
+        `SELECT ${entityColumn} AS entity_id, revision_mode FROM ${table} WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (existing.rowCount === 0) throw new ApiError(404, errors.templateNotFound);
 
-    const existing = await client.query<{ entity_id: number | null; revision_mode: boolean }>(
-      `SELECT ${entityColumn} AS entity_id, revision_mode FROM ${table} WHERE id = $1 FOR UPDATE`,
-      [id],
-    );
-    if (existing.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: errors.templateNotFound });
-    }
+      // Only meaningful for an entity-scoped row; a type-scoped one is covered by
+      // its partial unique index alone (see nameTaken).
+      const entityId = existing.rows[0].entity_id;
+      if (entityId !== null && (await nameTaken(client, config, entityId, data.name, id))) {
+        throw new ApiError(409, errors.alreadyExists);
+      }
 
-    // Only meaningful for an entity-scoped row; a type-scoped one is covered by
-    // its partial unique index alone (see nameTaken).
-    const entityId = existing.rows[0].entity_id;
-    if (entityId !== null && (await nameTaken(client, config, entityId, data.name, id))) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: errors.alreadyExists });
-    }
+      // A type-scoped template can never be versioned (migration 022's CHECK): it
+      // is shared by every product of its type, so it has no single history to own.
+      const wasRevisionMode = existing.rows[0].revision_mode;
+      const revisionMode = entityId === null ? false : data.revisionMode;
+      if (
+        revisionMode !== wasRevisionMode &&
+        (await templateHasContent(client, config, id, wasRevisionMode))
+      ) {
+        // Turning it on would hide the card's documents; turning it off would
+        // strand its versions. Neither is recoverable by toggling back.
+        throw new ApiError(409, ErrorCodes.DOCUMENT_TYPE_REVISION_MODE_LOCKED);
+      }
 
-    // A type-scoped template can never be versioned (migration 022's CHECK): it
-    // is shared by every product of its type, so it has no single history to own.
-    const wasRevisionMode = existing.rows[0].revision_mode;
-    const revisionMode = entityId === null ? false : data.revisionMode;
-    if (
-      revisionMode !== wasRevisionMode &&
-      (await templateHasContent(client, config, id, wasRevisionMode))
-    ) {
-      // Turning it on would hide the card's documents; turning it off would
-      // strand its versions. Neither is recoverable by toggling back.
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.DOCUMENT_TYPE_REVISION_MODE_LOCKED });
-    }
+      const result = await client.query<DocumentTypeDbRow>(
+        `UPDATE ${table}
+         SET name = $1, icon = $2, allowed_extensions = $3::text[], required = $4,
+             revision_mode = $5
+         WHERE id = $6
+         RETURNING ${columns(config)}`,
+        [data.name, data.icon, data.allowedExtensions, data.required, revisionMode, id],
+      );
 
-    const result = await client.query<DocumentTypeDbRow>(
-      `UPDATE ${table}
-       SET name = $1, icon = $2, allowed_extensions = $3::text[], required = $4,
-           revision_mode = $5
-       WHERE id = $6
-       RETURNING ${columns(config)}`,
-      [data.name, data.icon, data.allowedExtensions, data.required, revisionMode, id],
-    );
-
-    await client.query('COMMIT');
-    return res.json(documentTypeRow(result.rows[0]));
+      return documentTypeRow(result.rows[0]);
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
-    if (isUniqueViolation(err)) return res.status(409).json({ code: errors.alreadyExists });
+    if (isUniqueViolation(err)) throw new ApiError(409, errors.alreadyExists);
     throw err;
-  } finally {
-    client.release();
   }
 }
 
@@ -446,52 +390,38 @@ async function updateTemplate(
  * A versioned card is the exception — its versions have nowhere to be demoted
  * to, so they cascade away with it and their folders go too.
  */
-async function deleteTemplate(res: Response, config: ScopeConfig, id: number) {
+async function deleteTemplate(config: ScopeConfig, id: number) {
   const { table, revisionDocumentTable, documentScope, errors } = config;
 
   const owner = await findRevisionOwnerByType(pool, documentScope, id);
 
-  let affectedCount: number;
-  let revisionIds: number[];
-  let storageKeys: string[];
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const removed = await withTransaction(async (client) => {
     const affected = await client.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM ${revisionDocumentTable} WHERE document_type_id = $1`,
       [id],
     );
-    affectedCount = affected.rows[0].count;
+    const affectedCount = affected.rows[0].count;
 
     // Inside the transaction and before the DELETE: the cascade takes the
     // version rows with it, and afterwards there is nothing left to locate
     // their files from. Reading them outside would also miss a version created
     // in the meantime.
-    revisionIds = await listRevisionIds(client, documentScope, id);
-    storageKeys = await listRevisionFileKeys(client, revisionIds);
+    const revisionIds = await listRevisionIds(client, documentScope, id);
+    const storageKeys = await listRevisionFileKeys(client, revisionIds);
 
     const result = await client.query(`DELETE FROM ${table} WHERE id = $1 RETURNING id`, [id]);
-    if (result.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: errors.templateNotFound });
-    }
+    if (result.rowCount === 0) throw new ApiError(404, errors.templateNotFound);
 
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return { affectedCount, revisionIds, storageKeys };
+  });
 
-  if (owner) removeRevisionFiles(owner, revisionIds, storageKeys);
-  return res.json({
+  if (owner) removeRevisionFiles(owner, removed.revisionIds, removed.storageKeys);
+  return {
     id,
     deleted: true,
-    filesMovedToOther: affectedCount,
-    versionsDeleted: revisionIds.length,
-  });
+    filesMovedToOther: removed.affectedCount,
+    versionsDeleted: removed.revisionIds.length,
+  };
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────────
@@ -512,16 +442,15 @@ function registerRoutes(
 
   // GET /api/<typeBase>/:typeId/document-types
   router.get(`/${typeBase}/:typeId/document-types`, requireAuth, async (req, res) => {
-    const typeId = requireId(res, req.params.typeId, errors.invalidTypeId);
-    if (typeId === null) return;
-    return listForType(res, config, typeId);
+    const typeId = requireId(req.params.typeId, errors.invalidTypeId);
+    res.json(await listForType(config, typeId));
   });
 
   // POST /api/<typeBase>/:typeId/document-types
   router.post(`/${typeBase}/:typeId/document-types`, requireAuth, requireAdmin, async (req, res) => {
-    const typeId = requireId(res, req.params.typeId, errors.invalidTypeId);
-    if (typeId === null) return;
-    return createForType(res, config, typeId, documentTypePayloadSchema.parse(req.body));
+    const typeId = requireId(req.params.typeId, errors.invalidTypeId);
+    const data = documentTypePayloadSchema.parse(req.body);
+    res.status(201).json(await createForType(config, typeId, data));
   });
 
   // PUT /api/<typeBase>/:typeId/document-types/reorder — registered before the
@@ -531,10 +460,9 @@ function registerRoutes(
     requireAuth,
     requireAdmin,
     async (req, res) => {
-      const typeId = requireId(res, req.params.typeId, errors.invalidTypeId);
-      if (typeId === null) return;
+      const typeId = requireId(req.params.typeId, errors.invalidTypeId);
       const data = documentTypeReorderSchema.parse(req.body);
-      return reorderForType(res, config, typeId, data.orderedIds);
+      res.json(await reorderForType(config, typeId, data.orderedIds));
     },
   );
 
@@ -545,24 +473,22 @@ function registerRoutes(
     requireAuth,
     requireAdmin,
     async (req, res) => {
-      const entityId = requireId(res, req.params.entityId, errors.invalidEntityId);
-      if (entityId === null) return;
-      return createForEntity(res, config, entityId, documentTypePayloadSchema.parse(req.body));
+      const entityId = requireId(req.params.entityId, errors.invalidEntityId);
+      const data = documentTypePayloadSchema.parse(req.body);
+      res.status(201).json(await createForEntity(config, entityId, data));
     },
   );
 
   // PUT /api/<itemBase>/:id — type-scoped and entity-scoped alike
   router.put(`/${itemBase}/:id`, requireAuth, requireAdmin, async (req, res) => {
-    const id = requireId(res, req.params.id, errors.invalidTemplateId);
-    if (id === null) return;
-    return updateTemplate(res, config, id, documentTypePayloadSchema.parse(req.body));
+    const id = requireId(req.params.id, errors.invalidTemplateId);
+    res.json(await updateTemplate(config, id, documentTypePayloadSchema.parse(req.body)));
   });
 
   // DELETE /api/<itemBase>/:id
   router.delete(`/${itemBase}/:id`, requireAuth, requireAdmin, async (req, res) => {
-    const id = requireId(res, req.params.id, errors.invalidTemplateId);
-    if (id === null) return;
-    return deleteTemplate(res, config, id);
+    const id = requireId(req.params.id, errors.invalidTemplateId);
+    res.json(await deleteTemplate(config, id));
   });
 }
 
