@@ -28,6 +28,7 @@
 //   npm run test:projectStock
 // ===========================================================================
 import { pool } from '../db.js';
+import { check, report, failureCount } from '../testing/check.js';
 import type { Queryable } from '../db.js';
 import { getAvailableQuantities, getReservedQuantities, getPartStock } from './projectStock.js';
 
@@ -44,15 +45,6 @@ const PROJECT_STARTED_A = 9990001; // outstanding claim on PART_CLAIMED_TWICE
 const PROJECT_STOPPED_B = 9990002; // claim on PART_CLAIMED_TWICE, but stopped
 const PROJECT_STARTED_C = 9990003; // fully-prepared claim on PART_FULLY_PREPARED_CLAIM
 const PROJECT_CALLER = 9990004; // the project "asking" — has no claims of its own
-
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  console.log(
-    `${ok ? 'ok  ' : 'FAIL'}  ${label}  actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
-  );
-  if (!ok) failures++;
-}
 
 /** Wraps a Queryable and counts how many statements are sent through it. */
 function countingQueryable(db: Queryable): { db: Queryable; count: () => number } {
@@ -187,13 +179,13 @@ async function main() {
     await getReservedQuantities(reservedCounter.db, [PART_NO_STOCK, PART_CLAIMED_TWICE], PROJECT_CALLER);
     check('getReservedQuantities issues exactly one round trip', reservedCounter.count(), 1);
 
-    console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
+    report();
   } finally {
     await client.query('ROLLBACK');
     client.release();
   }
   await pool.end();
-  process.exit(failures === 0 ? 0 : 1);
+  process.exit(failureCount() === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {

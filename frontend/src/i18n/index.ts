@@ -746,6 +746,8 @@ const messages = {
         'Add at least one product before starting the project.',
       PROJECT_HAS_NO_PARTS:
         'The selected products contain no parts, so there is nothing to prepare.',
+      PROJECT_BOM_QUANTITY_INVALID:
+        'These parts have a quantity of zero or less and must be corrected on the product revision before the project can be started: {parts}',
       PRODUCT_REVISION_MISMATCH:
         'The selected revision does not belong to that product.',
       PRODUCT_REVISION_DUPLICATE:
@@ -1604,6 +1606,8 @@ const messages = {
         'A projekt indításához legalább egy terméket hozzá kell adni.',
       PROJECT_HAS_NO_PARTS:
         'A kiválasztott termékek nem tartalmaznak alkatrészt, így nincs mit előkészíteni.',
+      PROJECT_BOM_QUANTITY_INVALID:
+        'Az alábbi alkatrészek mennyisége nulla vagy annál kevesebb, ezt a termék revízióján javítani kell a projekt indítása előtt: {parts}',
       PRODUCT_REVISION_MISMATCH:
         'A kiválasztott revízió nem ehhez a termékhez tartozik.',
       PRODUCT_REVISION_DUPLICATE:

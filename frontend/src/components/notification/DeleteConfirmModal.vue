@@ -6,6 +6,7 @@
     :confirm-text="t(confirmTextKey ?? 'delete')"
     :cancel-text="t('cancel')"
     :variant="variant"
+    :initial-focus="initialFocus"
     :loading="loading"
     @confirm="emit('confirm')"
     @cancel="emit('cancel')"
@@ -43,6 +44,8 @@ const props = defineProps<{
   confirmTextKey?: string;
   /** Confirm button colour, defaulting to the destructive red. */
   variant?: 'danger' | 'primary';
+  /** Which button opens focused; defaults to Cancel. See ConfirmModal. */
+  initialFocus?: 'cancel' | 'confirm';
   loading?: boolean;
 }>();
 

@@ -8,16 +8,15 @@
 // parameter. It is a literal from the two configs below and never touches
 // request data — the same device `documentTypes.ts` uses for its pair.
 import { Router } from 'express';
-import type { z } from 'zod';
 import { query, isUniqueViolation, isForeignKeyViolation } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { ApiError } from '../apiError.js';
 import type { ErrorCode } from '../errorCodes.js';
+import { typePayloadSchema } from '../schemas/entityTypes.schema.js';
 import { requireId } from './routeParams.js';
 
 export interface TypeRouterConfig {
   table: 'product_types' | 'sub_product_types';
-  schema: z.ZodType<{ name: string }>;
   codes: {
     invalidId: ErrorCode;
     notFound: ErrorCode;
@@ -29,7 +28,7 @@ export interface TypeRouterConfig {
 
 const ROW = `id, name, created_at AS "createdAt"`;
 
-export function createTypeRouter({ table, schema, codes }: TypeRouterConfig): Router {
+export function createTypeRouter({ table, codes }: TypeRouterConfig): Router {
   const router = Router();
 
   // Any logged-in user may read the list (it populates the "type" select on
@@ -40,7 +39,7 @@ export function createTypeRouter({ table, schema, codes }: TypeRouterConfig): Ro
   });
 
   router.post('/', requireAuth, requireAdmin, async (req, res) => {
-    const data = schema.parse(req.body);
+    const data = typePayloadSchema.parse(req.body);
     try {
       const result = await query(
         `INSERT INTO ${table} (name) VALUES ($1) RETURNING ${ROW}`,
@@ -55,7 +54,7 @@ export function createTypeRouter({ table, schema, codes }: TypeRouterConfig): Ro
 
   router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const id = requireId(req.params.id, codes.invalidId);
-    const data = schema.parse(req.body);
+    const data = typePayloadSchema.parse(req.body);
     try {
       // Renaming cascades to the entity's `type` column via the FK's
       // ON UPDATE CASCADE.

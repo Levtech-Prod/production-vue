@@ -1,12 +1,10 @@
 // GET /api/sub-product-types and its admin-only CRUD. The endpoints themselves
 // are `createTypeRouter`, shared with the product types (see there).
-import { subProductTypePayloadSchema } from '../schemas/subProductTypes.schema.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { createTypeRouter } from './typeRoutes.js';
 
 export default createTypeRouter({
   table: 'sub_product_types',
-  schema: subProductTypePayloadSchema,
   codes: {
     invalidId: ErrorCodes.INVALID_SUB_PRODUCT_TYPE_ID,
     notFound: ErrorCodes.SUB_PRODUCT_TYPE_NOT_FOUND,

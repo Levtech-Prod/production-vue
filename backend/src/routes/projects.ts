@@ -432,11 +432,9 @@ router.post('/:id/start', requireAuth, async (req, res) => {
       throw new ApiError(409, ErrorCodes.PROJECT_ALREADY_STARTED);
     }
 
-    // Covers both refusals §5.3 asks for: a project with no products and one
-    // whose revisions carry no parts each freeze nothing.
-    if ((await freezeProjectBom(client, projectId)) === 0) {
-      throw new ApiError(409, ErrorCodes.PROJECT_HAS_NO_PARTS);
-    }
+    // Refuses a project with nothing to freeze, or one whose BOM carries a
+    // quantity the frozen table could not hold (see `freezeProjectBom`).
+    await freezeProjectBom(client, projectId);
 
     await client.query(
       `UPDATE projects SET status = 'started', started_at = NOW(), updated_at = NOW()

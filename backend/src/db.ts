@@ -8,6 +8,11 @@ export interface Queryable {
   query<T extends QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>>;
 }
 
+/** Postgres `integer`'s ceiling. Anything past it raises a raw 22003 at the
+ *  `::int` cast rather than failing as a bad request, so both the id parser
+ *  and the payload schemas refuse it first. */
+export const POSTGRES_INT_MAX = 2147483647;
+
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL
 });
@@ -30,18 +35,27 @@ export async function query<T extends pg.QueryResultRow = any>(
  */
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
+  // A rollback only fails when the connection is already in trouble, and a
+  // connection that may still be inside a transaction must not be handed to
+  // the next request — `release(true)` destroys it instead.
+  let unusable = false;
   try {
     await client.query('BEGIN');
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    // A rollback that fails — a dropped connection, normally — must not
-    // replace the error that caused it, which is the one worth reading.
-    await client.query('ROLLBACK').catch(() => undefined);
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      // Logged rather than thrown: the error being handled is the one that
+      // explains the failure, and replacing it with this one loses that.
+      unusable = true;
+      console.error('ROLLBACK failed; discarding the connection', rollbackErr);
+    }
     throw err;
   } finally {
-    client.release();
+    client.release(unusable);
   }
 }
 

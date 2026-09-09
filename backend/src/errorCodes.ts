@@ -152,6 +152,12 @@ export const ErrorCodes = {
   PROJECT_NOT_STARTED: 'PROJECT_NOT_STARTED',
   PROJECT_HAS_NO_PRODUCTS: 'PROJECT_HAS_NO_PRODUCTS',
   PROJECT_HAS_NO_PARTS: 'PROJECT_HAS_NO_PARTS',
+  // A BOM line the project depends on has a quantity of zero or less.
+  // `sub_product_revision_parts.quantity` carries no positivity CHECK, so such
+  // rows are representable in data predating the API validation, and
+  // `project_parts.required_qty > 0` would otherwise refuse the freeze as an
+  // unattributable constraint violation.
+  PROJECT_BOM_QUANTITY_INVALID: 'PROJECT_BOM_QUANTITY_INVALID',
   // The pinned revision does not belong to the product it was added under.
   PRODUCT_REVISION_MISMATCH: 'PRODUCT_REVISION_MISMATCH',
   // The same product revision was listed twice in one project's product set.

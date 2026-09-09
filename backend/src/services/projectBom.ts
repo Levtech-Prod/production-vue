@@ -18,6 +18,8 @@
 // no stock — a different question at a different grain.
 // ===========================================================================
 import type { PoolClient } from 'pg';
+import { ApiError } from '../apiError.js';
+import { ErrorCodes } from '../errorCodes.js';
 import type { Queryable } from '../db.js';
 import type { ProjectStatus } from '../schemas/projects.schema.js';
 import { getPartStock, type PartStock } from './projectStock.js';
@@ -263,9 +265,11 @@ const PROJECT_START_LOCK_KEY = 23_000_001;
  * Must run inside the Start transaction, which is why it takes a client and
  * not a `Queryable`: the advisory lock is held only until that transaction
  * ends, and the seeded claims are only true if the status flip commits with
- * them. Returns the number of part rows written — 0 means the pinned
- * revisions yield no parts, which the caller refuses with
- * `PROJECT_HAS_NO_PARTS`.
+ * them. Returns the number of part rows written.
+ *
+ * Both ways a project can fail to freeze are refused here rather than left to
+ * the table's constraints, because a constraint violation reaches the user as
+ * a bare 500 that names nothing.
  */
 export async function freezeProjectBom(
   client: PoolClient,
@@ -278,7 +282,20 @@ export async function freezeProjectBom(
   // this reads after any start that held the lock before us has committed, so
   // its claim is already part of `reserved`.
   const bom = await computeProjectBom(client, projectId);
-  if (bom.length === 0) return 0;
+  // No products, or products whose revisions carry no parts (§5.3).
+  if (bom.length === 0) throw new ApiError(409, ErrorCodes.PROJECT_HAS_NO_PARTS);
+
+  // §3.3's precondition: `sub_product_revision_parts.quantity` has no
+  // positivity CHECK of its own, so a zero or negative BOM line is
+  // representable in older data. `project_parts.required_qty > 0` would refuse
+  // it a statement later as SQLSTATE 23514 — a 500 naming nothing — so it is
+  // caught here instead, naming the parts whose quantity has to be fixed.
+  const invalid = bom.filter((row) => row.requiredQty <= 0);
+  if (invalid.length > 0) {
+    throw new ApiError(409, ErrorCodes.PROJECT_BOM_QUANTITY_INVALID, {
+      parts: invalid.map((row) => `${row.part.name} (${row.part.code})`).join(', '),
+    });
+  }
 
   // Two bulk inserts rather than §3.4's insert-from-select: that would be the
   // §3.4 aggregation written a second time, and the two would drift. The
@@ -286,10 +303,7 @@ export async function freezeProjectBom(
   // one statement without re-deriving the join anyway.
   //
   // The progress buckets and `missing_qty_overridden` are left to their
-  // column defaults — zero and false is exactly what Start means. And a
-  // `required_qty` of <= 0 is left to the table's CHECK: a BOM line of <= 0
-  // is still representable (§3.3's precondition), and failing the freeze is
-  // the intended outcome, since rounding it up here would hide the bad line.
+  // column defaults — zero and false is exactly what Start means.
   const inserted = await client.query<{ id: number; partId: number }>(
     `INSERT INTO project_parts (project_id, part_id, required_qty, from_stock_qty, missing_qty)
      SELECT $1::int, part_id, required_qty, from_stock_qty, missing_qty

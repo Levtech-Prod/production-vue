@@ -84,7 +84,10 @@
 
     <!-- Start is confirmed like the two destructive actions because it is
          just as final: it freezes the parts list, claims stock, and leaves a
-         project that can no longer be edited or deleted. -->
+         project that can no longer be edited or deleted. Blue rather than red
+         because nothing is being destroyed — but it keeps ConfirmModal's
+         default Cancel focus, so the one keystroke that cannot be taken back
+         is never the one already under the user's finger. -->
     <DeleteConfirmModal
       :target="startTarget"
       title-key="start_project"
