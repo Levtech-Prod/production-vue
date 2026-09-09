@@ -70,6 +70,12 @@ the same problem, and the cheapest bug to avoid is the one you copy.
     `resolveActor` + `logAudit` and a hand-written "did anything change?" guard.
   - `isUniqueViolation(err)` / `isForeignKeyViolation(err)` (`src/db.ts`)
     instead of `catch (err: any)` and a bare `'23505'`.
+- **Tests come in two tiers, and new logic belongs in the first one wherever it
+  can.** `npm run test:unit` runs the suites that need no database or `.env` —
+  pure helpers, and anything testable against a fake client — so they run
+  anywhere, including CI. `npm run test:projectBom` / `test:projectStock` need
+  a dev database and are never pointed at production. All of them share
+  `src/testing/check.ts`; don't hand-roll another `check()`.
 - All DB queries must be parameterized (no string-concatenated SQL). The one
   exception is a table or column *identifier* that cannot be a bind parameter;
   it must come from a literal config in the same file, never from request data.

@@ -16,6 +16,8 @@
 // Run: npm run test:projectBom
 // ===========================================================================
 import { pool } from '../db.js';
+import { check, checkRefuses, report, failureCount } from '../testing/check.js';
+import { ErrorCodes } from '../errorCodes.js';
 import type { Queryable } from '../db.js';
 import {
   computeProjectBom,
@@ -64,15 +66,6 @@ const PP_TWO_R4 = 9991006;
 const FROZEN_SCREW = 9991001;
 const FROZEN_RELAY = 9991002;
 const FROZEN_CAP = 9991003;
-
-let failures = 0;
-function check(label: string, actual: unknown, expected: unknown) {
-  const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  console.log(
-    `${ok ? 'ok  ' : 'FAIL'}  ${label}  actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
-  );
-  if (!ok) failures++;
-}
 
 /** Wraps a Queryable and counts how many statements are sent through it. */
 function countingQueryable(db: Queryable): { db: Queryable; count: () => number } {
@@ -477,10 +470,11 @@ async function main() {
     check('loadFrozenProjectBom issues three round trips', frozenCounter.count(), 3);
 
     // --- the freeze: Start persists exactly what the draft was showing ----
-    check(
-      'freezing a project with no products writes nothing',
-      await freezeProjectBom(client, PROJECT_EMPTY),
-      0,
+    await checkRefuses(
+      'freezing a project with no products is refused, not silently empty',
+      () => freezeProjectBom(client, PROJECT_EMPTY),
+      409,
+      ErrorCodes.PROJECT_HAS_NO_PARTS,
     );
     check(
       'freezing writes one row per distinct part',
@@ -579,13 +573,13 @@ async function main() {
       [10, 10, 0, 6],
     );
 
-    console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
+    report();
   } finally {
     await client.query('ROLLBACK');
     client.release();
   }
   await pool.end();
-  process.exit(failures === 0 ? 0 : 1);
+  process.exit(failureCount() === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {
