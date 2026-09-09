@@ -25,7 +25,9 @@
         :dimmed="selectedId != null && card.project.id !== selectedId"
         @select="emit('select', card.project.id)"
         @edit="emit('edit', card.project)"
+        @start="emit('start', card.project)"
         @delete="emit('delete', card.project)"
+        @stop="emit('stop', card.project)"
       />
     </div>
   </section>
@@ -46,7 +48,9 @@ defineProps<{
 const emit = defineEmits<{
   select: [id: number];
   edit: [project: ProjectBoardCard];
+  start: [project: ProjectBoardCard];
   delete: [project: ProjectBoardCard];
+  stop: [project: ProjectBoardCard];
 }>();
 
 const { t } = useI18n();

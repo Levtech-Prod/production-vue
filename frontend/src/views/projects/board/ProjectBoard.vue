@@ -19,7 +19,9 @@
       :selected-id="selectedId"
       @select="emit('select', $event)"
       @edit="emit('edit', $event)"
+      @start="emit('start', $event)"
       @delete="emit('delete', $event)"
+      @stop="emit('stop', $event)"
     />
   </div>
 </template>
@@ -37,7 +39,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: number];
   edit: [project: ProjectBoardCard];
+  start: [project: ProjectBoardCard];
   delete: [project: ProjectBoardCard];
+  stop: [project: ProjectBoardCard];
 }>();
 
 function cardsIn(column: BoardColumn): BoardCard[] {

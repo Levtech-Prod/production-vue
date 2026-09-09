@@ -1125,8 +1125,8 @@ dependency, not by size.
 
 ## 8. Open questions
 
-Items 2, 3 and 5 are settled (struck through, kept for the record). Two remain,
-both behaviour rather than structure, and neither blocks migration 023.
+All five are settled, struck through and kept for the record with the reasoning
+that produced each. None of them turned out to need a change to migration 023.
 
 1. ~~**Prepared column semantics.**~~ **Settled at step 6: all-lines-done, as
    the plan had it.** Decided while looking at real cards, and the board is
@@ -1149,13 +1149,23 @@ both behaviour rather than structure, and neither blocks migration 023.
    Preparation can build per-sub-product pick lists without re-reading
    revisions that may have moved (§3.4). Nothing in phases 1–2 reads
    `sub_product_revision_id`; it is written at freeze time and left alone.
-4. **Stopped project, open orders.** Stopping releases the project's stock
-   claims automatically (they drop out of the §4.2 aggregate), but parts
-   already ordered from a supplier are a commitment the app cannot undo. Three
-   possible behaviours: leave the orders alone and let the goods arrive into
-   stock; prompt "this project has 3 open orders — cancel them too?" and set
-   `orders.status = 'cancelled'` for the ones the user picks; or refuse to stop
-   until the orders are resolved. Answer before step 8.
+4. ~~**Stopped project, open orders.**~~ **Settled at step 8: leave the orders
+   alone.** Stopping already releases the stock claims — they drop out of the
+   §4.2 aggregate — and the open orders are exactly the part the app cannot
+   undo, which is the reason not to pretend otherwise. Cancelling a supplier
+   order is a phone call; writing `orders.status = 'cancelled'` would record an
+   outcome the app has no way to know, and the goods would arrive anyway
+   against a line that says they were cancelled. Refusing to stop is worse
+   still: it withholds the stock release at the one moment the job is off, and
+   a slow supplier would hold a dead project `started` for weeks.
+
+   So `POST /:id/stop` takes no body and carries no orders branch. The goods
+   arrive, land in stock through the normal receipt, and are unreserved,
+   because the project claiming them has already left the aggregate. What
+   story 15 adds is a *count* on the Stop confirmation — "3 open orders will
+   still be delivered" — so the user knows what they are leaving running, not
+   a branch in the endpoint. If cancelling ever needs recording, it belongs on
+   the order as its own action, not as a side effect of stopping a project.
 
 5. ~~**Who may do what.**~~ **Settled: every logged-in user.** The whole
    Projects Preparation module — project CRUD, Start, Stop, editing
@@ -1572,6 +1582,28 @@ project's outstanding claim is counted against every other project, the stop
 is a status flip that writes no stock row, and the next read of any other
 project sees the freed quantity while `available` never moved — the whole
 reason §4.2 has no reservations table to release.
+
+### 11.12 Tenth pass — building Start and Stop (step 8)
+
+Found by building the freeze against the computation §11.10 had already
+settled. Nothing here changes what is stored; it is where the two endpoints
+differ from what §5.3 literally describes, and why.
+
+| # | Problem | Now |
+|---|---|---|
+| E1 | §3.4 writes the freeze as one insert-from-select, and §5.3 says to re-run `computeProjectBom` inside the transaction. Doing both would be the §3.4 aggregation written twice — the exact drift §11.10 (D3, D4) spent the previous pass eliminating between the two *readers*. | `freezeProjectBom` computes with `computeProjectBom` and writes what it returns: two bulk `unnest` inserts, no per-part loop and no second copy of the join. §3.4's SQL stays in the plan as the statement of what the aggregation *is*. The usage rows need the ids the first insert assigns, so the two statements could not have been one anyway. `RETURNING` promises no ordering, so they are matched back by part id, not by position. |
+| E2 | Two error codes could cover the refusal: `PROJECT_HAS_NO_PRODUCTS` for an empty product set, `PROJECT_HAS_NO_PARTS` for revisions that yield nothing. | One test covers both, as §5.3 says: a project with no products freezes no parts, so the row count `freezeProjectBom` returns is the whole check and the code is always `PROJECT_HAS_NO_PARTS`. 409, not the 422 the create/update path uses for the same-sounding condition — there is no request body here to be invalid, only a project that cannot be started as it stands. |
+| E3 | "Starting twice is refused" needs a code for every non-draft status, and there is no `PROJECT_NOT_DRAFT`. | `PROJECT_ALREADY_STARTED` for all of them, because it is true of all of them: `stopped` and `completed` are terminal (§3.1), so every status but `draft` means the project was started once already. A second code would say the same thing in different words. |
+| E4 | `freezeProjectBom` typed against `Queryable`, as every other function in the service is, would accept `pool` — and then the advisory lock is taken on one connection and released immediately, the two inserts run on others, and the freeze is silently unserialised. Exactly the failure §5.3.5 exists to prevent, reintroduced by a plausible call. | It takes a `PoolClient`. The transaction is not a convention the caller is asked to remember; it is the parameter type. |
+| E5 | Two locks in one transaction: the project row (`FOR UPDATE`, so a concurrent PATCH or a second Start cannot race the status check) and the global advisory lock. Taken in the wrong order by some future caller, that is a deadlock. | Row first, advisory second, and nothing else in the codebase takes the advisory lock at all. A second Start of the *same* project therefore waits on its row and finds `started` when it gets there, rather than queueing behind every other project's freeze. |
+| E6 | Start is offered from a menu, is irreversible, and leaves a project that can no longer be edited or deleted — but story 5 only spoke of confirmations for the two destructive actions. | Confirmed like them. `DeleteConfirmModal` was widened with `confirmTextKey` and `variant` rather than copied, which is §11.4's stance on `useConfirmDelete` applied to the modal that pairs with it: the name still says delete, the behaviour is "confirm an action on a named target", and renaming both would touch working call sites for nothing. |
+
+The freeze's own acceptance check is that it changes no number: `projectBom.test.ts`
+freezes the draft it has already asserted in full and compares the rows read
+back from `project_parts` with the ones `computeProjectBom` produced, field for
+field, `id` excepted. That is the property Start exists to have — the salesman
+commits to the figures he was looking at — and it is one assertion rather than a
+restatement of §3.4's arithmetic in a second place.
 
 ### 11.11 Ninth pass — quantities are whole parts (migration 025)
 

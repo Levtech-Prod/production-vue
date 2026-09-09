@@ -6,7 +6,8 @@
 // calculation the aggregation has to match: CTRL-100 R3 x2 and PSU-200 R1 x3
 // share a screw across three sub-products, so Screw M3 = (2 + 2) x 2 + 6 x 3
 // = 26. Checked over both forms of the BOM, including that they answer with
-// the same shape and in JS numbers rather than NUMERIC strings.
+// the same shape and in JS numbers rather than NUMERIC strings — and that
+// the freeze turns the first form into the second without changing a number.
 //
 // Runs against the dev database inside one transaction that is ALWAYS rolled
 // back. Like projectStock.test.ts, NOT safe to point at production: the
@@ -18,6 +19,7 @@ import { pool } from '../db.js';
 import type { Queryable } from '../db.js';
 import {
   computeProjectBom,
+  freezeProjectBom,
   loadFrozenProjectBom,
   loadProjectPartsPayload,
   toProjectPartRows,
@@ -206,9 +208,11 @@ async function seed(client: Queryable) {
   );
 }
 
-/** The same BOM frozen, as Start (story 7) will write it — seeded only after
- *  the draft checks have run, so this project's own claim on the screws does
- *  not move the free stock those checks assert. */
+/** The same BOM frozen, but written by hand rather than by `freezeProjectBom`:
+ *  the reader has to be checked against non-zero progress buckets, and a real
+ *  freeze always leaves those at zero. (The freeze's own output is checked at
+ *  the end.) Seeded only after the draft checks have run, so this project's
+ *  claim on the screws does not move the free stock those checks assert. */
 async function seedFrozen(client: Queryable) {
   await client.query(
     `INSERT INTO project_parts
@@ -471,6 +475,109 @@ async function main() {
     const frozenCounter = countingQueryable(client);
     await loadFrozenProjectBom(frozenCounter.db, PROJECT_STARTED);
     check('loadFrozenProjectBom issues three round trips', frozenCounter.count(), 3);
+
+    // --- the freeze: Start persists exactly what the draft was showing ----
+    check(
+      'freezing a project with no products writes nothing',
+      await freezeProjectBom(client, PROJECT_EMPTY),
+      0,
+    );
+    check(
+      'freezing writes one row per distinct part',
+      await freezeProjectBom(client, PROJECT_DRAFT),
+      3,
+    );
+
+    // The one property the whole freeze exists for: the numbers the salesman
+    // was looking at are the numbers that got stored. `id` is the only field
+    // that may differ, since a computed row has none.
+    const withoutId = (rows: ProjectPartRow[]) => rows.map(({ id, ...rest }) => rest);
+    const frozenDraft = toProjectPartRows(
+      await loadFrozenProjectBom(client, PROJECT_DRAFT),
+      'draft',
+    );
+    check(
+      'the frozen rows are the computed ones, unchanged',
+      withoutId(frozenDraft),
+      withoutId(draftRows),
+    );
+    check(
+      'and they now carry a project_parts id',
+      frozenDraft.every((row) => row.id !== null),
+      true,
+    );
+
+    const stored = await client.query<{
+      code: string;
+      requiredQty: number;
+      fromStockQty: number;
+      missingQty: number;
+      overridden: boolean;
+      orderedQty: number;
+      receivedQty: number;
+      preparedQty: number;
+    }>(
+      `SELECT p.code, pp.required_qty AS "requiredQty", pp.from_stock_qty AS "fromStockQty",
+         pp.missing_qty AS "missingQty", pp.missing_qty_overridden AS "overridden",
+         pp.ordered_qty AS "orderedQty", pp.received_qty AS "receivedQty",
+         pp.prepared_qty AS "preparedQty"
+       FROM project_parts pp
+       JOIN parts p ON p.id = pp.part_id
+       WHERE pp.project_id = $1
+       ORDER BY p.code`,
+      [PROJECT_DRAFT],
+    );
+    check(
+      'the sourcing columns are seeded from free stock',
+      stored.rows.map((r) => [r.code, r.requiredQty, r.fromStockQty, r.missingQty]),
+      [
+        ['TEST-PB-CAP', 6, 6, 0],
+        ['TEST-PB-RLY', 2, 0, 2],
+        ['TEST-PB-SCR', 26, 6, 20],
+      ],
+    );
+    check(
+      'and the progress buckets start empty',
+      stored.rows.map((r) => [r.orderedQty, r.receivedQty, r.preparedQty, r.overridden]),
+      [
+        [0, 0, 0, false],
+        [0, 0, 0, false],
+        [0, 0, 0, false],
+      ],
+    );
+
+    const usageCounts = await client.query<{ code: string; usages: number }>(
+      `SELECT p.code, COUNT(*)::int AS usages
+       FROM project_part_usages ppu
+       JOIN project_parts pp ON pp.id = ppu.project_part_id
+       JOIN parts p ON p.id = pp.part_id
+       WHERE pp.project_id = $1
+       GROUP BY p.code
+       ORDER BY p.code`,
+      [PROJECT_DRAFT],
+    );
+    check(
+      'one usage row per place the part is used, not per product',
+      usageCounts.rows.map((r) => [r.code, r.usages]),
+      [
+        ['TEST-PB-CAP', 1],
+        ['TEST-PB-RLY', 1],
+        ['TEST-PB-SCR', 3],
+      ],
+    );
+
+    // The claim only competes once the status flips — which Start does in the
+    // same transaction as the freeze, and which is why the two belong together.
+    await client.query(`UPDATE projects SET status = 'started' WHERE id = $1`, [PROJECT_DRAFT]);
+    const observer = rowFor(
+      toProjectPartRows(await computeProjectBom(client, PROJECT_TWO_REVISIONS), 'draft'),
+      PART_SCREW,
+    );
+    check(
+      'a started freeze reserves its claim against every other project',
+      [observer.availableQty, observer.reservedQty, observer.fromStockQty, observer.missingQty],
+      [10, 10, 0, 6],
+    );
 
     console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
   } finally {

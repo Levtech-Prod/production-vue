@@ -11,9 +11,9 @@
     </button>
 
     <Teleport to="body">
-      <!-- Teleported, so it sits outside `root` and every click in it would
-           otherwise read as "outside" and close the menu — including one on a
-           disabled item, which should do nothing at all. -->
+      <!-- Teleported, so it sits outside `root`; without the guard every
+           click inside it would read as "outside" and close the menu before
+           the item's own handler ran. -->
       <div
         v-if="open"
         class="fixed w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
@@ -28,10 +28,8 @@
           v-for="action in actions"
           :key="action.key"
           type="button"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors"
           :class="action.class"
-          :title="action.disabled ? t('coming_soon') : undefined"
-          :disabled="action.disabled"
           @click="run(action)"
         >
           <component :is="action.icon" class="h-3.5 w-3.5" />
@@ -52,9 +50,6 @@ export interface ProjectCardAction {
   labelKey: string;
   icon: Component;
   class: string;
-  /** Start and Stop have no endpoint yet (plan §7 step 8), so they are listed
-   *  disabled rather than hidden: the card still shows what comes next. */
-  disabled?: boolean;
 }
 
 /**
@@ -70,7 +65,6 @@ export function cardActions(status: ProjectStatus): ProjectCardAction[] {
         labelKey: 'start_project',
         icon: Play,
         class: 'text-emerald-700 hover:bg-emerald-50',
-        disabled: true,
       },
       { key: 'delete', labelKey: 'delete', icon: Trash2, class: 'text-red-600 hover:bg-red-50' },
     ];
@@ -82,7 +76,6 @@ export function cardActions(status: ProjectStatus): ProjectCardAction[] {
         labelKey: 'stop_project',
         icon: Square,
         class: 'text-amber-700 hover:bg-amber-50',
-        disabled: true,
       },
     ];
   }
@@ -106,7 +99,7 @@ import { OVERLAY_LAYERS } from '../../../utils/overlayLayers.ts';
 
 const props = defineProps<{ status: ProjectStatus }>();
 
-const emit = defineEmits<{ edit: []; delete: [] }>();
+const emit = defineEmits<{ edit: []; start: []; delete: []; stop: [] }>();
 
 const { t } = useI18n();
 
@@ -186,9 +179,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', reposition);
 });
 
+// Spelled out rather than `emit(action.key)`: the emit signature is a union
+// of one-per-event overloads, and a union key satisfies none of them.
 function run(action: ProjectCardAction) {
   close();
   if (action.key === 'edit') emit('edit');
+  else if (action.key === 'start') emit('start');
   else if (action.key === 'delete') emit('delete');
+  else emit('stop');
 }
 </script>

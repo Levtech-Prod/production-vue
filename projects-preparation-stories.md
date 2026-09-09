@@ -559,8 +559,10 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 > company with totals, one POST on confirm. Fully ordered lines leave the grid;
 > a partly ordered line stays, showing its remainder.
 >
-> **§8.4 lands here.** Implement whatever was decided in story 7 about stopping
-> a project that has open orders.
+> **§8.4 lands here, and it is not a branch.** Story 7 settled it: stopping
+> leaves open orders alone (see §8.4). All this story owes it is a *count* on
+> the Stop confirmation — "3 open orders will still be delivered" — so the user
+> knows what they are leaving running. `POST /:id/stop` itself does not change.
 >
 > Acceptance: a part short by 8 can be ordered 3 from one supplier and 5 from
 > another, in two separate actions, with the remainder visible in between; the
@@ -630,7 +632,7 @@ they must be answered. Two remain: §8.1 *Prepared* column semantics and
 | Decision | Latest story it can be answered on | Cost of answering late |
 |---|---|---|
 | §8.1 *Prepared* column semantics | **5** | None — derived in the API, changeable any time. Decide while looking at real cards. |
-| §8.4 stopping a project with open orders | **7** (shape), **15** (behaviour) | Reshaping the stop endpoint after it exists. |
+| ~~§8.4 stopping a project with open orders~~ | **settled** | Leave them alone; the stop endpoint takes no body and has no orders branch. Story 15 adds only the count on the confirmation. |
 | ~~§8.5 permissions~~ | **settled** | All logged-in users; `POST /api/companies` relaxes in story 11. |
 
 ---

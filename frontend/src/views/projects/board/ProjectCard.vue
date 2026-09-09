@@ -36,7 +36,9 @@
         v-if="primary && hasCardActions(project.status)"
         :status="project.status"
         @edit="emit('edit')"
+        @start="emit('start')"
         @delete="emit('delete')"
+        @stop="emit('stop')"
       />
     </div>
 
@@ -133,7 +135,7 @@ const props = defineProps<{
   dimmed?: boolean;
 }>();
 
-const emit = defineEmits<{ select: []; edit: []; delete: [] }>();
+const emit = defineEmits<{ select: []; edit: []; start: []; delete: []; stop: [] }>();
 
 const { t } = useI18n();
 
