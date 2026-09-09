@@ -215,6 +215,24 @@ function requiredFrom(usages: ProjectBomUsage[]): number {
   return usages.reduce((sum, u) => sum + u.qtyPerUnit * u.productQuantity, 0);
 }
 
+/**
+ * §5.3's seed, shared by `computeProjectBom` (fresh, floored at zero) and
+ * `reseedFromStock` (floored at `ordered_qty` instead, so a recalculate can
+ * never undo an order that already exists — §3.3). Claim
+ * `MIN(requiredQty, free stock)`, never negative — a stale reservation can
+ * leave `free` below zero (§11.8) — and the rest is missing, floored at
+ * `minMissingQty`.
+ */
+function seedFromFreeStock(
+  requiredQty: number,
+  free: number,
+  minMissingQty: number,
+): { fromStockQty: number; missingQty: number } {
+  const fromStockQty = Math.max(0, Math.min(requiredQty, Math.max(0, free)));
+  const missingQty = Math.max(requiredQty - fromStockQty, minMissingQty);
+  return { fromStockQty, missingQty };
+}
+
 /** The parts list computed from the pinned revisions, seeded from today's free
  *  stock with the progress buckets at zero (§5.3). Writes nothing — Start
  *  re-runs it inside its transaction rather than trust the browser. */
@@ -231,16 +249,16 @@ export async function computeProjectBom(
   return [...byPart.values()].map(({ part, usages }) => {
     const requiredQty = requiredFrom(usages);
     const partStock = stock.get(part.id) ?? { available: 0, reserved: 0, free: 0 };
-    // §5.3's seed, clamped at zero from below too: a BOM line of <= 0 is still
-    // representable (§11.5). `requiredQty` is left exactly as computed — the
-    // CHECK at Start is what refuses it, and hiding it here hides the reason.
-    const fromStockQty = Math.max(0, Math.min(requiredQty, Math.max(0, partStock.free)));
+    // §11.5: a BOM line of <= 0 is still representable. `requiredQty` is left
+    // exactly as computed — the CHECK at Start is what refuses it, and hiding
+    // it here hides the reason.
+    const { fromStockQty, missingQty } = seedFromFreeStock(requiredQty, partStock.free, 0);
     return {
       id: null,
       part,
       requiredQty,
       fromStockQty,
-      missingQty: Math.max(0, requiredQty - fromStockQty),
+      missingQty,
       missingQtyOverridden: false,
       orderedQty: 0,
       receivedQty: 0,
@@ -497,4 +515,130 @@ export async function loadProjectPartsPayload(
     ? await computeProjectBom(db, projectId)
     : await loadFrozenProjectBom(db, projectId);
   return { draft, rows: toProjectPartRows(bom, status) };
+}
+
+export interface ResolvedProjectPartQty {
+  fromStockQty: number;
+  missingQty: number;
+}
+
+/**
+ * Resolve `PATCH /:id/parts/:projectPartId`'s partial
+ * `{ missingQty?, fromStockQty? }` (§5.2) against the row's current values,
+ * and enforce §3.3's floor: `missing_qty` may never drop below `ordered_qty`,
+ * so a line can never be made to owe less than it has already bought. Pure —
+ * no DB — so this is unit-tested with no database (CLAUDE.md's first test
+ * tier); the route supplies the current row and turns the thrown `ApiError`
+ * into the 409 response.
+ */
+export function resolveProjectPartUpdate(
+  current: { fromStockQty: number; missingQty: number; orderedQty: number },
+  patch: { fromStockQty?: number; missingQty?: number },
+): ResolvedProjectPartQty {
+  const fromStockQty = patch.fromStockQty ?? current.fromStockQty;
+  const missingQty = patch.missingQty ?? current.missingQty;
+  if (missingQty < current.orderedQty) {
+    throw new ApiError(409, ErrorCodes.MISSING_QTY_BELOW_ORDERED);
+  }
+  return { fromStockQty, missingQty };
+}
+
+/** `POST /:id/parts/recalculate`'s result (§5.2): `changed` is every row
+ *  actually rewritten, `skipped` is every row the recalculate deliberately
+ *  left alone because the user has typed over it. A row that is eligible but
+ *  whose recomputed numbers happen to match what's already stored is
+ *  neither — there is nothing to explain about it. */
+export interface ReseedResult {
+  changed: ProjectPartRow[];
+  skipped: ProjectPartRow[];
+}
+
+interface ReseedCandidate {
+  id: number;
+  partId: number;
+  requiredQty: number;
+  fromStockQty: number;
+  missingQty: number;
+  missingQtyOverridden: boolean;
+  orderedQty: number;
+}
+
+/**
+ * `POST /:id/parts/recalculate`, backed by §5.3's re-seed. Recomputes free
+ * stock and rewrites `from_stock_qty` / `missing_qty` for every row that is
+ * **not** overridden, via `seedFromFreeStock` floored at `ordered_qty` so a
+ * recalculate can never undo an order that already exists. Rows the user has
+ * typed over are left exactly as they are — that is what the flag exists for
+ * (§3.3) — and come back as `skipped` so the confirm dialog (§6.4) can say
+ * "N will change, M are skipped as overridden" before the user commits.
+ *
+ * Must run inside the caller's transaction: the row lock taken up front makes
+ * the read-recompute-write atomic against a concurrent PATCH or a second
+ * recalculate racing it.
+ */
+export async function reseedFromStock(
+  client: PoolClient,
+  projectId: number,
+): Promise<ReseedResult> {
+  const current = await client.query<ReseedCandidate>(
+    `SELECT id, part_id AS "partId", required_qty AS "requiredQty",
+       from_stock_qty AS "fromStockQty", missing_qty AS "missingQty",
+       missing_qty_overridden AS "missingQtyOverridden", ordered_qty AS "orderedQty"
+     FROM project_parts
+     WHERE project_id = $1
+     FOR UPDATE`,
+    [projectId],
+  );
+  // Only a draft (never frozen) has no rows here — a started, stopped or
+  // completed project always does (freezeProjectBom refuses an empty BOM).
+  if (current.rows.length === 0) throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
+
+  const eligible = current.rows.filter((row) => !row.missingQtyOverridden);
+  const overriddenIds = new Set(
+    current.rows.filter((row) => row.missingQtyOverridden).map((row) => row.id),
+  );
+
+  const stock = await getPartStock(
+    client,
+    eligible.map((row) => row.partId),
+    projectId,
+  );
+
+  const changedIds = new Set<number>();
+  const toWrite: { id: number; fromStockQty: number; missingQty: number }[] = [];
+  for (const row of eligible) {
+    const free = stock.get(row.partId)?.free ?? 0;
+    const { fromStockQty, missingQty } = seedFromFreeStock(row.requiredQty, free, row.orderedQty);
+    if (fromStockQty !== row.fromStockQty || missingQty !== row.missingQty) {
+      toWrite.push({ id: row.id, fromStockQty, missingQty });
+      changedIds.add(row.id);
+    }
+  }
+
+  if (toWrite.length > 0) {
+    // One UPDATE for both columns (§3.3 "WRITE ORDER MATTERS" — the CHECKs
+    // run per statement, not deferred), and one round trip for every changed
+    // row rather than one per part.
+    await client.query(
+      `UPDATE project_parts AS pp
+       SET from_stock_qty = u.from_stock_qty, missing_qty = u.missing_qty, updated_at = NOW()
+       FROM unnest($1::int[], $2::int[], $3::int[]) AS u(id, from_stock_qty, missing_qty)
+       WHERE pp.id = u.id`,
+      [
+        toWrite.map((u) => u.id),
+        toWrite.map((u) => u.fromStockQty),
+        toWrite.map((u) => u.missingQty),
+      ],
+    );
+  }
+
+  const rows = toProjectPartRows(await loadFrozenProjectBom(client, projectId), 'started');
+  const changed: ProjectPartRow[] = [];
+  const skipped: ProjectPartRow[] = [];
+  for (const row of rows) {
+    if (row.id === null) continue;
+    if (changedIds.has(row.id)) changed.push(row);
+    else if (overriddenIds.has(row.id)) skipped.push(row);
+  }
+  return { changed, skipped };
 }
