@@ -216,19 +216,26 @@ function requiredFrom(usages: ProjectBomUsage[]): number {
 }
 
 /**
- * §5.3's seed, shared by `computeProjectBom` (fresh, floored at zero) and
- * `reseedFromStock` (floored at `ordered_qty` instead, so a recalculate can
- * never undo an order that already exists — §3.3). Claim
- * `MIN(requiredQty, free stock)`, never negative — a stale reservation can
- * leave `free` below zero (§11.8) — and the rest is missing, floored at
- * `minMissingQty`.
+ * §5.3's seed, shared by `computeProjectBom` (fresh, floors at zero) and
+ * `reseedFromStock` (floors `missing_qty` at `ordered_qty` instead, so a
+ * recalculate can never undo an order that already exists — §3.3, and
+ * `from_stock_qty` at `minFromStockQty` — the same
+ * `chk_project_parts_prepared_within_pickable` floor `resolveProjectPartUpdate`
+ * enforces on a manual PATCH, so an automatic re-seed can't trip it either).
+ * Claim `MIN(requiredQty, free stock)`, never negative — a stale reservation
+ * can leave `free` below zero (§11.8) — then raise it to `minFromStockQty` if
+ * that floor asks for more than free stock offered; `missing_qty` is derived
+ * from the (possibly raised) claim, floored at `minMissingQty`, and stays
+ * non-negative even when the floor pushes `from_stock_qty` past `requiredQty`.
  */
 function seedFromFreeStock(
   requiredQty: number,
   free: number,
   minMissingQty: number,
+  minFromStockQty = 0,
 ): { fromStockQty: number; missingQty: number } {
-  const fromStockQty = Math.max(0, Math.min(requiredQty, Math.max(0, free)));
+  const claimed = Math.max(0, Math.min(requiredQty, Math.max(0, free)));
+  const fromStockQty = Math.max(claimed, minFromStockQty);
   const missingQty = Math.max(requiredQty - fromStockQty, minMissingQty);
   return { fromStockQty, missingQty };
 }
@@ -580,6 +587,8 @@ interface ReseedCandidate {
   missingQty: number;
   missingQtyOverridden: boolean;
   orderedQty: number;
+  receivedQty: number;
+  preparedQty: number;
 }
 
 /**
@@ -599,18 +608,30 @@ export async function reseedFromStock(
   client: PoolClient,
   projectId: number,
 ): Promise<ReseedResult> {
+  // Owns this precondition rather than trusting the caller to have checked it
+  // (the way `freezeProjectBom` owns PROJECT_HAS_NO_PARTS): a draft has never
+  // been frozen, and a stopped or completed project's rows are a closed
+  // record that a re-seed must not silently rewrite with live stock data.
+  const projectResult = await client.query<{ status: ProjectStatus }>(
+    `SELECT status FROM projects WHERE id = $1`,
+    [projectId],
+  );
+  if (projectResult.rows[0]?.status !== 'started') {
+    throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
+  }
+
+  // Guaranteed non-empty now: freezeProjectBom refuses to leave a started
+  // project with an empty BOM, so a started project always has rows here.
   const current = await client.query<ReseedCandidate>(
     `SELECT id, part_id AS "partId", required_qty AS "requiredQty",
        from_stock_qty AS "fromStockQty", missing_qty AS "missingQty",
-       missing_qty_overridden AS "missingQtyOverridden", ordered_qty AS "orderedQty"
+       missing_qty_overridden AS "missingQtyOverridden", ordered_qty AS "orderedQty",
+       received_qty AS "receivedQty", prepared_qty AS "preparedQty"
      FROM project_parts
      WHERE project_id = $1
      FOR UPDATE`,
     [projectId],
   );
-  // Only a draft (never frozen) has no rows here — a started, stopped or
-  // completed project always does (freezeProjectBom refuses an empty BOM).
-  if (current.rows.length === 0) throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
 
   const eligible = current.rows.filter((row) => !row.missingQtyOverridden);
   const overriddenIds = new Set(
@@ -627,7 +648,17 @@ export async function reseedFromStock(
   const toWrite: { id: number; fromStockQty: number; missingQty: number }[] = [];
   for (const row of eligible) {
     const free = stock.get(row.partId)?.free ?? 0;
-    const { fromStockQty, missingQty } = seedFromFreeStock(row.requiredQty, free, row.orderedQty);
+    // Floors from_stock_qty at what's already been prepared, net of what's
+    // been received (§ resolveProjectPartUpdate) — the same
+    // chk_project_parts_prepared_within_pickable a manual PATCH must respect,
+    // so a re-seed racing ahead of Preparation can't trip it either.
+    const minFromStockQty = Math.max(0, row.preparedQty - row.receivedQty);
+    const { fromStockQty, missingQty } = seedFromFreeStock(
+      row.requiredQty,
+      free,
+      row.orderedQty,
+      minFromStockQty,
+    );
     if (fromStockQty !== row.fromStockQty || missingQty !== row.missingQty) {
       toWrite.push({ id: row.id, fromStockQty, missingQty });
       changedIds.add(row.id);

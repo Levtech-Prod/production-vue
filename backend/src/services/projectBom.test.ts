@@ -586,6 +586,12 @@ async function main() {
       ErrorCodes.PROJECT_PARTS_NOT_FROZEN,
     );
 
+    // The "stopping" section above left PROJECT_STARTED stopped; restore it,
+    // since reseedFromStock now refuses anything but a started project (the
+    // same status guard the recalculate route enforces before ever calling
+    // in) — a defense-in-depth check this fixture would otherwise trip.
+    await client.query(`UPDATE projects SET status = 'started' WHERE id = $1`, [PROJECT_STARTED]);
+
     // Enough new relay stock that a recompute would want to claim it — if
     // this row were not about to be protected.
     await client.query(
@@ -642,6 +648,44 @@ async function main() {
 
     const reseedAgain = await reseedFromStock(client, PROJECT_STARTED);
     check('recalculating again with nothing left to do changes nothing further', reseedAgain.changed, []);
+
+    // --- reseedFromStock floors from_stock_qty at what Preparation already
+    // consumed from it (§ resolveProjectPartUpdate's rule, applied on the
+    // auto-recalculate path too) ---------------------------------------------
+    // A second started project claims almost all of the capacitor's 100
+    // units, so free stock for it drops to 3 — below the 5 units Preparation
+    // has already picked from PROJECT_STARTED's own capacitor line. A naive
+    // re-seed would want from_stock_qty = 3, which would trip
+    // chk_project_parts_prepared_within_pickable (prepared 5 > 3 + received 0).
+    await client.query(
+      `INSERT INTO project_parts (project_id, part_id, required_qty, from_stock_qty, missing_qty)
+       VALUES ($1, $2, 97, 97, 0)`,
+      [PROJECT_OTHER, PART_CAP],
+    );
+    await client.query(`UPDATE project_parts SET prepared_qty = 5 WHERE id = $1`, [FROZEN_CAP]);
+
+    const reseedFloored = await reseedFromStock(client, PROJECT_STARTED);
+    check(
+      'the floor holds from_stock_qty at what is already prepared instead of the free-stock claim',
+      reseedFloored.changed.map((r) => [r.part.code, r.fromStockQty, r.missingQty]),
+      [['TEST-PB-CAP', 5, 1]],
+    );
+
+    const capAfterFloor = await client.query<{
+      fromStockQty: number;
+      missingQty: number;
+      preparedQty: number;
+    }>(
+      `SELECT from_stock_qty AS "fromStockQty", missing_qty AS "missingQty",
+         prepared_qty AS "preparedQty"
+       FROM project_parts WHERE id = $1`,
+      [FROZEN_CAP],
+    );
+    check(
+      'the floored row was actually written, satisfying the CHECK rather than tripping it',
+      capAfterFloor.rows[0],
+      { fromStockQty: 5, missingQty: 1, preparedQty: 5 },
+    );
 
     report();
   } finally {
