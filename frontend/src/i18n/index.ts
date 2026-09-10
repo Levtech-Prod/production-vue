@@ -759,6 +759,8 @@ const messages = {
       PROJECT_PART_NOT_FOUND: 'Project part not found',
       MISSING_QTY_BELOW_ORDERED:
         'The quantity to order cannot be lower than what has already been ordered.',
+      FROM_STOCK_QTY_BELOW_PREPARED:
+        'The from-stock quantity cannot be lower than what has already been prepared from it.',
       PART_IN_USE_BY_PROJECT:
         'This part cannot be deleted because a project is using it.',
       PART_IN_USE_BY_BOM:
@@ -1625,6 +1627,8 @@ const messages = {
       PROJECT_PART_NOT_FOUND: 'A projekt alkatrésze nem található',
       MISSING_QTY_BELOW_ORDERED:
         'A rendelendő mennyiség nem lehet kevesebb a már megrendeltnél.',
+      FROM_STOCK_QTY_BELOW_PREPARED:
+        'A raktárról fedezett mennyiség nem lehet kevesebb, mint amennyit már előkészítettek belőle.',
       PART_IN_USE_BY_PROJECT:
         'Az alkatrész nem törölhető, mert egy projekt használja.',
       PART_IN_USE_BY_BOM:

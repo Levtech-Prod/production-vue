@@ -525,20 +525,39 @@ export interface ResolvedProjectPartQty {
 /**
  * Resolve `PATCH /:id/parts/:projectPartId`'s partial
  * `{ missingQty?, fromStockQty? }` (§5.2) against the row's current values,
- * and enforce §3.3's floor: `missing_qty` may never drop below `ordered_qty`,
- * so a line can never be made to owe less than it has already bought. Pure —
- * no DB — so this is unit-tested with no database (CLAUDE.md's first test
- * tier); the route supplies the current row and turns the thrown `ApiError`
- * into the 409 response.
+ * and enforce both floors the table's CHECKs would otherwise refuse as an
+ * unattributable constraint violation:
+ *
+ *  - `missing_qty` may never drop below `ordered_qty` (§3.3) — a line can
+ *    never be made to owe less than it has already bought.
+ *  - `from_stock_qty` may never drop below what has already been prepared
+ *    from it net of what's been received (`chk_project_parts_prepared_within_pickable`:
+ *    `prepared_qty <= from_stock_qty + received_qty`) — Preparation (phase 3)
+ *    is what can make `prepared_qty` positive, but the guard belongs here now
+ *    so this endpoint doesn't become the one way a fraction — sorry, a raw
+ *    23514 — reaches the user as an unexplained 500.
+ *
+ * Pure — no DB — so both rules are unit-tested with no database (CLAUDE.md's
+ * first test tier); the route supplies the current row and turns the thrown
+ * `ApiError` into the 409 response.
  */
 export function resolveProjectPartUpdate(
-  current: { fromStockQty: number; missingQty: number; orderedQty: number },
+  current: {
+    fromStockQty: number;
+    missingQty: number;
+    orderedQty: number;
+    receivedQty: number;
+    preparedQty: number;
+  },
   patch: { fromStockQty?: number; missingQty?: number },
 ): ResolvedProjectPartQty {
   const fromStockQty = patch.fromStockQty ?? current.fromStockQty;
   const missingQty = patch.missingQty ?? current.missingQty;
   if (missingQty < current.orderedQty) {
     throw new ApiError(409, ErrorCodes.MISSING_QTY_BELOW_ORDERED);
+  }
+  if (fromStockQty + current.receivedQty < current.preparedQty) {
+    throw new ApiError(409, ErrorCodes.FROM_STOCK_QTY_BELOW_PREPARED);
   }
   return { fromStockQty, missingQty };
 }

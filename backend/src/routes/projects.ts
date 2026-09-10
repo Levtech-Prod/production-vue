@@ -258,6 +258,20 @@ function projectPartQtyLabel(fromStockQty: number, missingQty: number): string {
   return `From stock ${fromStockQty} · Missing ${missingQty}`;
 }
 
+/**
+ * Guard shared by the PATCH and recalculate routes below: both act on
+ * `project_parts`, which only exists once Start has frozen it. A draft's rows
+ * genuinely don't exist yet, so PROJECT_PARTS_NOT_FROZEN is literally true;
+ * a stopped or completed project's rows exist but are a closed record, which
+ * PROJECT_NOT_STARTED already means — the same code the Stop route itself
+ * uses for "not currently started" — rather than reusing the "not generated"
+ * wording for a project whose parts list plainly was generated.
+ */
+function requireStartedForPartsWrite(status: ProjectStatus): void {
+  if (status === 'draft') throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
+  if (status !== 'started') throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
+}
+
 /** Keyed by revision id — the same product pinned to a different revision
  *  reads as remove-old/add-new, which is what actually happened to the
  *  pinned set. */
@@ -447,18 +461,19 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
 
   const row = await withTransaction(async (client) => {
     const project = await lockProject(client, projectId);
-    if (project.status !== 'started') {
-      throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
-    }
+    requireStartedForPartsWrite(project.status);
 
     const current = await client.query<{
       partName: string;
       fromStockQty: number;
       missingQty: number;
       orderedQty: number;
+      receivedQty: number;
+      preparedQty: number;
     }>(
       `SELECT p.name AS "partName", pp.from_stock_qty AS "fromStockQty",
-         pp.missing_qty AS "missingQty", pp.ordered_qty AS "orderedQty"
+         pp.missing_qty AS "missingQty", pp.ordered_qty AS "orderedQty",
+         pp.received_qty AS "receivedQty", pp.prepared_qty AS "preparedQty"
        FROM project_parts pp
        JOIN parts p ON p.id = pp.part_id
        WHERE pp.id = $1 AND pp.project_id = $2
@@ -468,37 +483,47 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
     const before = current.rows[0];
     if (!before) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
 
-    // Throws 409 MISSING_QTY_BELOW_ORDERED rather than silently clamping: a
-    // line can never be made to owe less than it has already bought, and the
-    // API is what actually enforces that, not just the input's client-side clamp.
+    // Throws 409 MISSING_QTY_BELOW_ORDERED / FROM_STOCK_QTY_BELOW_PREPARED
+    // rather than silently clamping: a line can never be made to owe less
+    // than it has already bought, or claim less stock than has already been
+    // picked from it, and the API is what actually enforces that, not just
+    // the input's client-side clamp.
     const resolved = resolveProjectPartUpdate(before, data);
 
-    // Both columns in one UPDATE (§3.3 "WRITE ORDER MATTERS"): the CHECKs run
-    // per statement, so writing them one at a time could trip
-    // `chk_project_parts_ordered_within_missing` on a row that is legal once
-    // both writes have landed.
-    await client.query(
-      `UPDATE project_parts
-       SET from_stock_qty = $1, missing_qty = $2, missing_qty_overridden = TRUE,
-           updated_at = NOW()
-       WHERE id = $3`,
-      [resolved.fromStockQty, resolved.missingQty, projectPartId],
-    );
+    // Only a real change counts as "typing over a seeded value" (§3.3): a
+    // PATCH that resolves to the same numbers already stored — the same
+    // values re-sent, or one field edited while the other stays put — writes
+    // nothing and leaves `missing_qty_overridden` exactly as it was, so an
+    // inert save (e.g. a debounced field blurred without changing) can never
+    // silently exempt this row from every future recalculate.
+    const changed =
+      resolved.fromStockQty !== before.fromStockQty || resolved.missingQty !== before.missingQty;
 
-    // §5.6: the field a purchasing dispute will be about.
-    const events: AuditEvent[] =
-      resolved.fromStockQty !== before.fromStockQty || resolved.missingQty !== before.missingQty
-        ? [
-            {
-              type: 'part',
-              tag: 'changed',
-              label: before.partName,
-              from: projectPartQtyLabel(before.fromStockQty, before.missingQty),
-              to: projectPartQtyLabel(resolved.fromStockQty, resolved.missingQty),
-            },
-          ]
-        : [];
-    await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+    if (changed) {
+      // Both columns in one UPDATE (§3.3 "WRITE ORDER MATTERS"): the CHECKs
+      // run per statement, so writing them one at a time could trip
+      // `chk_project_parts_ordered_within_missing` on a row that is legal
+      // once both writes have landed.
+      await client.query(
+        `UPDATE project_parts
+         SET from_stock_qty = $1, missing_qty = $2, missing_qty_overridden = TRUE,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [resolved.fromStockQty, resolved.missingQty, projectPartId],
+      );
+
+      // §5.6: the field a purchasing dispute will be about.
+      const events: AuditEvent[] = [
+        {
+          type: 'part',
+          tag: 'changed',
+          label: before.partName,
+          from: projectPartQtyLabel(before.fromStockQty, before.missingQty),
+          to: projectPartQtyLabel(resolved.fromStockQty, resolved.missingQty),
+        },
+      ];
+      await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+    }
 
     const rows = toProjectPartRows(await loadFrozenProjectBom(client, projectId), 'started');
     const updated = rows.find((r) => r.id === projectPartId);
@@ -516,9 +541,7 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
 
   const result = await withTransaction(async (client) => {
     const project = await lockProject(client, projectId);
-    if (project.status !== 'started') {
-      throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
-    }
+    requireStartedForPartsWrite(project.status);
     return reseedFromStock(client, projectId);
   });
 
