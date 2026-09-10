@@ -98,6 +98,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 - If a better approach exists besides what was asked, propose it in addition to doing the requested task — don't silently substitute it.
 - If a request is ambiguous or missing details needed to do it correctly, ask before proceeding rather than guessing.
+- Never commit changes automatically. Stage them (`git add`) and stop there — leave the commit itself for the user to review and run, even after a task that was explicitly requested and completed.
 
 ## Planning & implementation review
 
