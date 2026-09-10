@@ -23,7 +23,6 @@ import {
   diffFields,
   diffKeyedEvents,
   type KeyedValue,
-  type AuditEvent,
 } from '../services/audit.js';
 import {
   freezeProjectBom,
@@ -33,6 +32,7 @@ import {
   resolveProjectPartUpdate,
   reseedFromStock,
 } from '../services/projectBom.js';
+import { buildProjectPartQtyEvents } from './projectPartAudit.js';
 
 const router = Router();
 
@@ -250,12 +250,6 @@ async function lockProject(client: PoolClient, projectId: number): Promise<Locke
   const project = result.rows[0];
   if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
   return project;
-}
-
-/** One line for the audit log's from/to (§5.6): both sourcing columns
- *  together, since one PATCH can move either or both in a single write. */
-function projectPartQtyLabel(fromStockQty: number, missingQty: number): string {
-  return `From stock ${fromStockQty} · Missing ${missingQty}`;
 }
 
 /**
@@ -513,15 +507,13 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
       );
 
       // §5.6: the field a purchasing dispute will be about.
-      const events: AuditEvent[] = [
+      const events = buildProjectPartQtyEvents([
         {
-          type: 'part',
-          tag: 'changed',
-          label: before.partName,
-          from: projectPartQtyLabel(before.fromStockQty, before.missingQty),
-          to: projectPartQtyLabel(resolved.fromStockQty, resolved.missingQty),
+          partName: before.partName,
+          before: { fromStockQty: before.fromStockQty, missingQty: before.missingQty },
+          after: { fromStockQty: resolved.fromStockQty, missingQty: resolved.missingQty },
         },
-      ];
+      ]);
       await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
     }
 
@@ -550,13 +542,13 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
     // over it, so it gets the same audit trail rather than leaving the
     // change to be inferred later from an unexplained number.
     if (reseed.changed.length > 0) {
-      const events: AuditEvent[] = reseed.changed.map((part, i) => ({
-        type: 'part',
-        tag: 'changed',
-        label: part.part.name,
-        from: projectPartQtyLabel(reseed.changedFrom[i].fromStockQty, reseed.changedFrom[i].missingQty),
-        to: projectPartQtyLabel(part.fromStockQty, part.missingQty),
-      }));
+      const events = buildProjectPartQtyEvents(
+        reseed.changed.map((part, i) => ({
+          partName: part.part.name,
+          before: reseed.changedFrom[i],
+          after: { fromStockQty: part.fromStockQty, missingQty: part.missingQty },
+        })),
+      );
       await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
     }
 
