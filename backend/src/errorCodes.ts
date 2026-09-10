@@ -171,6 +171,11 @@ export const ErrorCodes = {
   PROJECT_PART_NOT_FOUND: 'PROJECT_PART_NOT_FOUND',
   // `missing_qty` may never be lowered below what is already on order.
   MISSING_QTY_BELOW_ORDERED: 'MISSING_QTY_BELOW_ORDERED',
+  // `from_stock_qty` may never be lowered below what has already been
+  // prepared (picked) from it — chk_project_parts_prepared_within_pickable
+  // would otherwise refuse the write as an unattributable constraint
+  // violation once Preparation (phase 3) can put a part in this state.
+  FROM_STOCK_QTY_BELOW_PREPARED: 'FROM_STOCK_QTY_BELOW_PREPARED',
 
   // project offers
   OFFER_COMPANY_ALREADY_ADDED: 'OFFER_COMPANY_ALREADY_ADDED',

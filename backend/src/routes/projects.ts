@@ -13,6 +13,7 @@ import { requireId } from './routeParams.js';
 import {
   projectPayloadSchema,
   projectListQuerySchema,
+  projectPartUpdateSchema,
   type ProjectProductInput,
   type ProjectStatus,
 } from '../schemas/projects.schema.js';
@@ -22,8 +23,16 @@ import {
   diffFields,
   diffKeyedEvents,
   type KeyedValue,
+  type AuditEvent,
 } from '../services/audit.js';
-import { freezeProjectBom, loadProjectPartsPayload } from '../services/projectBom.js';
+import {
+  freezeProjectBom,
+  loadProjectPartsPayload,
+  loadFrozenProjectBom,
+  toProjectPartRows,
+  resolveProjectPartUpdate,
+  reseedFromStock,
+} from '../services/projectBom.js';
 
 const router = Router();
 
@@ -243,6 +252,26 @@ async function lockProject(client: PoolClient, projectId: number): Promise<Locke
   return project;
 }
 
+/** One line for the audit log's from/to (§5.6): both sourcing columns
+ *  together, since one PATCH can move either or both in a single write. */
+function projectPartQtyLabel(fromStockQty: number, missingQty: number): string {
+  return `From stock ${fromStockQty} · Missing ${missingQty}`;
+}
+
+/**
+ * Guard shared by the PATCH and recalculate routes below: both act on
+ * `project_parts`, which only exists once Start has frozen it. A draft's rows
+ * genuinely don't exist yet, so PROJECT_PARTS_NOT_FROZEN is literally true;
+ * a stopped or completed project's rows exist but are a closed record, which
+ * PROJECT_NOT_STARTED already means — the same code the Stop route itself
+ * uses for "not currently started" — rather than reusing the "not generated"
+ * wording for a project whose parts list plainly was generated.
+ */
+function requireStartedForPartsWrite(status: ProjectStatus): void {
+  if (status === 'draft') throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
+  if (status !== 'started') throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
+}
+
 /** Keyed by revision id — the same product pinned to a different revision
  *  reads as remove-old/add-new, which is what actually happened to the
  *  pinned set. */
@@ -413,6 +442,110 @@ router.get('/:id/parts', requireAuth, async (req, res) => {
   if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
 
   res.json(await loadProjectPartsPayload(pool, projectId, project.status));
+});
+
+// PATCH /api/projects/:id/parts/:projectPartId — edit the sourcing columns by
+// hand (§5.2). Started projects only: a draft has no `project_parts` rows yet
+// (`GET /:id/parts` computes them live instead), and a stopped or completed
+// project's rows are a closed record, not something to keep adjusting.
+// PROJECT_PARTS_NOT_FROZEN covers both: this is a data-access guard on
+// `project_parts`, distinct from PROJECT_NOT_STARTED, which guards the
+// Start/Stop transitions themselves.
+router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+  // No dedicated "invalid id" code exists for a project part (§5.5); a
+  // malformed param reads the same as one that doesn't exist.
+  const projectPartId = requireId(req.params.projectPartId, ErrorCodes.PROJECT_PART_NOT_FOUND);
+  const data = projectPartUpdateSchema.parse(req.body);
+  const userId = req.user?.id;
+
+  const row = await withTransaction(async (client) => {
+    const project = await lockProject(client, projectId);
+    requireStartedForPartsWrite(project.status);
+
+    const current = await client.query<{
+      partName: string;
+      fromStockQty: number;
+      missingQty: number;
+      orderedQty: number;
+      receivedQty: number;
+      preparedQty: number;
+    }>(
+      `SELECT p.name AS "partName", pp.from_stock_qty AS "fromStockQty",
+         pp.missing_qty AS "missingQty", pp.ordered_qty AS "orderedQty",
+         pp.received_qty AS "receivedQty", pp.prepared_qty AS "preparedQty"
+       FROM project_parts pp
+       JOIN parts p ON p.id = pp.part_id
+       WHERE pp.id = $1 AND pp.project_id = $2
+       FOR UPDATE`,
+      [projectPartId, projectId],
+    );
+    const before = current.rows[0];
+    if (!before) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+
+    // Throws 409 MISSING_QTY_BELOW_ORDERED / FROM_STOCK_QTY_BELOW_PREPARED
+    // rather than silently clamping: a line can never be made to owe less
+    // than it has already bought, or claim less stock than has already been
+    // picked from it, and the API is what actually enforces that, not just
+    // the input's client-side clamp.
+    const resolved = resolveProjectPartUpdate(before, data);
+
+    // Only a real change counts as "typing over a seeded value" (§3.3): a
+    // PATCH that resolves to the same numbers already stored — the same
+    // values re-sent, or one field edited while the other stays put — writes
+    // nothing and leaves `missing_qty_overridden` exactly as it was, so an
+    // inert save (e.g. a debounced field blurred without changing) can never
+    // silently exempt this row from every future recalculate.
+    const changed =
+      resolved.fromStockQty !== before.fromStockQty || resolved.missingQty !== before.missingQty;
+
+    if (changed) {
+      // Both columns in one UPDATE (§3.3 "WRITE ORDER MATTERS"): the CHECKs
+      // run per statement, so writing them one at a time could trip
+      // `chk_project_parts_ordered_within_missing` on a row that is legal
+      // once both writes have landed.
+      await client.query(
+        `UPDATE project_parts
+         SET from_stock_qty = $1, missing_qty = $2, missing_qty_overridden = TRUE,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [resolved.fromStockQty, resolved.missingQty, projectPartId],
+      );
+
+      // §5.6: the field a purchasing dispute will be about.
+      const events: AuditEvent[] = [
+        {
+          type: 'part',
+          tag: 'changed',
+          label: before.partName,
+          from: projectPartQtyLabel(before.fromStockQty, before.missingQty),
+          to: projectPartQtyLabel(resolved.fromStockQty, resolved.missingQty),
+        },
+      ];
+      await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+    }
+
+    const rows = toProjectPartRows(await loadFrozenProjectBom(client, projectId), 'started');
+    const updated = rows.find((r) => r.id === projectPartId);
+    if (!updated) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+    return updated;
+  });
+
+  res.json(row);
+});
+
+// POST /api/projects/:id/parts/recalculate — re-seed from today's free stock
+// (§5.2, §5.3). Same "started projects only" guard as the PATCH above.
+router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+
+  const result = await withTransaction(async (client) => {
+    const project = await lockProject(client, projectId);
+    requireStartedForPartsWrite(project.status);
+    return reseedFromStock(client, projectId);
+  });
+
+  res.json(result);
 });
 
 // POST /api/projects/:id/start — freeze the BOM and claim stock (§5.2, §5.3).

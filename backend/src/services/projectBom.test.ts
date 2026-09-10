@@ -25,6 +25,7 @@ import {
   loadFrozenProjectBom,
   loadProjectPartsPayload,
   toProjectPartRows,
+  reseedFromStock,
   type ProjectPartRow,
 } from './projectBom.js';
 
@@ -571,6 +572,119 @@ async function main() {
       'a started freeze reserves its claim against every other project',
       [observer.availableQty, observer.reservedQty, observer.fromStockQty, observer.missingQty],
       [10, 10, 0, 6],
+    );
+
+    // --- recalculate from stock (§5.2, §5.3) --------------------------------
+    // PROJECT_DRAFT's freeze just above claimed 6 of the screw's 10 available,
+    // on top of PROJECT_OTHER's 4 — so PROJECT_STARTED's own stored claim (6,
+    // seeded back when 6 was still free) is now stale. That staleness is
+    // exactly what "Recalculate from stock" exists to fix.
+    await checkRefuses(
+      'recalculating a project that was never frozen is refused',
+      () => reseedFromStock(client, PROJECT_TWO_REVISIONS),
+      409,
+      ErrorCodes.PROJECT_PARTS_NOT_FROZEN,
+    );
+
+    // The "stopping" section above left PROJECT_STARTED stopped; restore it,
+    // since reseedFromStock now refuses anything but a started project (the
+    // same status guard the recalculate route enforces before ever calling
+    // in) — a defense-in-depth check this fixture would otherwise trip.
+    await client.query(`UPDATE projects SET status = 'started' WHERE id = $1`, [PROJECT_STARTED]);
+
+    // Enough new relay stock that a recompute would want to claim it — if
+    // this row were not about to be protected.
+    await client.query(
+      `INSERT INTO stock_entries (part_id, company_id, type, quantity, quantity_consumed, price_per_piece)
+       VALUES ($1, $2, 'received', 5, 0, 1)`,
+      [PART_RELAY, COMPANY_ID],
+    );
+    // Simulate an earlier PATCH: the buyer already typed over the relay line.
+    await client.query(`UPDATE project_parts SET missing_qty_overridden = TRUE WHERE id = $1`, [
+      FROZEN_RELAY,
+    ]);
+
+    const reseed = await reseedFromStock(client, PROJECT_STARTED);
+    check(
+      'a non-overridden row follows stock: the screw is now fully claimed by the other two projects',
+      reseed.changed.map((r) => [r.part.code, r.fromStockQty, r.missingQty]),
+      [['TEST-PB-SCR', 0, 26]],
+    );
+    check(
+      'an overridden row is reported skipped, not changed, despite stock that would otherwise move it',
+      reseed.skipped.map((r) => r.part.code),
+      ['TEST-PB-RLY'],
+    );
+    check(
+      'a row that needed no change appears in neither list',
+      [...reseed.changed, ...reseed.skipped].some((r) => r.part.code === 'TEST-PB-CAP'),
+      false,
+    );
+
+    const afterReseed = await client.query<{
+      code: string;
+      fromStockQty: number;
+      missingQty: number;
+      overridden: boolean;
+    }>(
+      `SELECT p.code, pp.from_stock_qty AS "fromStockQty", pp.missing_qty AS "missingQty",
+         pp.missing_qty_overridden AS "overridden"
+       FROM project_parts pp
+       JOIN parts p ON p.id = pp.part_id
+       WHERE pp.project_id = $1
+       ORDER BY p.code`,
+      [PROJECT_STARTED],
+    );
+    check(
+      'the override survives the recalculate: the relay keeps its typed-over numbers in the database',
+      afterReseed.rows.find((r) => r.code === 'TEST-PB-RLY'),
+      { code: 'TEST-PB-RLY', fromStockQty: 0, missingQty: 2, overridden: true },
+    );
+    check(
+      'the screw was actually rewritten in the database, not just in the response',
+      afterReseed.rows.find((r) => r.code === 'TEST-PB-SCR'),
+      { code: 'TEST-PB-SCR', fromStockQty: 0, missingQty: 26, overridden: false },
+    );
+
+    const reseedAgain = await reseedFromStock(client, PROJECT_STARTED);
+    check('recalculating again with nothing left to do changes nothing further', reseedAgain.changed, []);
+
+    // --- reseedFromStock floors from_stock_qty at what Preparation already
+    // consumed from it (§ resolveProjectPartUpdate's rule, applied on the
+    // auto-recalculate path too) ---------------------------------------------
+    // A second started project claims almost all of the capacitor's 100
+    // units, so free stock for it drops to 3 — below the 5 units Preparation
+    // has already picked from PROJECT_STARTED's own capacitor line. A naive
+    // re-seed would want from_stock_qty = 3, which would trip
+    // chk_project_parts_prepared_within_pickable (prepared 5 > 3 + received 0).
+    await client.query(
+      `INSERT INTO project_parts (project_id, part_id, required_qty, from_stock_qty, missing_qty)
+       VALUES ($1, $2, 97, 97, 0)`,
+      [PROJECT_OTHER, PART_CAP],
+    );
+    await client.query(`UPDATE project_parts SET prepared_qty = 5 WHERE id = $1`, [FROZEN_CAP]);
+
+    const reseedFloored = await reseedFromStock(client, PROJECT_STARTED);
+    check(
+      'the floor holds from_stock_qty at what is already prepared instead of the free-stock claim',
+      reseedFloored.changed.map((r) => [r.part.code, r.fromStockQty, r.missingQty]),
+      [['TEST-PB-CAP', 5, 1]],
+    );
+
+    const capAfterFloor = await client.query<{
+      fromStockQty: number;
+      missingQty: number;
+      preparedQty: number;
+    }>(
+      `SELECT from_stock_qty AS "fromStockQty", missing_qty AS "missingQty",
+         prepared_qty AS "preparedQty"
+       FROM project_parts WHERE id = $1`,
+      [FROZEN_CAP],
+    );
+    check(
+      'the floored row was actually written, satisfying the CHECK rather than tripping it',
+      capAfterFloor.rows[0],
+      { fromStockQty: 5, missingQty: 1, preparedQty: 5 },
     );
 
     report();

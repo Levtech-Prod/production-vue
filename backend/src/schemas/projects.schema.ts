@@ -64,3 +64,20 @@ export const projectListQuerySchema = z
     q: data.q,
   }));
 export type ProjectListQuery = z.output<typeof projectListQuerySchema>;
+
+// PATCH /api/projects/:id/parts/:projectPartId (§5.2). Both quantities are
+// whole parts (§3.3, §11.11): `z.number().int()`, not a plain number, so a
+// fraction is refused here rather than rounded silently by the INTEGER
+// column — this endpoint is the first one after migration 025 through which
+// a fractional quantity could otherwise enter the system.
+const nonNegativeIntSchema = () => z.number().int().min(0).max(POSTGRES_INT_MAX);
+
+export const projectPartUpdateSchema = z
+  .object({
+    missingQty: nonNegativeIntSchema().optional(),
+    fromStockQty: nonNegativeIntSchema().optional(),
+  })
+  .refine((data) => data.missingQty !== undefined || data.fromStockQty !== undefined, {
+    message: 'At least one of missingQty or fromStockQty is required',
+  });
+export type ProjectPartUpdateInput = z.infer<typeof projectPartUpdateSchema>;
