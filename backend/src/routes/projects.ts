@@ -538,14 +538,32 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
 // (§5.2, §5.3). Same "started projects only" guard as the PATCH above.
 router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+  const userId = req.user?.id;
 
-  const result = await withTransaction(async (client) => {
+  const { changed, skipped } = await withTransaction(async (client) => {
     const project = await lockProject(client, projectId);
     requireStartedForPartsWrite(project.status);
-    return reseedFromStock(client, projectId);
+    const reseed = await reseedFromStock(client, projectId);
+
+    // §5.6: a recalculate can move the same field a manual PATCH does — the
+    // one a purchasing dispute will be about — just without anyone typing
+    // over it, so it gets the same audit trail rather than leaving the
+    // change to be inferred later from an unexplained number.
+    if (reseed.changed.length > 0) {
+      const events: AuditEvent[] = reseed.changed.map((part, i) => ({
+        type: 'part',
+        tag: 'changed',
+        label: part.part.name,
+        from: projectPartQtyLabel(reseed.changedFrom[i].fromStockQty, reseed.changedFrom[i].missingQty),
+        to: projectPartQtyLabel(part.fromStockQty, part.missingQty),
+      }));
+      await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+    }
+
+    return reseed;
   });
 
-  res.json(result);
+  res.json({ changed, skipped });
 });
 
 // POST /api/projects/:id/start — freeze the BOM and claim stock (§5.2, §5.3).

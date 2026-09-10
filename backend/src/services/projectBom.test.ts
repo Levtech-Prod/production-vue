@@ -611,6 +611,11 @@ async function main() {
       [['TEST-PB-SCR', 0, 26]],
     );
     check(
+      "changedFrom carries what the screw's line actually replaced, not just what it became — what a caller logging this to the audit trail needs",
+      reseed.changedFrom,
+      [{ fromStockQty: 6, missingQty: 20 }],
+    );
+    check(
       'an overridden row is reported skipped, not changed, despite stock that would otherwise move it',
       reseed.skipped.map((r) => r.part.code),
       ['TEST-PB-RLY'],

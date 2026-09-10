@@ -544,6 +544,12 @@ export interface ResolvedProjectPartQty {
  *    so this endpoint doesn't become the one way a fraction — sorry, a raw
  *    23514 — reaches the user as an unexplained 500.
  *
+ * `missing_qty` is checked first, so it is the code thrown when a patch
+ * breaks both floors at once — but that would otherwise hide the second
+ * problem until the caller fixes the first and resubmits, so the thrown
+ * error's payload also names it as `alsoViolates`, and the caller can act on
+ * both in one round trip instead of discovering the second on a retry.
+ *
  * Pure — no DB — so both rules are unit-tested with no database (CLAUDE.md's
  * first test tier); the route supplies the current row and turns the thrown
  * `ApiError` into the 409 response.
@@ -560,10 +566,19 @@ export function resolveProjectPartUpdate(
 ): ResolvedProjectPartQty {
   const fromStockQty = patch.fromStockQty ?? current.fromStockQty;
   const missingQty = patch.missingQty ?? current.missingQty;
-  if (missingQty < current.orderedQty) {
-    throw new ApiError(409, ErrorCodes.MISSING_QTY_BELOW_ORDERED);
+  const missingBelowOrdered = missingQty < current.orderedQty;
+  const fromStockBelowPrepared = fromStockQty + current.receivedQty < current.preparedQty;
+
+  if (missingBelowOrdered) {
+    throw new ApiError(
+      409,
+      ErrorCodes.MISSING_QTY_BELOW_ORDERED,
+      fromStockBelowPrepared
+        ? { alsoViolates: ErrorCodes.FROM_STOCK_QTY_BELOW_PREPARED }
+        : undefined,
+    );
   }
-  if (fromStockQty + current.receivedQty < current.preparedQty) {
+  if (fromStockBelowPrepared) {
     throw new ApiError(409, ErrorCodes.FROM_STOCK_QTY_BELOW_PREPARED);
   }
   return { fromStockQty, missingQty };
@@ -577,6 +592,12 @@ export function resolveProjectPartUpdate(
 export interface ReseedResult {
   changed: ProjectPartRow[];
   skipped: ProjectPartRow[];
+  /** `before` values for each row in `changed`, same order and length. Not
+   *  needed to render the confirm dialog — only so the caller can log the
+   *  recalculate to the audit trail (§5.6) the same way a manual PATCH does:
+   *  a recalculate can move the same purchasing-dispute field, just without
+   *  anyone typing over it. */
+  changedFrom: { fromStockQty: number; missingQty: number }[];
 }
 
 interface ReseedCandidate {
@@ -644,7 +665,10 @@ export async function reseedFromStock(
     projectId,
   );
 
-  const changedIds = new Set<number>();
+  // Keyed by id rather than a plain Set: membership IS "this row changed",
+  // and the value is the one thing `changed` (built from the post-update
+  // read below) can no longer tell you — what it changed from.
+  const beforeByChangedId = new Map<number, { fromStockQty: number; missingQty: number }>();
   const toWrite: { id: number; fromStockQty: number; missingQty: number }[] = [];
   for (const row of eligible) {
     const free = stock.get(row.partId)?.free ?? 0;
@@ -661,7 +685,7 @@ export async function reseedFromStock(
     );
     if (fromStockQty !== row.fromStockQty || missingQty !== row.missingQty) {
       toWrite.push({ id: row.id, fromStockQty, missingQty });
-      changedIds.add(row.id);
+      beforeByChangedId.set(row.id, { fromStockQty: row.fromStockQty, missingQty: row.missingQty });
     }
   }
 
@@ -684,11 +708,17 @@ export async function reseedFromStock(
 
   const rows = toProjectPartRows(await loadFrozenProjectBom(client, projectId), 'started');
   const changed: ProjectPartRow[] = [];
+  const changedFrom: { fromStockQty: number; missingQty: number }[] = [];
   const skipped: ProjectPartRow[] = [];
   for (const row of rows) {
     if (row.id === null) continue;
-    if (changedIds.has(row.id)) changed.push(row);
-    else if (overriddenIds.has(row.id)) skipped.push(row);
+    const before = beforeByChangedId.get(row.id);
+    if (before) {
+      changed.push(row);
+      changedFrom.push(before);
+    } else if (overriddenIds.has(row.id)) {
+      skipped.push(row);
+    }
   }
-  return { changed, skipped };
+  return { changed, skipped, changedFrom };
 }

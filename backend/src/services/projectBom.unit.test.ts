@@ -12,6 +12,7 @@
 // Run: npm run test:unit
 // ===========================================================================
 import { ErrorCodes } from '../errorCodes.js';
+import { ApiError } from '../apiError.js';
 import { check, checkRefuses, report, failureCount } from '../testing/check.js';
 import { resolveProjectPartUpdate } from './projectBom.js';
 
@@ -98,6 +99,34 @@ async function main() {
     409,
     ErrorCodes.MISSING_QTY_BELOW_ORDERED,
   );
+
+  // The check above only proves which code comes back; it says nothing about
+  // whether the second, unreported problem is still discoverable without a
+  // retry. `fromStockQty: 2, missingQty: 11` breaks both floors at once
+  // (missingQty 11 < orderedQty 12; fromStockQty 2 + receivedQty 2 = 4 <
+  // preparedQty 5), so the payload must name the one that didn't get thrown.
+  try {
+    resolveProjectPartUpdate(current, { fromStockQty: 2, missingQty: 11 });
+    check('both floors violated throws', 'no error thrown', 'threw');
+  } catch (err) {
+    check(
+      "both floors violated: the payload also names from_stock_qty's problem, so the caller does not have to fix-and-retry to discover it",
+      err instanceof ApiError ? err.payload : err,
+      { alsoViolates: ErrorCodes.FROM_STOCK_QTY_BELOW_PREPARED },
+    );
+  }
+
+  try {
+    // fromStockQty untouched at 6, well above its floor of 3.
+    resolveProjectPartUpdate(current, { missingQty: 11 });
+    check('a single violation throws', 'no error thrown', 'threw');
+  } catch (err) {
+    check(
+      'a single violation carries no alsoViolates payload',
+      err instanceof ApiError ? err.payload : err,
+      undefined,
+    );
+  }
 
   report();
   process.exit(failureCount() === 0 ? 0 : 1);
