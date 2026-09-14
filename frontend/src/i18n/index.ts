@@ -580,6 +580,19 @@ const messages = {
     n_parts_on_order: '{n} on order',
     n_parts_to_pick: '{n} to pick',
     n_parts_ready: '{n} ready',
+    // Project Parts table (projects-preparation-plan.md §6.4)
+    required_quantity: 'Required',
+    available_quantity: 'Available',
+    reserved_quantity: 'Reserved',
+    purchase_quantity: 'Purchase',
+    ordered_quantity: 'Ordered',
+    received_quantity: 'Received',
+    search_project_parts_placeholder: 'Search by name or category…',
+    recalculate_from_stock: 'Recalculate from stock',
+    project_draft_notice: 'Not started — quantities are indicative.',
+    no_project_parts_msg: 'This project has no parts.',
+    stock_shortfall_warning:
+      'Stock has moved since this was claimed — there may not be enough left for this project.',
     project_status: {
       draft: 'Draft',
       started: 'Started',
@@ -789,6 +802,9 @@ const messages = {
       delete_project_failed: 'Failed to delete the project',
       start_project_failed: 'Failed to start the project',
       stop_project_failed: 'Failed to stop the project',
+      load_project_parts_failed: 'Failed to load the parts list',
+      save_project_part_failed: 'Failed to save the change',
+      recalculate_project_parts_failed: 'Failed to recalculate from stock',
     },
 
     success: {
@@ -832,6 +848,7 @@ const messages = {
       delete_project: 'The project was deleted successfully.',
       start_project: 'The project was started successfully',
       stop_project: 'The project was stopped successfully',
+      recalculate_project_parts: 'Recalculated: {changed} updated, {skipped} skipped as overridden.',
     },
 
     validation: {
@@ -886,6 +903,8 @@ const messages = {
         'The parts list will be frozen and the stock it needs claimed. A started project can no longer be edited or deleted',
       stop_project_msg:
         'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed, and parts already ordered will still be delivered',
+      recalculate_project_parts_msg:
+        '{eligible} row(s) will be recalculated from today’s stock. {overridden} row(s) with a manual edit will be skipped.',
     },
   },
   hu: {
@@ -1456,6 +1475,19 @@ const messages = {
     n_parts_on_order: '{n} megrendelve',
     n_parts_to_pick: '{n} kivételezendő',
     n_parts_ready: '{n} kész',
+    // Projekt alkatrésztábla (projects-preparation-plan.md §6.4)
+    required_quantity: 'Szükséges',
+    available_quantity: 'Elérhető',
+    reserved_quantity: 'Foglalt',
+    purchase_quantity: 'Beszerzés',
+    ordered_quantity: 'Megrendelve',
+    received_quantity: 'Bevételezve',
+    search_project_parts_placeholder: 'Keresés név vagy kategória alapján…',
+    recalculate_from_stock: 'Újraszámítás készlet alapján',
+    project_draft_notice: 'Nincs elindítva — a mennyiségek tájékoztató jellegűek.',
+    no_project_parts_msg: 'Ehhez a projekthez nem tartozik alkatrész.',
+    stock_shortfall_warning:
+      'A készlet megváltozott a lefoglalás óta — lehet, hogy nem marad elég ehhez a projekthez.',
     project_status: {
       draft: 'Piszkozat',
       started: 'Elindítva',
@@ -1657,6 +1689,9 @@ const messages = {
       delete_project_failed: 'A projekt törlése nem sikerült',
       start_project_failed: 'A projekt indítása nem sikerült',
       stop_project_failed: 'A projekt leállítása nem sikerült',
+      load_project_parts_failed: 'Az alkatrészlista betöltése nem sikerült',
+      save_project_part_failed: 'A módosítás mentése nem sikerült',
+      recalculate_project_parts_failed: 'Az újraszámítás nem sikerült',
     },
 
     success: {
@@ -1701,6 +1736,7 @@ const messages = {
       delete_project: 'A projekt sikeresen törölve.',
       start_project: 'A projekt elindítása sikeresen megtörtént',
       stop_project: 'A projekt leállítása sikeresen megtörtént',
+      recalculate_project_parts: 'Újraszámítva: {changed} frissítve, {skipped} kihagyva (kézi módosítás miatt).',
     },
 
     validation: {
@@ -1753,6 +1789,8 @@ const messages = {
         'Az alkatrészlista rögzül, és a szükséges készlet lefoglalásra kerül. Az elindított projekt már nem szerkeszthető és nem törölhető',
       stop_project_msg:
         'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet, a már megrendelt alkatrészek pedig ettől még megérkeznek',
+      recalculate_project_parts_msg:
+        '{eligible} sor kerül újraszámításra a mai készlet alapján. {overridden} kézzel módosított sor kihagyásra kerül.',
     },
   },
 };
