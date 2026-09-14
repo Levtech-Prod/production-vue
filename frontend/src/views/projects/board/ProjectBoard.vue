@@ -44,9 +44,18 @@ const emit = defineEmits<{
   stop: [project: ProjectBoardCard];
 }>();
 
+// The *Projects* column is every project, always (decision 2 — the column
+// is a fact about the data, and it is the only one with per-card actions).
+// The four derived columns instead narrow to the selection: with a project
+// selected, a card belongs on the board only if it *is* that project, so an
+// unrelated card is hidden rather than merely dimmed. Nothing is selected ->
+// every member card shows, same as *Projects*.
 function cardsIn(column: BoardColumn): BoardCard[] {
-  return props.projects
-    .filter(column.member)
-    .map((project) => ({ project, badge: column.badge(project) }));
+  const members = props.projects.filter(column.member);
+  const narrowed =
+    column.key === 'projects' || props.selectedId == null
+      ? members
+      : members.filter((project) => project.id === props.selectedId);
+  return narrowed.map((project) => ({ project, badge: column.badge(project) }));
 }
 </script>

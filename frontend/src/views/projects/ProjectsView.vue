@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col">
+  <div class="flex h-full min-h-0 flex-col gap-4">
     <!-- One section card for the whole board: toolbar, then the columns —
          the same shape the products list uses. -->
     <div class="card flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -64,6 +64,14 @@
       />
     </div>
 
+    <!-- Nothing selected -> hidden entirely (§6.3), not just empty. -->
+    <ProjectPartsTable
+      v-if="selectedProjectId"
+      ref="partsTableRef"
+      :project-id="selectedProjectId"
+      class="min-h-0 flex-1"
+    />
+
     <ProjectModal
       v-model="modalOpen"
       :project="editing"
@@ -120,6 +128,7 @@ import { useI18n } from 'vue-i18n';
 import { Plus, Search } from 'lucide-vue-next';
 import ProjectBoard from './board/ProjectBoard.vue';
 import ProjectModal from './ProjectModal.vue';
+import ProjectPartsTable from './ProjectPartsTable.vue';
 import DeleteConfirmModal from '../../components/notification/DeleteConfirmModal.vue';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProjectsStore } from '../../stores/projectsStore.ts';
@@ -221,9 +230,13 @@ watch(
 // ---- Selection --------------------------------------------------------------
 //
 // Selecting dims the other projects rather than hiding them, so the board
-// keeps its shape (§6.3). The Parts table it also drives arrives with story 9.
+// keeps its shape (§6.3). The Parts table below is what this drives.
 
 const selectedProjectId = ref<number | null>(null);
+// So Edit and Start — both reachable from any card, not only the selected
+// one (§6.3) — can invalidate that project's Parts table cache even when it
+// isn't the one currently on screen.
+const partsTableRef = ref<InstanceType<typeof ProjectPartsTable> | null>(null);
 
 function toggleSelection(id: number) {
   selectedProjectId.value = selectedProjectId.value === id ? null : id;
@@ -271,6 +284,9 @@ async function openEdit(card: ProjectBoardCard) {
 async function onSaved(payload: ProjectPayload) {
   saving.value = true;
   saveError.value = null;
+  // Read before the await: a successful save leaves `editing` as it was, but
+  // there is no reason to rely on that continuing to be true.
+  const editedProjectId = editing.value?.id ?? null;
   try {
     if (editing.value) {
       await store.updateProject(editing.value.id, payload);
@@ -281,6 +297,8 @@ async function onSaved(payload: ProjectPayload) {
     }
     modalOpen.value = false;
     await loadBoard();
+    // PATCH replaces the whole product set, so a draft's parts change (§6.3).
+    if (editedProjectId !== null) partsTableRef.value?.invalidateProject(editedProjectId);
   } catch (err) {
     saveError.value = translateApiError(err, { t, te }, 'errors.save_project_failed');
   } finally {
@@ -337,6 +355,8 @@ const {
   async (project) => {
     await store.startProject(project.id);
     await loadBoard();
+    // The rows go from computed (id: null) to frozen (id: number) (§6.3).
+    partsTableRef.value?.invalidateProject(project.id);
   },
   'success.start_project',
   'errors.start_project_failed',

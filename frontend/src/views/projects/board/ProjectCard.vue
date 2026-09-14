@@ -7,34 +7,30 @@
        class the selection state sets, which is why selection reads on the
        other three sides and the ring. -->
   <div
-    class="rounded-lg border border-l-4 bg-white p-2.5 shadow-sm transition-all"
+    class="cursor-pointer rounded-lg border border-l-4 bg-white p-2.5 shadow-sm transition-all"
     :class="[
       selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200 hover:border-slate-300',
       dimmed ? 'opacity-60' : '',
       project.status === 'stopped' ? 'grayscale' : '',
     ]"
     :style="{ borderLeftColor: cardAccent(project.id).stroke }"
+    @click="emit('select')"
   >
     <div class="flex items-start gap-1">
-      <!-- Only the tile body selects: the menu beside it is a button of its
-           own and must not sit inside another one. -->
-      <button
-        type="button"
-        class="min-w-0 flex-1 text-left"
-        @click="emit('select')"
-      >
-        <span class="block truncate text-sm font-semibold text-slate-800">
-          {{ project.name }}
-        </span>
-      </button>
+      <span class="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+        {{ project.name }}
+      </span>
 
       <span v-if="primary" class="badge shrink-0" :class="STATUS_BADGE[project.status]">
         {{ t(`project_status.${project.status}`) }}
       </span>
 
+      <!-- Stops the click here: the menu is its own control, and letting its
+           click reach the card would toggle selection every time it opens. -->
       <ProjectCardMenu
         v-if="primary && hasCardActions(project.status)"
         :status="project.status"
+        @click.stop
         @edit="emit('edit')"
         @start="emit('start')"
         @delete="emit('delete')"
@@ -60,7 +56,7 @@
       v-if="project.products.length > PRODUCT_PREVIEW_COUNT"
       type="button"
       class="mt-1 text-xs font-medium text-blue-600 hover:underline"
-      @click="productsExpanded = !productsExpanded"
+      @click.stop="productsExpanded = !productsExpanded"
     >
       {{
         productsExpanded
