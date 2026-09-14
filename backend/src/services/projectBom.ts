@@ -493,7 +493,13 @@ export function toProjectPartRows(
       part: row.part,
       products: collapseToProducts(row.usages),
       requiredQty: row.requiredQty,
-      availableQty: row.stock.available,
+      // Free stock (available minus what other started projects have
+      // already claimed), not the raw total — a number this project could
+      // actually still draw on, not one that double-promises what's spoken
+      // for. Unclamped, same as `stock.free`: a negative value is a stale
+      // claim outrunning the shelf, and §4.2 says to surface that rather
+      // than hide it.
+      availableQty: row.stock.free,
       reservedQty: row.stock.reserved,
       fromStockQty: row.fromStockQty,
       missingQty: row.missingQty,
