@@ -77,6 +77,70 @@ export interface ProjectBoardQuery {
   status: ProjectStatus[];
 }
 
+// ---- Parts table ------------------------------------------------------------
+//
+// `GET /api/projects/:id/parts` (plan §5.4). One shape for both a draft's
+// live-computed rows and a started project's frozen ones — `draft` on the
+// payload is the only thing that tells them apart.
+
+export interface ProjectPartInfo {
+  id: number;
+  name: string;
+  code: string;
+  image: string | null;
+  categoryId: number;
+  categoryName: string;
+}
+
+/** One product this part is used by, collapsed from however many sub-product
+ *  usages it has there — see `qtyForProduct` below. */
+export interface ProjectPartRowProduct {
+  projectProductId: number;
+  productId: number;
+  sku: string;
+  revisionLabel: string;
+  /** Per one unit of the product. */
+  qtyPerUnit: number;
+  /** `qtyPerUnit x that product's project quantity` — the products across a
+   *  row always sum to `requiredQty`. */
+  qtyForProduct: number;
+}
+
+/** One row of the Parts table. */
+export interface ProjectPartRow {
+  /** `project_parts.id`, or null while the project is a draft and the row is
+   *  computed rather than stored. Rows are keyed on `part.id`, which both
+   *  forms have. */
+  id: number | null;
+  part: ProjectPartInfo;
+  products: ProjectPartRowProduct[];
+  requiredQty: number;
+  availableQty: number;
+  reservedQty: number;
+  fromStockQty: number;
+  missingQty: number;
+  missingQtyOverridden: boolean;
+  orderedQty: number;
+  receivedQty: number;
+  preparedQty: number;
+  toBuyQty: number;
+  onOrderQty: number;
+  toPickQty: number;
+  /** Someone has taken stock this project was counting on (plan §4.2). */
+  stockShortfall: boolean;
+}
+
+export interface ProjectPartsPayload {
+  draft: boolean;
+  rows: ProjectPartRow[];
+}
+
+/** `POST /api/projects/:id/parts/recalculate` (§5.2/§5.3). */
+export interface ProjectPartsRecalculateResult {
+  changed: ProjectPartRow[];
+  skipped: ProjectPartRow[];
+}
+
 // ---- Payloads -------------------------------------------------------------
 //
 // Same arrangement as types/products.ts: the request bodies are `import type`d
@@ -87,11 +151,14 @@ import type {
   ProjectPayload as ProjectPayloadSchema,
   ProjectProductInput as ProjectProductInputSchema,
   ProjectStatus as ProjectStatusSchema,
+  ProjectPartUpdateInput as ProjectPartUpdateInputSchema,
 } from '../../../backend/src/schemas/projects.schema.ts';
 
 export type ProjectPayload = ProjectPayloadSchema;
 export type ProjectProductInput = ProjectProductInputSchema;
 export type ProjectStatus = ProjectStatusSchema;
+/** `PATCH /api/projects/:id/parts/:projectPartId` (§5.2). */
+export type ProjectPartUpdate = ProjectPartUpdateInputSchema;
 
 /** Display order for the board's status filter. */
 export const PROJECT_STATUSES = [

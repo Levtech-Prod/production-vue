@@ -3,6 +3,10 @@ import type {
   Project,
   ProjectBoardCard,
   ProjectBoardQuery,
+  ProjectPartsPayload,
+  ProjectPartsRecalculateResult,
+  ProjectPartUpdate,
+  ProjectPartRow,
   ProjectPayload,
 } from '../types/projects.ts';
 
@@ -41,5 +45,18 @@ export const projectsApi = {
    *  order are left alone and still arrive (§8.4). */
   stop(id: number) {
     return api.post<Project>(`/projects/${id}/stop`);
+  },
+  /** The Parts table (plan §5.4) — computed live for a draft, read back
+   *  frozen for a started project. One payload shape either way. */
+  getParts(id: number) {
+    return api.get<ProjectPartsPayload>(`/projects/${id}/parts`);
+  },
+  /** Started projects only; returns the row as the table should now show it. */
+  updatePart(id: number, projectPartId: number, payload: ProjectPartUpdate) {
+    return api.patch<ProjectPartRow>(`/projects/${id}/parts/${projectPartId}`, payload);
+  },
+  /** Re-seeds every non-overridden row from today's free stock (plan §5.3). */
+  recalculateParts(id: number) {
+    return api.post<ProjectPartsRecalculateResult>(`/projects/${id}/parts/recalculate`);
   },
 };
