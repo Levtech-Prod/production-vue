@@ -14,6 +14,8 @@ import {
   projectPayloadSchema,
   projectListQuerySchema,
   projectPartUpdateSchema,
+  projectPartPickSchema,
+  projectSubProductRefSchema,
   type ProjectProductInput,
   type ProjectStatus,
 } from '../schemas/projects.schema.js';
@@ -22,6 +24,7 @@ import {
   changeSet,
   diffFields,
   diffKeyedEvents,
+  type AuditEvent,
   type KeyedValue,
 } from '../services/audit.js';
 import {
@@ -33,6 +36,14 @@ import {
   reseedFromStock,
 } from '../services/projectBom.js';
 import { buildProjectPartQtyEvents } from './projectPartAudit.js';
+import {
+  loadBoardSubProducts,
+  loadSubProductParts,
+  markSubProductPrepared,
+  setUsagePickedQty,
+  unmarkSubProductPrepared,
+  type SubProductPreparationLabels,
+} from '../services/projectPreparation.js';
 
 const router = Router();
 
@@ -279,10 +290,10 @@ function productsToKeyed(
   }));
 }
 
-// GET /api/projects — board payload (§4.1): per-project part-line counts,
-// with column membership derived here (not in SQL) so the rule stays in one
-// readable place. `?status=` is repeatable (defaults to draft+started, see
-// §6.3); `?q=` searches the name.
+// GET /api/projects — board payload (§4.1): per-project part-line counts and
+// the project's sub-products, with column membership derived here (not in SQL)
+// so the rule stays in one readable place. `?status=` is repeatable (defaults
+// to draft+started, see §6.3); `?q=` searches the name.
 router.get('/', requireAuth, async (req, res) => {
   const data = projectListQuerySchema.parse(req.query);
 
@@ -293,12 +304,15 @@ router.get('/', requireAuth, async (req, res) => {
     deadline: string | null;
     status: string;
     createdAt: string;
-    products: { name: string; sku: string; revisionLabel: string; quantity: number }[];
-    lineCount: number;
+    products: {
+      projectProductId: number;
+      name: string;
+      sku: string;
+      revisionLabel: string;
+      quantity: number;
+    }[];
     toBuyLines: number;
     onOrderLines: number;
-    toPickLines: number;
-    doneLines: number;
   }>(
     `SELECT
        p.id,
@@ -313,6 +327,9 @@ router.get('/', requireAuth, async (req, res) => {
        -- multiply the rows the counts below are computed from.
        (SELECT COALESCE(
                  json_agg(json_build_object(
+                   -- The board needs the id to hang each product's
+                   -- sub-product progress off (§4.1), not only its name.
+                   'projectProductId', pprod.id,
                    'name', prod.name,
                    'sku', prod.sku,
                    'revisionLabel', rev.label,
@@ -323,28 +340,13 @@ router.get('/', requireAuth, async (req, res) => {
         JOIN products prod ON prod.id = pprod.product_id
         JOIN product_revisions rev ON rev.id = pprod.product_revision_id
         WHERE pprod.project_id = p.id) AS products,
-       COUNT(pp.id)::int AS "lineCount",
+       -- Only the two buying columns are counted off project_parts now.
+       -- Preparation progress is per sub-product (migration 026), everywhere
+       -- it appears: the *Projects* card's bar, the *Preparation* cards' bars
+       -- and the *Prepared* card's percentages all read the same fraction, so
+       -- taking a mark back moves every one of them.
        COUNT(*) FILTER (WHERE pp.missing_qty  > pp.ordered_qty)::int  AS "toBuyLines",
-       COUNT(*) FILTER (WHERE pp.ordered_qty  > pp.received_qty)::int AS "onOrderLines",
-       COUNT(*) FILTER (WHERE pp.from_stock_qty + pp.received_qty
-                            > pp.prepared_qty)::int                  AS "toPickLines",
-       -- Lines with nothing outstanding, for the card's progress bar and for
-       -- *Prepared*. The three counts above overlap (a line can be
-       -- part-ordered and part-pickable at once), so "done" is its own
-       -- predicate rather than lineCount minus their sum.
-       --
-       -- The last term is not in §4.1 and is deliberate: the first three are
-       -- all comparisons between sourcing columns, and zero equals zero, so a
-       -- line requiring 5 pieces with nothing in stock, nothing ordered and
-       -- nothing prepared satisfies all of them. Every CHECK on project_parts
-       -- accepts that row, and PATCH /:id/parts/:id can produce it by setting
-       -- missing_qty to 0 while ordered_qty is 0. Without the floor the card
-       -- would read 100% prepared having obtained nothing.
-       COUNT(*) FILTER (WHERE pp.missing_qty <= pp.ordered_qty
-                          AND pp.ordered_qty <= pp.received_qty
-                          AND pp.from_stock_qty + pp.received_qty
-                              <= pp.prepared_qty
-                          AND pp.prepared_qty >= pp.required_qty)::int AS "doneLines"
+       COUNT(*) FILTER (WHERE pp.ordered_qty  > pp.received_qty)::int AS "onOrderLines"
      FROM projects p
      LEFT JOIN project_parts pp ON pp.project_id = p.id
      WHERE p.status = ANY($1::text[])
@@ -354,8 +356,22 @@ router.get('/', requireAuth, async (req, res) => {
     [data.status, data.q ?? null],
   );
 
-  // Column membership (§4.1): the middle three columns are ANY ("some parts
-  // still need buying"), *Prepared* is ALL ("nothing outstanding any more").
+  // A second round trip rather than another sub-select: the query above
+  // aggregates over `project_parts`, and joining the usage rows into it would
+  // multiply the rows its line counts are computed from. Read for every frozen
+  // project, not only the ones in a derived column — a stopped project's
+  // preparation state is part of the record, and the membership flags below
+  // are what keep its cards off the board.
+  const subProductsByProject = await loadBoardSubProducts(
+    pool,
+    result.rows.map((row) => row.id),
+  );
+
+  // Column membership (§4.1): *Offers* and *Ordered* are ANY ("some parts
+  // still need buying"). *Preparation* and *Prepared* are per sub-product
+  // since migration 026 — a project sits in both at once while some of its
+  // sub-products are done and others are not, which now reads correctly
+  // because the *Prepared* card carries a percentage per product (§8.1).
   //
   // Only a started or completed project reaches a derived column at all
   // (§3.1). A draft has no `project_parts` rows so its counts are zero
@@ -363,17 +379,27 @@ router.get('/', requireAuth, async (req, res) => {
   // and without this guard it would keep appearing under Offers or Ordered
   // instead of sitting greyed in *Projects* alone.
   const projects = result.rows.map((row) => {
-    const { status, toBuyLines, onOrderLines, toPickLines, lineCount, doneLines } = row;
+    const { status, toBuyLines, onOrderLines } = row;
     const derived = status === 'started' || status === 'completed';
+    const subProducts = subProductsByProject.get(row.id) ?? [];
     return {
       ...row,
+      // Each product carries its own sub-product tally, which is both the
+      // progress bar on a *Preparation* card and the percentage the
+      // *Prepared* card shows beside the product — one number, one meaning.
+      products: row.products.map((product) => {
+        const own = subProducts.filter((s) => s.projectProductId === product.projectProductId);
+        return {
+          ...product,
+          subProductCount: own.length,
+          preparedSubProducts: own.filter((s) => s.prepared).length,
+        };
+      }),
+      subProducts,
       inOffers: derived && toBuyLines > 0,
       inOrdered: derived && onOrderLines > 0,
-      inPreparation: derived && toPickLines > 0,
-      // Read off `doneLines` rather than re-testing the three counts: they are
-      // the same question, and asking it twice is how the board and its
-      // progress bar would come to disagree about what "finished" means.
-      inPrepared: derived && lineCount > 0 && doneLines === lineCount,
+      inPreparation: derived && subProducts.some((s) => s.inPreparation),
+      inPrepared: derived && subProducts.some((s) => s.prepared),
     };
   });
 
@@ -557,6 +583,131 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
 
   res.json({ changed, skipped });
 });
+
+// Preparation (migration 026). Both routes move the same quantities in
+// opposite directions — marking a sub-product prepared takes its parts out of
+// the project's pickable stock, un-marking puts them back — so both are a
+// `project_parts` write and both carry the same "started projects only" guard
+// as the Parts table edits above.
+
+/** One audit event per mark or un-mark (§5.6): which sub-product, under which
+ *  product, and which way it moved. */
+function subProductPreparationEvents(
+  labels: SubProductPreparationLabels,
+  prepared: boolean,
+): AuditEvent[] {
+  return [
+    {
+      type: 'sub_product',
+      tag: 'changed',
+      label: labels.subProduct,
+      scope: [{ type: 'product', label: labels.product }],
+      from: prepared ? 'Not prepared' : 'Prepared',
+      to: prepared ? 'Prepared' : 'Not prepared',
+    },
+  ];
+}
+
+/** The pair in a pick-list URL. No dedicated "invalid id" code for either half
+ *  (§5.5): a malformed param reads the same as a pair this project never froze. */
+function subProductRefFromParams(params: Record<string, string | string[]>) {
+  return {
+    projectProductId: requireId(params.projectProductId, ErrorCodes.SUB_PRODUCT_NOT_IN_PROJECT),
+    subProductRevisionId: requireId(
+      params.subProductRevisionId,
+      ErrorCodes.SUB_PRODUCT_NOT_IN_PROJECT,
+    ),
+  };
+}
+
+// GET /api/projects/:id/preparations/:projectProductId/:subProductRevisionId/parts
+// — one sub-product's pick list: what it needs, what the project holds, and
+// which lines are already ticked off. Read-only, so no status guard: a project
+// that has not frozen its BOM simply has no usage rows and answers with none.
+router.get(
+  '/:id/preparations/:projectProductId/:subProductRevisionId/parts',
+  requireAuth,
+  async (req, res) => {
+    const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+    const rows = await loadSubProductParts(pool, projectId, subProductRefFromParams(req.params));
+    res.json(rows);
+  },
+);
+
+// PATCH /api/projects/:id/preparations/usages/:projectPartUsageId — how much of
+// one pick-list line is in the job box. This is the write that moves
+// `project_parts.prepared_qty`, so it carries the same "started projects only"
+// guard as every other write against a frozen BOM.
+router.patch('/:id/preparations/usages/:projectPartUsageId', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+  const usageId = requireId(
+    req.params.projectPartUsageId,
+    ErrorCodes.PROJECT_PART_USAGE_NOT_FOUND,
+  );
+  const { pickedQty } = projectPartPickSchema.parse(req.body);
+
+  const row = await withTransaction(async (client) => {
+    const project = await lockProject(client, projectId);
+    requireStartedForPartsWrite(project.status);
+    return setUsagePickedQty(client, projectId, usageId, pickedQty);
+  });
+
+  res.json(row);
+});
+
+// POST /api/projects/:id/preparations — mark one sub-product prepared. Refused
+// with 409 SUB_PRODUCT_PARTS_UNAVAILABLE unless every part it needs is in hand.
+router.post('/:id/preparations', requireAuth, async (req, res) => {
+  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+  const ref = projectSubProductRefSchema.parse(req.body);
+  const userId = req.user?.id;
+
+  await withTransaction(async (client) => {
+    const project = await lockProject(client, projectId);
+    requireStartedForPartsWrite(project.status);
+    const labels = await markSubProductPrepared(client, projectId, ref, userId);
+    await writeAudit(
+      client,
+      'project',
+      projectId,
+      'updated',
+      changeSet({}, subProductPreparationEvents(labels, true)),
+      userId,
+    );
+  });
+
+  res.json({ ...ref, prepared: true });
+});
+
+// DELETE /api/projects/:id/preparations/:projectProductId/:subProductRevisionId
+// — take a mark back. The pair is in the path rather than a body because that
+// is what identifies the row; `project_sub_product_preparations.id` is never
+// shown to the client, which only ever knows the two ids it marked.
+router.delete(
+  '/:id/preparations/:projectProductId/:subProductRevisionId',
+  requireAuth,
+  async (req, res) => {
+    const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+    const ref = subProductRefFromParams(req.params);
+    const userId = req.user?.id;
+
+    await withTransaction(async (client) => {
+      const project = await lockProject(client, projectId);
+      requireStartedForPartsWrite(project.status);
+      const labels = await unmarkSubProductPrepared(client, projectId, ref);
+      await writeAudit(
+        client,
+        'project',
+        projectId,
+        'updated',
+        changeSet({}, subProductPreparationEvents(labels, false)),
+        userId,
+      );
+    });
+
+    res.json({ ...ref, prepared: false });
+  },
+);
 
 // POST /api/projects/:id/start — freeze the BOM and claim stock (§5.2, §5.3).
 // One transaction: the parts list is recomputed inside it, the sourcing

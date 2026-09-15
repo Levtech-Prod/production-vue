@@ -416,9 +416,10 @@ async function main() {
     check(
       'a started claim is counted against every other project',
       [beforeStop.availableQty, beforeStop.reservedQty],
-      [-5, 15], // reserved: 4 from the other project + 6 + 8 - 3 outstanding from this
-                // one; available is free stock (10 - 15) and goes negative here on
-                // purpose — this is the stale claim §4.2 says to surface, not hide.
+      [-8, 18], // reserved: 4 from the other project + 6 + 8 claimed by this one
+                // (prepared_qty is no longer subtracted — migration 026); available
+                // is free stock (10 - 18) and goes negative here on purpose — this
+                // is the stale claim §4.2 says to surface, not hide.
     );
 
     await client.query(`UPDATE projects SET status = 'stopped' WHERE id = $1`, [PROJECT_STARTED]);

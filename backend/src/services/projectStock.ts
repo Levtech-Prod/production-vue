@@ -10,11 +10,22 @@
 // quantity (the only case where "sum then floor" and "floor then sum" would
 // disagree) impossible at the database level, not just unlikely in practice.
 //
-// "Reserved" is what OTHER started projects have claimed but not yet picked:
-// SUM(from_stock_qty + received_qty - prepared_qty) over their project_parts
-// rows. There is deliberately no reservations table to release when a
-// project stops — filtering on projects.status = 'started' means a stopped
-// project's claim simply stops being summed (§4.2).
+// "Reserved" is what OTHER started projects have claimed: SUM(from_stock_qty +
+// received_qty) over their project_parts rows. There is deliberately no
+// reservations table to release when a project stops — filtering on
+// projects.status = 'started' means a stopped project's claim simply stops
+// being summed (§4.2).
+//
+// AMENDED (migration 026). §4.2 wrote this as `... - prepared_qty`, because it
+// assumed picking a part also consumes it: the Preparation pick list (§7 step
+// 19) writes the `removed` stock_entries that take it out of "available", and
+// subtracting it here stopped it being counted twice. Marking a SUB-PRODUCT
+// prepared writes no such entry — the parts are boxed up for the project but
+// still on the books — so subtracting them here would drop them out of
+// `reserved` while `available` still counts them, and the next project to
+// start would seed `from_stock_qty` from stock that is already in a box. They
+// stay reserved until something actually consumes them, and the
+// `- prepared_qty` term comes back with the pick list that does.
 //
 // getAvailableQuantities and getReservedQuantities each take the whole batch
 // of part ids in one ANY($1) round trip — never one query per part. getPartStock
@@ -46,12 +57,11 @@ const AVAILABLE_SELECT = `
 
 const RESERVED_SELECT = `
   SELECT pp.part_id,
-         SUM(pp.from_stock_qty + pp.received_qty - pp.prepared_qty) AS reserved
+         SUM(pp.from_stock_qty + pp.received_qty) AS reserved
   FROM project_parts pp
   JOIN projects pr ON pr.id = pp.project_id
   WHERE pp.part_id = ANY($1::int[])
     AND pp.project_id <> $2
-    AND pp.prepared_qty < pp.from_stock_qty + pp.received_qty
     AND pr.status = 'started'
   GROUP BY pp.part_id
 `;
@@ -69,9 +79,10 @@ export async function getAvailableQuantities(
 }
 
 /**
- * Quantity per part id claimed by OTHER started projects — an outstanding
- * pick against physical stock that must not be promised twice. Received
- * goods count too: they are sitting in stock earmarked for that project.
+ * Quantity per part id claimed by OTHER started projects — a claim against
+ * physical stock that must not be promised twice. Received goods count too:
+ * they are sitting in stock earmarked for that project, and so do parts
+ * already prepared, which are boxed up for it but still on the books.
  * `excludeProjectId` is the project asking, so its own rows are never a
  * competing claim against itself.
  */

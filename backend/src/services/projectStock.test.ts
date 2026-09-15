@@ -9,9 +9,11 @@
 //   - a part fully consumed
 //   - a part claimed by two started projects, one of which is stopped
 // plus three more the queries' exact predicates deserve:
-//   - a started project's claim that is already fully picked (must not
-//     count as reserved — the `prepared_qty < from_stock_qty + received_qty`
-//     clause, not just the status filter)
+//   - a started project's claim that is already fully prepared (must STILL
+//     count as reserved since migration 026: marking a sub-product prepared
+//     writes no `removed` stock entry, so those parts are boxed up for the
+//     project but still counted in `available` — dropping them out of
+//     `reserved` would promise them to the next project to start)
 //   - a project excluding its own claim from "reserved by others"
 //   - getPartStock issuing exactly one round trip per call, from a single
 //     snapshot, whether given the pool or an existing transaction client
@@ -102,9 +104,9 @@ async function seed(client: Queryable) {
     `INSERT INTO project_parts
        (project_id, part_id, required_qty, from_stock_qty, missing_qty, ordered_qty, received_qty, prepared_qty)
      VALUES
-       ($1, $4, 15, 10, 5, 5, 5, 3),  -- A: outstanding claim on PART_CLAIMED_TWICE = 10+5-3 = 12
+       ($1, $4, 15, 10, 5, 5, 5, 3),  -- A: claim on PART_CLAIMED_TWICE = 10+5 = 15 (prepared_qty no longer subtracted — migration 026)
        ($2, $4, 20, 20, 0, 0, 0, 0),  -- B: same part, but stopped — must not count
-       ($3, $5, 15, 15, 0, 0, 0, 15)`, // C: fully prepared claim on PART_FULLY_PREPARED_CLAIM — must not count
+       ($3, $5, 15, 15, 0, 0, 0, 15)`, // C: fully prepared claim on PART_FULLY_PREPARED_CLAIM — still counts
     [PROJECT_STARTED_A, PROJECT_STOPPED_B, PROJECT_STARTED_C, PART_CLAIMED_TWICE, PART_FULLY_PREPARED_CLAIM],
   );
 }
@@ -128,9 +130,9 @@ async function main() {
     check(
       'claimed by two projects (one stopped): reserved excludes the stopped one',
       claim.get(PART_CLAIMED_TWICE)?.reserved,
-      12,
+      15,
     );
-    check('claimed by two projects (one stopped): free', claim.get(PART_CLAIMED_TWICE)?.free, 28);
+    check('claimed by two projects (one stopped): free', claim.get(PART_CLAIMED_TWICE)?.free, 25);
 
     const reservedExcludingSelf = await getReservedQuantities(client, [PART_CLAIMED_TWICE], PROJECT_STARTED_A);
     check(
@@ -141,9 +143,9 @@ async function main() {
 
     const fullyPrepared = await getPartStock(client, [PART_FULLY_PREPARED_CLAIM], PROJECT_CALLER);
     check(
-      'fully prepared started claim does not count as reserved',
+      'fully prepared started claim still counts as reserved (migration 026)',
       fullyPrepared.get(PART_FULLY_PREPARED_CLAIM)?.reserved,
-      0,
+      15,
     );
     check(
       'fully prepared started claim: available unaffected',

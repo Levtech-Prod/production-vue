@@ -484,10 +484,15 @@ export function toProjectPartRows(
   // record, not a claim. A draft's is prospective, and does flag.
   const claimIsCounted = status === 'draft' || status === 'started';
   return parts.map((row) => {
-    // What this project itself still has an outstanding claim on — the same
-    // expression §4.2 sums over OTHER started projects to get `reserved`, so
-    // the shortfall test below compares like with like.
+    // What is still to be picked for this project — the Parts table's own
+    // column, and nothing else reads it.
     const toPickQty = row.fromStockQty + row.receivedQty - row.preparedQty;
+    // This project's own claim on physical stock: the same expression §4.2
+    // now sums over OTHER started projects to get `reserved`, so the
+    // shortfall test below compares like with like. Deliberately NOT
+    // `toPickQty` — a prepared part has left the picking queue but not the
+    // shelf's books, so it is still claimed (migration 026).
+    const ownClaim = row.fromStockQty + row.receivedQty;
     return {
       id: row.id,
       part: row.part,
@@ -510,7 +515,7 @@ export function toProjectPartRows(
       toBuyQty: row.missingQty - row.orderedQty,
       onOrderQty: row.orderedQty - row.receivedQty,
       toPickQty,
-      stockShortfall: claimIsCounted && row.stock.available < row.stock.reserved + toPickQty,
+      stockShortfall: claimIsCounted && row.stock.available < row.stock.reserved + ownClaim,
     };
   });
 }
