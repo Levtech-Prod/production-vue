@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col">
+  <div class="flex h-full min-h-0 flex-col gap-4">
     <!-- One section card for the whole board: toolbar, then the columns —
          the same shape the products list uses. -->
     <div class="card flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -61,8 +61,25 @@
         @start="openStartTarget"
         @delete="openDeleteTarget"
         @stop="openStopTarget"
+        @open="openPreparation"
+        @prepare="openPrepareTarget"
+        @unprepare="openUnprepareTarget"
       />
     </div>
+
+    <!-- Nothing selected -> hidden entirely (§6.3), not just empty. -->
+    <ProjectPartsTable
+      v-if="selectedProjectId"
+      ref="partsTableRef"
+      :project-id="selectedProjectId"
+      class="min-h-0 flex-1"
+    />
+
+    <SubProductPreparationModal
+      :target="preparationTarget"
+      @close="closePreparation"
+      @prepared="onSubProductPrepared"
+    />
 
     <ProjectModal
       v-model="modalOpen"
@@ -100,15 +117,51 @@
       @cancel="cancelStartProject"
     />
 
+    <!-- Stopping releases the whole claim, and since preparation began that
+         includes parts physically pulled into job boxes (§4.2, §11.13). The
+         count is the warning: the shelf figure will not mention them. -->
     <DeleteConfirmModal
       :target="stopTarget"
       title-key="stop_project"
-      message-key="confirmations.stop_project_msg"
+      :message-key="
+        stopPickedPieces > 0
+          ? 'confirmations.stop_project_msg_picked'
+          : 'confirmations.stop_project_msg'
+      "
+      :message-params="{ n: stopPickedPieces }"
       confirm-text-key="stop_project"
       :label="(project) => project.name"
       :loading="stopBusy"
       @confirm="confirmStopProject"
       @cancel="cancelStopProject"
+    />
+
+    <!-- Both preparation actions are confirmed for the same reason Start is:
+         each moves real stock. Marking takes the sub-product's parts out of
+         what the project can still pick; undoing puts them back, which is
+         equally worth a second look on a shared board. -->
+    <DeleteConfirmModal
+      :target="prepareTarget"
+      title-key="mark_prepared"
+      message-key="confirmations.mark_prepared_msg"
+      confirm-text-key="mark_prepared"
+      variant="primary"
+      :label="subProductLabel"
+      :loading="prepareBusy"
+      @confirm="confirmPrepare"
+      @cancel="cancelPrepare"
+    />
+
+    <DeleteConfirmModal
+      :target="unprepareTarget"
+      title-key="undo_prepared"
+      message-key="confirmations.undo_prepared_msg"
+      confirm-text-key="undo"
+      variant="primary"
+      :label="subProductLabel"
+      :loading="unprepareBusy"
+      @confirm="confirmUnprepare"
+      @cancel="cancelUnprepare"
     />
   </div>
 </template>
@@ -119,7 +172,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Plus, Search } from 'lucide-vue-next';
 import ProjectBoard from './board/ProjectBoard.vue';
+import SubProductPreparationModal from './board/SubProductPreparationModal.vue';
+import type { SubProductTarget } from './board/columns.ts';
 import ProjectModal from './ProjectModal.vue';
+import ProjectPartsTable from './ProjectPartsTable.vue';
 import DeleteConfirmModal from '../../components/notification/DeleteConfirmModal.vue';
 import { useConfirmDelete } from '../../composables/useConfirmDelete.ts';
 import { useProjectsStore } from '../../stores/projectsStore.ts';
@@ -221,9 +277,13 @@ watch(
 // ---- Selection --------------------------------------------------------------
 //
 // Selecting dims the other projects rather than hiding them, so the board
-// keeps its shape (§6.3). The Parts table it also drives arrives with story 9.
+// keeps its shape (§6.3). The Parts table below is what this drives.
 
 const selectedProjectId = ref<number | null>(null);
+// So Edit and Start — both reachable from any card, not only the selected
+// one (§6.3) — can invalidate that project's Parts table cache even when it
+// isn't the one currently on screen.
+const partsTableRef = ref<InstanceType<typeof ProjectPartsTable> | null>(null);
 
 function toggleSelection(id: number) {
   selectedProjectId.value = selectedProjectId.value === id ? null : id;
@@ -271,6 +331,9 @@ async function openEdit(card: ProjectBoardCard) {
 async function onSaved(payload: ProjectPayload) {
   saving.value = true;
   saveError.value = null;
+  // Read before the await: a successful save leaves `editing` as it was, but
+  // there is no reason to rely on that continuing to be true.
+  const editedProjectId = editing.value?.id ?? null;
   try {
     if (editing.value) {
       await store.updateProject(editing.value.id, payload);
@@ -280,7 +343,11 @@ async function onSaved(payload: ProjectPayload) {
       notify.showToast(t('success.save_project'), 'success');
     }
     modalOpen.value = false;
-    await loadBoard();
+    // The board is already current: the store put the card the write answered
+    // with in place of the old one. Only the Parts table still has to be told,
+    // because PATCH replaces the whole product set and a draft's parts are
+    // computed from it (§6.3).
+    if (editedProjectId !== null) partsTableRef.value?.invalidateProject(editedProjectId);
   } catch (err) {
     saveError.value = translateApiError(err, { t, te }, 'errors.save_project_failed');
   } finally {
@@ -295,14 +362,14 @@ async function onSaved(payload: ProjectPayload) {
 // the two message keys. `useConfirmDelete` is reused unchanged for all three
 // (§11.4); what is shared here is the action wrapped around it.
 
-function confirmedCardAction(
-  run: (project: ProjectBoardCard) => Promise<void>,
+function confirmedCardAction<T>(
+  run: (target: T) => Promise<void>,
   successKey: string,
   errorKey: string,
 ) {
-  return useConfirmDelete<ProjectBoardCard>(async (project) => {
+  return useConfirmDelete<T>(async (target) => {
     try {
-      await run(project);
+      await run(target);
       notify.showToast(t(successKey), 'success');
       return true;
     } catch (err) {
@@ -318,7 +385,7 @@ const {
   open: openDeleteTarget,
   confirm: confirmDeleteProject,
   cancel: cancelDeleteProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   (project) => store.deleteProject(project.id),
   'success.delete_project',
   'errors.delete_project_failed',
@@ -333,10 +400,12 @@ const {
   open: openStartTarget,
   confirm: confirmStartProject,
   cancel: cancelStartProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.startProject(project.id);
-    await loadBoard();
+    // The board card came back with the write. The Parts table did not: its
+    // rows go from computed (id: null) to frozen (id: number) (§6.3).
+    partsTableRef.value?.invalidateProject(project.id);
   },
   'success.start_project',
   'errors.start_project_failed',
@@ -348,13 +417,93 @@ const {
   open: openStopTarget,
   confirm: confirmStopProject,
   cancel: cancelStopProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.stopProject(project.id);
-    await loadBoard();
   },
   'success.stop_project',
   'errors.stop_project_failed',
+);
+
+/** Pieces already pulled into this project's job boxes. Stopping hands them
+ *  back to free stock along with the rest of its claim, and nothing else on
+ *  the confirmation would say so. */
+const stopPickedPieces = computed(() =>
+  stopTarget.value
+    ? stopTarget.value.subProducts.reduce((sum, sub) => sum + sub.pickedQty, 0)
+    : 0,
+);
+
+// ---- Preparation ------------------------------------------------------------
+//
+// Marking a sub-product prepared and taking that mark back are the same flow
+// as the three above, over a sub-product instead of a project. Both move the
+// project between *Preparation* and *Prepared* (§4.1), and both answer with
+// the card that says so, which the store puts in place of the old one — no
+// board reload, and nothing here recomputing membership.
+//
+// Neither touches the Parts table. Marking moves no quantity at all (it
+// records that the picks already did), and the quantities the picks DO move —
+// `prepared_qty` — are not a column that table shows.
+
+// The card opens its pick list; the Parts table below the board stays tied to
+// the *Projects* column's selection, which is the only card that still takes a
+// plain click.
+const preparationTarget = ref<SubProductTarget | null>(null);
+
+function openPreparation(target: SubProductTarget) {
+  preparationTarget.value = target;
+}
+
+// Every save inside the modal goes through the store and brings the board card
+// back with it, so closing has nothing left to reconcile.
+function closePreparation() {
+  preparationTarget.value = null;
+}
+
+function onSubProductPrepared() {
+  preparationTarget.value = null;
+  notify.showToast(t('success.mark_prepared'), 'success');
+}
+
+function subProductLabel({ product, subProduct }: SubProductTarget): string {
+  return `${product.name} · ${subProduct.name} ${subProduct.revisionLabel}`;
+}
+
+function preparationAction(prepared: boolean) {
+  return async ({ project, subProduct }: SubProductTarget) => {
+    const ref = {
+      projectProductId: subProduct.projectProductId,
+      subProductRevisionId: subProduct.subProductRevisionId,
+    };
+    await (prepared
+      ? store.prepareSubProduct(project.id, ref)
+      : store.unprepareSubProduct(project.id, ref));
+  };
+}
+
+const {
+  target: prepareTarget,
+  busy: prepareBusy,
+  open: openPrepareTarget,
+  confirm: confirmPrepare,
+  cancel: cancelPrepare,
+} = confirmedCardAction<SubProductTarget>(
+  preparationAction(true),
+  'success.mark_prepared',
+  'errors.mark_prepared_failed',
+);
+
+const {
+  target: unprepareTarget,
+  busy: unprepareBusy,
+  open: openUnprepareTarget,
+  confirm: confirmUnprepare,
+  cancel: cancelUnprepare,
+} = confirmedCardAction<SubProductTarget>(
+  preparationAction(false),
+  'success.undo_prepared',
+  'errors.undo_prepared_failed',
 );
 
 onMounted(loadBoard);

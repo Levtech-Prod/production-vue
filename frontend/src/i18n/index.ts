@@ -182,6 +182,7 @@ const messages = {
     action_added: 'Added',
     action_removed: 'Removed',
     event_default_revision: 'Default revision',
+    event_product: 'Product',
     event_sub_product: 'Sub-product',
     event_sub_product_revision: 'Sub-product revision',
     event_product_revision: 'Product revision',
@@ -574,12 +575,40 @@ const messages = {
     at_least_one_status: 'At least one status must be shown',
     show_n_more: '+{n} more',
     show_less: 'Show less',
-    n_lines_ready: '{done} of {total} parts ready',
     progress_not_started: 'Not started',
     n_parts_to_buy: '{n} to buy',
     n_parts_on_order: '{n} on order',
-    n_parts_to_pick: '{n} to pick',
-    n_parts_ready: '{n} ready',
+    n_sub_products_prepared: '{n} sub-products prepared',
+    // Preparation cards — one per sub-product (migration 026)
+    mark_prepared: 'Mark prepared',
+    undo_prepared: 'Undo preparation',
+    undo: 'Undo',
+    n_parts_prepared_of: '{picked} of {total} parts prepared',
+    n_pieces_picked_of: '{picked} of {total} pieces picked',
+    n_parts_not_in_stock: '{n} not in stock',
+    n_sub_products_prepared_of: '{done} of {total} sub-products prepared',
+    sub_product_parts_not_picked: 'Every line on the list has to be picked in full first.',
+    part_prepared: 'Prepared',
+    pick_all_available: 'Pick everything available',
+    on_hand_quantity: 'On hand',
+    picked_quantity: 'Picked',
+    part_cannot_be_completed:
+      'The project does not hold enough of this part to finish the line — pick what is there and come back when the rest arrives.',
+    part_short_warning:
+      'The project holds {available} of the {required} this sub-product needs — the rest still has to arrive.',
+    // Project Parts table (projects-preparation-plan.md §6.4)
+    required_quantity: 'Required',
+    free_stock_quantity: 'Free stock',
+    reserved_quantity: 'Reserved',
+    purchase_quantity: 'Purchase',
+    ordered_quantity: 'Ordered',
+    received_quantity: 'Received',
+    search_project_parts_placeholder: 'Search by name or category…',
+    recalculate_from_stock: 'Recalculate from stock',
+    project_draft_notice: 'Not started — quantities are indicative.',
+    no_project_parts_msg: 'This project has no parts.',
+    stock_shortfall_warning:
+      'Stock has moved since this was claimed — there may not be enough left for this project.',
     project_status: {
       draft: 'Draft',
       started: 'Started',
@@ -594,6 +623,7 @@ const messages = {
       prepared: 'Prepared',
       empty_projects: 'No projects match the filter.',
       empty_until_started: 'Projects appear here once they are started.',
+      empty_preparation: 'Sub-products appear here once the parts they need are in stock.',
     },
 
     errors: {
@@ -761,6 +791,16 @@ const messages = {
         'The quantity to order cannot be lower than what has already been ordered.',
       FROM_STOCK_QTY_BELOW_PREPARED:
         'The from-stock quantity cannot be lower than what has already been prepared from it.',
+      SUB_PRODUCT_NOT_IN_PROJECT:
+        'This sub-product is not on the project\'s frozen parts list.',
+      SUB_PRODUCT_ALREADY_PREPARED: 'This sub-product is already marked prepared.',
+      SUB_PRODUCT_NOT_PREPARED: 'This sub-product is not marked prepared.',
+      SUB_PRODUCT_PARTS_UNAVAILABLE:
+        'Not every part this sub-product needs is in hand yet — they may have been picked for another sub-product in the meantime.',
+      SUB_PRODUCT_PARTS_NOT_PICKED:
+        'Every line of this sub-product\'s list has to be picked in full before it can be marked prepared.',
+      PICKED_QTY_ABOVE_REQUIRED: 'That is more than this sub-product needs of the part.',
+      PROJECT_PART_USAGE_NOT_FOUND: 'That part is not on this project\'s list.',
       PART_IN_USE_BY_PROJECT:
         'This part cannot be deleted because a project is using it.',
       PART_IN_USE_BY_BOM:
@@ -788,7 +828,13 @@ const messages = {
       save_project_failed: 'Failed to save the project',
       delete_project_failed: 'Failed to delete the project',
       start_project_failed: 'Failed to start the project',
+      mark_prepared_failed: 'Could not mark the sub-product prepared',
+      save_part_pick_failed: 'Could not save the picked quantity',
+      undo_prepared_failed: 'Could not remove the preparation mark',
       stop_project_failed: 'Failed to stop the project',
+      load_project_parts_failed: 'Failed to load the parts list',
+      save_project_part_failed: 'Failed to save the change',
+      recalculate_project_parts_failed: 'Failed to recalculate from stock',
     },
 
     success: {
@@ -832,6 +878,9 @@ const messages = {
       delete_project: 'The project was deleted successfully.',
       start_project: 'The project was started successfully',
       stop_project: 'The project was stopped successfully',
+      mark_prepared: 'The sub-product was marked prepared',
+      undo_prepared: 'The preparation mark was removed',
+      recalculate_project_parts: 'Recalculated: {changed} updated, {skipped} skipped as overridden.',
     },
 
     validation: {
@@ -886,6 +935,14 @@ const messages = {
         'The parts list will be frozen and the stock it needs claimed. A started project can no longer be edited or deleted',
       stop_project_msg:
         'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed, and parts already ordered will still be delivered',
+      stop_project_msg_picked:
+        'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed — including {n} part(s) already picked into its job boxes, which stock will count as free again — and parts already ordered will still be delivered',
+      mark_prepared_msg:
+        'Its parts leave the stock this project can still pick, and the sub-product moves to Prepared',
+      undo_prepared_msg:
+        'The sub-product goes back to Preparation and its parts return to what this project can pick',
+      recalculate_project_parts_msg:
+        '{eligible} row(s) will be recalculated from today’s stock. {overridden} row(s) with a manual edit will be skipped.',
     },
   },
   hu: {
@@ -1054,6 +1111,7 @@ const messages = {
     action_added: 'Hozzáadva',
     action_removed: 'Eltávolítva',
     event_default_revision: 'Alapértelmezett revízió',
+    event_product: 'Termék',
     event_sub_product: 'Altermék',
     event_sub_product_revision: 'Altermék revízió',
     event_product_revision: 'Termék revízió',
@@ -1450,12 +1508,40 @@ const messages = {
     at_least_one_status: 'Legalább egy állapotot meg kell jeleníteni',
     show_n_more: '+{n} további',
     show_less: 'Kevesebb',
-    n_lines_ready: '{total} alkatrészből {done} kész',
     progress_not_started: 'Nincs elindítva',
     n_parts_to_buy: '{n} beszerzendő',
     n_parts_on_order: '{n} megrendelve',
-    n_parts_to_pick: '{n} kivételezendő',
-    n_parts_ready: '{n} kész',
+    n_sub_products_prepared: '{n} altermék kész',
+    // Előkészítés kártyák — altermékenként egy (026-os migráció)
+    mark_prepared: 'Előkészítve jelölés',
+    undo_prepared: 'Jelölés visszavonása',
+    undo: 'Visszavonás',
+    n_parts_prepared_of: '{total} alkatrészből {picked} előkészítve',
+    n_pieces_picked_of: '{total} darabból {picked} kiszedve',
+    n_parts_not_in_stock: '{n} nincs készleten',
+    n_sub_products_prepared_of: '{total} altermékből {done} kész',
+    sub_product_parts_not_picked: 'Előbb a lista minden sorát teljesen ki kell szedni.',
+    part_prepared: 'Előkészítve',
+    pick_all_available: 'Minden elérhető kiszedése',
+    on_hand_quantity: 'Rendelkezésre áll',
+    picked_quantity: 'Kiszedve',
+    part_cannot_be_completed:
+      'A projekt nem rendelkezik elegendő mennyiséggel a sor lezárásához — szedd ki, ami megvan, és térj vissza, ha a többi megérkezik.',
+    part_short_warning:
+      'A projekt {required} darabból {available} darabbal rendelkezik ehhez az altermékhez — a többinek még meg kell érkeznie.',
+    // Projekt alkatrésztábla (projects-preparation-plan.md §6.4)
+    required_quantity: 'Szükséges',
+    free_stock_quantity: 'Szabad készlet',
+    reserved_quantity: 'Foglalt',
+    purchase_quantity: 'Beszerzés',
+    ordered_quantity: 'Megrendelve',
+    received_quantity: 'Bevételezve',
+    search_project_parts_placeholder: 'Keresés név vagy kategória alapján…',
+    recalculate_from_stock: 'Újraszámítás készlet alapján',
+    project_draft_notice: 'Nincs elindítva — a mennyiségek tájékoztató jellegűek.',
+    no_project_parts_msg: 'Ehhez a projekthez nem tartozik alkatrész.',
+    stock_shortfall_warning:
+      'A készlet megváltozott a lefoglalás óta — lehet, hogy nem marad elég ehhez a projekthez.',
     project_status: {
       draft: 'Piszkozat',
       started: 'Elindítva',
@@ -1470,6 +1556,8 @@ const messages = {
       prepared: 'Előkészítve',
       empty_projects: 'Nincs a szűrőnek megfelelő projekt.',
       empty_until_started: 'A projektek az indításuk után jelennek meg itt.',
+      empty_preparation:
+        'Az altermékek akkor jelennek meg itt, ha a szükséges alkatrészeik készleten vannak.',
     },
 
     errors: {
@@ -1629,6 +1717,16 @@ const messages = {
         'A rendelendő mennyiség nem lehet kevesebb a már megrendeltnél.',
       FROM_STOCK_QTY_BELOW_PREPARED:
         'A raktárról fedezett mennyiség nem lehet kevesebb, mint amennyit már előkészítettek belőle.',
+      SUB_PRODUCT_NOT_IN_PROJECT:
+        'Ez az altermék nem szerepel a projekt rögzített alkatrészlistáján.',
+      SUB_PRODUCT_ALREADY_PREPARED: 'Ez az altermék már előkészítve van jelölve.',
+      SUB_PRODUCT_NOT_PREPARED: 'Ez az altermék nincs előkészítve jelölve.',
+      SUB_PRODUCT_PARTS_UNAVAILABLE:
+        'Még nincs meg minden alkatrész ehhez az altermékhez — időközben elképzelhető, hogy egy másik altermékhez vették ki őket.',
+      SUB_PRODUCT_PARTS_NOT_PICKED:
+        'Az altermék csak akkor jelölhető előkészítettnek, ha a listán minden sor teljesen ki van szedve.',
+      PICKED_QTY_ABOVE_REQUIRED: 'Ez több, mint amennyi ehhez az altermékhez az alkatrészből kell.',
+      PROJECT_PART_USAGE_NOT_FOUND: 'Ez az alkatrész nem szerepel a projekt listáján.',
       PART_IN_USE_BY_PROJECT:
         'Az alkatrész nem törölhető, mert egy projekt használja.',
       PART_IN_USE_BY_BOM:
@@ -1656,7 +1754,13 @@ const messages = {
       save_project_failed: 'A projekt mentése nem sikerült',
       delete_project_failed: 'A projekt törlése nem sikerült',
       start_project_failed: 'A projekt indítása nem sikerült',
+      mark_prepared_failed: 'Az altermék előkészítve jelölése nem sikerült',
+      save_part_pick_failed: 'A kiszedett mennyiség mentése nem sikerült',
+      undo_prepared_failed: 'Az előkészítés jelölésének visszavonása nem sikerült',
       stop_project_failed: 'A projekt leállítása nem sikerült',
+      load_project_parts_failed: 'Az alkatrészlista betöltése nem sikerült',
+      save_project_part_failed: 'A módosítás mentése nem sikerült',
+      recalculate_project_parts_failed: 'Az újraszámítás nem sikerült',
     },
 
     success: {
@@ -1701,6 +1805,9 @@ const messages = {
       delete_project: 'A projekt sikeresen törölve.',
       start_project: 'A projekt elindítása sikeresen megtörtént',
       stop_project: 'A projekt leállítása sikeresen megtörtént',
+      mark_prepared: 'Az altermék előkészítve lett jelölve',
+      undo_prepared: 'Az előkészítés jelölése visszavonva',
+      recalculate_project_parts: 'Újraszámítva: {changed} frissítve, {skipped} kihagyva (kézi módosítás miatt).',
     },
 
     validation: {
@@ -1753,6 +1860,14 @@ const messages = {
         'Az alkatrészlista rögzül, és a szükséges készlet lefoglalásra kerül. Az elindított projekt már nem szerkeszthető és nem törölhető',
       stop_project_msg:
         'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet, a már megrendelt alkatrészek pedig ettől még megérkeznek',
+      stop_project_msg_picked:
+        'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet — beleértve azt a {n} alkatrészt is, amelyet már kiszedtek a projekt dobozaiba, és amelyet a készlet ismét szabadként fog számolni —, a már megrendelt alkatrészek pedig ettől még megérkeznek',
+      mark_prepared_msg:
+        'Az alkatrészei kikerülnek a projekt által még kivételezhető készletből, az altermék pedig az Előkészítve oszlopba kerül',
+      undo_prepared_msg:
+        'Az altermék visszakerül az Előkészítés oszlopba, alkatrészei pedig a projekt által kivételezhető készletbe',
+      recalculate_project_parts_msg:
+        '{eligible} sor kerül újraszámításra a mai készlet alapján. {overridden} kézzel módosított sor kihagyásra kerül.',
     },
   },
 };

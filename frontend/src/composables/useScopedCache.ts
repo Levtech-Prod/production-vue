@@ -147,5 +147,39 @@ export function useScopedCache<S, T>(options: ScopedCacheOptions<S, T>) {
     cache.delete(key);
   }
 
-  return { data, loading, isCurrent, load, refresh, invalidateAndRefresh, clearCache, dropCacheKey };
+  /**
+   * Apply a write's own answer to a scope instead of re-reading it.
+   *
+   * The cache and the view are updated together, which is the whole point:
+   * patching only `data` would leave the cached copy stale, so switching away
+   * and back would show the pre-write value. A write that answers with what it
+   * changed makes a refetch pure cost — and `invalidateAndRefresh`, the only
+   * previous option, threw away every OTHER scope's cache as well.
+   *
+   * `update` must return a new payload rather than mutate the old one: `data`
+   * is a `shallowRef`, so an in-place edit would not re-render.
+   */
+  function patchScope(scope: S, update: (current: T) => T) {
+    const key = keyFor(scope);
+    // Nothing to patch means nothing to write: patching `empty` would cache a
+    // payload built from no data, and the next `load` of that scope would take
+    // the cache hit and show it.
+    const base = cache.get(key) ?? (isCurrent(scope) ? data.value : undefined);
+    if (base === undefined) return;
+    const next = update(base);
+    cache.set(key, next);
+    if (isCurrent(scope)) apply(next);
+  }
+
+  return {
+    data,
+    loading,
+    isCurrent,
+    load,
+    refresh,
+    invalidateAndRefresh,
+    patchScope,
+    clearCache,
+    dropCacheKey,
+  };
 }

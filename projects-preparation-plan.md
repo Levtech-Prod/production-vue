@@ -584,6 +584,15 @@ inPreparation = toPickLines   > 0
 inPrepared    = lineCount > 0 AND toBuyLines + onOrderLines + toPickLines = 0
 ```
 
+**AMENDED for the last two columns — see §11.13.** Preparation is done one
+sub-product at a time, so *Preparation* shows one card per sub-product and
+*Prepared* fills up as they finish rather than only at the end:
+
+```
+inPreparation = ANY sub-product not prepared AND holding >=1 part it needs
+inPrepared    = ANY sub-product prepared
+```
+
 Note the asymmetry, and it is deliberate: the middle three columns are **any**
 ("some parts still need buying"), *Prepared* is **all** ("nothing is
 outstanding any more"). A card in *Prepared* while half the BOM is still on
@@ -603,16 +612,20 @@ FROM stock_entries
 WHERE type = 'received' AND part_id = ANY($1)
 GROUP BY part_id;
 
--- Reserved by OTHER started projects: the outstanding claim on physical
--- stock, i.e. what a project has earmarked but not yet picked. Received
+-- Reserved by OTHER started projects: the claim on physical stock. Received
 -- goods count too — they are sitting in stock with this project's name on
 -- them, so they must not be promised twice.
-SELECT part_id, SUM(from_stock_qty + received_qty - prepared_qty) AS reserved
+--
+-- AMENDED (§11.13): the `- prepared_qty` term and its matching filter are
+-- gone. They assumed picking a part also consumes it, which is true only once
+-- the Preparation pick list (§7 step 19) writes the `removed` stock entry.
+-- Marking a sub-product prepared does not, so those parts are boxed up for
+-- the project and still counted in `available` — they have to stay reserved.
+SELECT part_id, SUM(from_stock_qty + received_qty) AS reserved
 FROM project_parts pp
 JOIN projects pr ON pr.id = pp.project_id
 WHERE pp.part_id = ANY($1)
   AND pp.project_id <> $2
-  AND pp.prepared_qty < pp.from_stock_qty + pp.received_qty
   AND pr.status = 'started'
 GROUP BY pp.part_id;
 ```
@@ -784,7 +797,9 @@ interface ProjectPartRow {
     qtyForProduct: number;   // qtyPerUnit x that product's project quantity
   }[];
   requiredQty: number;
-  availableQty: number;       // total in stock, all projects
+  availableQty: number;       // free stock: total minus other started
+                              // projects' reserved claims (revised after
+                              // shipping story 9 — was the raw total)
   reservedQty: number;        // other started projects' outstanding claims
   fromStockQty: number;
   missingQty: number;
@@ -1549,7 +1564,7 @@ open, the rest is how the two forms of the BOM were kept from drifting.
 | # | Problem | Now |
 |---|---|---|
 | D1 | §5.4 types the row's `id` as `number`, but a **draft**'s rows are computed and have no `project_parts.id` to put there. Inventing one (the part id, or 0) would put two different id spaces in one field, and the first `PATCH /:id/parts/:projectPartId` built from it would address the wrong row. | `id: number \| null`, null exactly when `draft: true`. It is not a second payload shape: the keys are identical, and a null `id` is the same kind of statement as the progress buckets being zero. Rows are keyed on `part.id`, which both forms carry and `UNIQUE (project_id, part_id)` keeps unique per project. |
-| D2 | Two different expressions for the same flag. §4.2 says the table flags `available < reserved + (from_stock_qty - prepared_qty)`; §5.4 says "available < reserved + this project's own outstanding claim". They differ by `received_qty`, and §4.2's own definition of `reserved` — `from_stock_qty + received_qty - prepared_qty` over *other* started projects — settles which is meant: goods received against this project are sitting in stock with its name on them, exactly as they are for everybody else's. | `stockShortfall` is `availableQty < reservedQty + toPickQty`, so the row is compared with other projects on identical terms. §4.2's shorter expression reads as shorthand from before `received_qty` counted toward the pick. |
+| D2 | Two different expressions for the same flag. §4.2 says the table flags `available < reserved + (from_stock_qty - prepared_qty)`; §5.4 says "available < reserved + this project's own outstanding claim". They differ by `received_qty`, and §4.2's own definition of `reserved` — `from_stock_qty + received_qty - prepared_qty` over *other* started projects — settles which is meant: goods received against this project are sitting in stock with its name on them, exactly as they are for everybody else's. | `stockShortfall` is computed from the raw `stock.available` / `stock.reserved` pair, not the payload's `availableQty` / `reservedQty` fields: `row.stock.available < row.stock.reserved + toPickQty`, so the row is compared with other projects on identical terms. §4.2's shorter expression reads as shorthand from before `received_qty` counted toward the pick. (`availableQty` itself was later redefined to free stock — see the §5.4 field comment — which is why the flag no longer reads directly off the payload's own fields.) |
 | D3 | "One payload shape either way" is a promise two independently written branches would eventually break — the draft path and the frozen path each build the same rows from a different source. | Both readers (`computeProjectBom`, `loadFrozenProjectBom`) answer with one intermediate shape, and a single mapper (`toProjectPartRows`) produces the payload from either. The collapse of usages to distinct products and the three derived quantities are therefore written once, not once per branch, and the test asserts the two forms agree key for key. |
 | D4 | §5.4 says `qtyForProduct` "is computed in the query". Doing that would mean writing the level-2 aggregation twice — once in the draft flatten, once in the frozen read — which is the same decision in two places and the way the two would come to disagree. | Level 2 is computed once in TypeScript, in the shared mapper. Exactly, with no rounding: every quantity is a whole number (§11.11), and JS holds integers to 2^53 without loss. |
 | D5 | §3.4's `usage` CTE is written for the insert-from-select the freeze will run. Read-only, it needs no CTE at all. | `computeProjectBom` is the same joins as a plain `SELECT`, with the display columns (part, category, SKU, revision label) joined on, aggregated per part in memory. Two round trips: the flatten, then §4.2's stock read for every part id at once. |
@@ -1702,3 +1717,183 @@ lands rather than in what it changes.**
 types (not a refusal, per the rounding note above) and that the stock CHECK
 refuses 1.5 and accepts 10; it seeds its own category, company and part rather
 than borrowing whatever the database holds, so it cannot quietly skip.
+
+### 11.13 Eleventh pass — the *Preparation* column, per sub-product (migration 026)
+
+The board showed one *Preparation* card per project, which is not the grain the
+work happens at: a project's parts are prepared one sub-product at a time, and
+a single card cannot say which sub-product the parts on the shelf belong to.
+What changed, and why each piece had to:
+
+- **One card per (product-in-the-project, sub-product revision).** The pairs
+  are the distinct rows of `project_part_usages`, frozen at Start — exactly
+  what §3.4 stored them for. Nothing new is derived and nothing is stored
+  twice. A sub-product revision with no parts has no card, which is the same
+  thing the frozen BOM already says about it.
+- **A card appears once the project holds at least one part that sub-product
+  needs.** This is the old column rule ("some parts are available") asked one
+  sub-product at a time, so the column keeps meaning what it meant.
+- **Marking one prepared is a single action on the card**, enabled only when
+  every part it needs is in hand. Half a sub-product prepared would put a card
+  in *Prepared* that nobody can build from. It is reversible from the
+  *Prepared* card, because on a shared board the wrong card does get clicked.
+- **The mark is a row in `project_sub_product_preparations`, plus the same
+  quantities added to `project_parts.prepared_qty`.** The quantities are not
+  stored on the new table: they are `qty_per_unit x project_products.quantity`
+  every time, so marking and un-marking cannot drift apart.
+  `project_parts.prepared_qty` alone could not carry this — a part fitted in
+  two sub-products of one product is a single row, and its prepared quantity
+  cannot name which of the two consumed it.
+- **`reserved` loses its `prepared_qty` term (§4.2, and the partial index
+  behind it).** This is the part that would have been a silent bug: §4.2
+  subtracted prepared parts because it assumed picking also consumes them —
+  true only once the pick list (§7 step 19) writes the `removed` stock entry.
+  Marking a sub-product writes no such entry, so subtracting would have
+  dropped those parts out of `reserved` while `available` still counted them,
+  and the next project to start would have seeded `from_stock_qty` from stock
+  already sitting in a box. The term comes back with the pick list that earns
+  it. `toPickQty` on the Parts table keeps subtracting it — that column is
+  about what is left to pick, which is a different question.
+- **§8.1 reversed: *Prepared* is ANY, not ALL.** It was settled as all-lines-
+  done because an early *Prepared* would have lit up beside *Preparation* and
+  said nothing. It now says something: the card names the share of each
+  product that is prepared, so a project in both columns reads as "this much
+  done, that much to go" rather than as two columns repeating each other.
+- **`toPickLines` is gone from the board payload.** It was the *Preparation*
+  badge and nothing else read it; the cards carry their own parts-in-hand
+  count now.
+
+Still not built here, and deliberately: the physical `removed` stock entries.
+They belong with the pick list (§7 step 19), which is where someone confirms
+what actually came off the shelf, part by part — and until it exists, a
+preparation is a bookkeeping fact this module can also take back.
+
+### 11.14 Twelfth pass — the pick list behind a *Preparation* card (also migration 026)
+
+§11.13 left "Mark prepared" as a single judgement call: the button lit up when
+the project held every part, and the person clicked it. That is the right
+commit but the wrong evidence — nobody prepares a sub-product by reading a
+stock figure, they walk a list and pull parts into a box. So the card opens
+that list.
+
+- **Clicking a *Preparation* card opens its parts in a modal** — name, code,
+  what the line needs, what is on hand, and how much is already in the box.
+- **A pick is a QUANTITY, not a tick.** The case that settles it: a line needs
+  5, the shelf holds 2, the other 3 are on order. Those 2 get pulled now and
+  the line finishes when the rest arrive; a boolean cannot say that. The
+  checkbox stays as the fast path for the ordinary line where everything is
+  there — ticking it fills the quantity in — and is disabled on a line the
+  project cannot cover, where the number beside it is how picking happens.
+- **It lives on `project_part_usages.picked_qty`, not in a new table.** That
+  row is already exactly one line of one pick list: (product in the project,
+  sub-product revision, part). One column, not three — who pulled the parts
+  and when is recorded once, on the preparation row that says the sub-product
+  was finished, rather than per checkbox where nothing would read it.
+- **`project_parts.prepared_qty` is the sum of those picks**, written in the
+  same transaction. This is what makes the whole thing hold together with no
+  second total to reconcile:
+  - Picking is the only action here that moves a quantity. Marking a
+    sub-product prepared became a plain insert, because the picks already did
+    the moving, and un-marking a plain delete.
+  - `chk_project_parts_prepared_within_pickable` now enforces picking for
+    free: a pick that exceeds what the project holds would break the CHECK.
+    The API pre-empts it only to answer with a reason rather than a constraint
+    violation. The per-line ceiling — `qty_per_unit x` the product's project
+    quantity — spans two tables, so no CHECK can hold it and the API owns that
+    one outright (`PICKED_QTY_ABOVE_REQUIRED`).
+  - The project's own progress bar and the Parts table's "to pick" column move
+    as the box fills, instead of jumping when a sub-product completes.
+- **Un-marking leaves the picks alone.** "This is not done" and "these parts
+  went back on the shelf" are different statements, and the second one now has
+  its own way of being said — lower the picked quantity on the lines it
+  applies to. Clearing them here would make the common case (marked the wrong
+  card, parts still in the box) destroy work to undo a click.
+- **A card appears once there is something to do, and stays until it is
+  marked.** Nothing picked and nothing pickable means no card — the old "some
+  parts are available" rule, asked one sub-product at a time. But a line
+  already part-picked keeps the card on the board even when the shelf has
+  nothing more to give, and a list picked in full keeps it there until someone
+  marks it. Reading this off `readyPartCount` alone was wrong and briefly
+  was: a sub-product whose every line was short would have had no card, and no
+  way to reach the list that is exactly where the 2-of-5 case is handled.
+- **Editing a prepared sub-product's picks is refused.** Its card is in
+  *Prepared*; a pick under it would move `prepared_qty` for something already
+  counted as done.
+- **Picks are deliberately not audited (§5.6).** A quantity is adjusted freely
+  while the box fills; a log of every keystroke would bury the mark that
+  closes it.
+- **Only the *Projects* card still takes a plain click.** Selecting a project
+  is what opens the Parts table under the board, and that belongs to the column
+  that owns the project rather than to every copy of its card. *Preparation*
+  cards open their pick list instead, and the other three columns are not
+  clickable at all — a card that looks clickable and does nothing is worse than
+  a plain tile.
+
+### 11.15 Thirteenth pass — one progress metric, not two
+
+Taking a prepared sub-product back left the *Projects* card still reading 100%.
+The cause was two different measures of the same word on one board: the
+*Projects* card's bar counted `project_parts` rows with nothing outstanding,
+while everything else counted prepared sub-products. Un-marking deliberately
+leaves the picks in place (§11.14), so those part lines stayed done and the bar
+stayed full — correct by its own definition, and wrong to a reader.
+
+Fixed by dropping the definition that had only one reader: the *Projects* bar
+now shows prepared sub-products over the project's total, the same fraction as
+each *Preparation* card's bar and each percentage on the *Prepared* card. One
+metric, three places, all moving together when a mark is taken back.
+
+`lineCount` and `doneLines` left the board payload with it — nothing else read
+either, and `doneLines` carried the long-tailed "nothing outstanding" predicate
+(§4.1) that only existed to feed that bar. The two buying counts still come off
+`project_parts`; preparation progress no longer does anywhere.
+
+The alternative — having un-marking clear the picks so the old bar fell on its
+own — was rejected for the reason §11.14 gives: it destroys a filled pick list
+to undo a click, and the board can be made honest without touching data.
+
+The *Prepared* card's sub-product list came out from behind the percentage in
+the same pass. It had been revealed by clicking the figure, which nothing on
+the card announced — and since that list holds the only Undo on the board, an
+undiscoverable click was hiding the only way back. It is now always on the
+card, three rows and a "+N more" like the product list above it, and the
+percentage is plain text again.
+
+### 11.16 Fourteenth pass — what the critique found
+
+An adversarial review of the preparation branch turned up three defects that
+would have shipped, all of them in code this plan describes correctly and the
+implementation did not.
+
+**The card vanished at exactly the moment it was needed (§11.14's whole point).**
+Membership counted a line as work-started only when it was picked IN FULL, so
+the 2-of-5 case — pull the 2 the shelf holds, 3 still on order — left a
+sub-product with no complete lines and no remaining headroom, dropping its card
+off the board and the modal with it. Two parts sat in a box nothing mentioned,
+with no route back to them until more stock arrived. The rule is now
+`pickedQty > 0`: ANY quantity in the box holds the card. The comment above that
+line had said so all along; the code tested the wrong number.
+
+**Two lost row locks.** `setUsagePickedQty` locked `project_parts` but read
+`picked_qty` from an unlocked join. Under READ COMMITTED an unlocked row comes
+from the statement's snapshot, so two people setting the same line to 3 each
+computed `delta = 3 - 0` and `prepared_qty` finished at 6 against 3 actually
+picked — and because the picked quantity is written absolutely while only the
+difference reaches the sum, no later edit could unwind it. It now locks
+`pp, ppu`. Separately, `loadSubProductUsages` had lost its lock when marking
+stopped shifting quantities, leaving the "every line is full" check an unlocked
+read that a concurrent pick could invalidate before the INSERT; it locks both
+tables again, ordered by `pp.id` to match.
+
+Four smaller things came out of the same pass: the card now counts PIECES
+(`pickedQty` of `requiredQty`) rather than finished lines, so partial picking is
+visible on the surface people read; `resolvePickQty` is a pure function with
+unit tests (the branch's riskiest arithmetic had none, against CLAUDE.md's
+first-tier rule); the Stop confirmation names how many parts are already in job
+boxes, since stopping frees them like any other claim and nothing else would
+say so; and an emptied quantity box no longer saves a zero on its way to being
+retyped.
+
+The lesson worth keeping: every one of the three real defects was a *count of
+the wrong thing* or a *lock removed alongside the write it guarded*. Both are
+invisible in a diff that reads well line by line.

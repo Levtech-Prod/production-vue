@@ -177,6 +177,26 @@ export const ErrorCodes = {
   // violation once Preparation (phase 3) can put a part in this state.
   FROM_STOCK_QTY_BELOW_PREPARED: 'FROM_STOCK_QTY_BELOW_PREPARED',
 
+  // project preparation (migration 026)
+  // The (product-in-the-project, sub-product revision) pair is not one this
+  // project froze — a malformed id reads the same as one that doesn't exist.
+  SUB_PRODUCT_NOT_IN_PROJECT: 'SUB_PRODUCT_NOT_IN_PROJECT',
+  SUB_PRODUCT_ALREADY_PREPARED: 'SUB_PRODUCT_ALREADY_PREPARED',
+  SUB_PRODUCT_NOT_PREPARED: 'SUB_PRODUCT_NOT_PREPARED',
+  // At least one of its parts is not yet in hand: what the project holds for
+  // that part (from stock + received, minus what other sub-products have
+  // already taken) is less than this sub-product needs.
+  SUB_PRODUCT_PARTS_UNAVAILABLE: 'SUB_PRODUCT_PARTS_UNAVAILABLE',
+  // Not every line of the sub-product's pick list is complete yet.
+  SUB_PRODUCT_PARTS_NOT_PICKED: 'SUB_PRODUCT_PARTS_NOT_PICKED',
+  // That pick-list line is not one of this project's.
+  PROJECT_PART_USAGE_NOT_FOUND: 'PROJECT_PART_USAGE_NOT_FOUND',
+  // More was picked for one line than that line needs. The per-line ceiling
+  // spans `project_part_usages` and `project_products`, so no CHECK can hold
+  // it — unlike the project-wide one, which chk_project_parts_prepared_within_
+  // pickable does.
+  PICKED_QTY_ABOVE_REQUIRED: 'PICKED_QTY_ABOVE_REQUIRED',
+
   // project offers
   OFFER_COMPANY_ALREADY_ADDED: 'OFFER_COMPANY_ALREADY_ADDED',
   // Removing a company column whose quotes back an order already placed.

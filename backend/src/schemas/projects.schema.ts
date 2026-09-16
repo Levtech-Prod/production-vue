@@ -81,3 +81,31 @@ export const projectPartUpdateSchema = z
     message: 'At least one of missingQty or fromStockQty is required',
   });
 export type ProjectPartUpdateInput = z.infer<typeof projectPartUpdateSchema>;
+
+// POST /api/projects/:id/preparations — one sub-product of one pinned product
+// (migration 026). The pair, not a single id: `project_sub_product_preparations`
+// has no id of its own to address before the row exists, and the same
+// sub-product revision can sit under two different products of one project.
+export const projectSubProductRefSchema = z.object({
+  projectProductId: pgIntSchema(),
+  subProductRevisionId: pgIntSchema(),
+});
+export type ProjectSubProductRef = z.infer<typeof projectSubProductRefSchema>;
+
+// PATCH /api/projects/:id/preparations/:projectProductId/:subProductRevisionId/picks
+// — how much of each pick-list line has been pulled into the job box
+// (migration 026). Whole parts, like every other project quantity (§3.3,
+// §11.11); 0 puts a line back on the shelf.
+//
+// A LIST, not one line per request. Filling a pick list is a "tick everything
+// that is here" action far more often than a line-by-line one, and a request
+// per line was a transaction and a project lock per checkbox. The cap is a
+// sanity bound on one sub-product's list, not a business rule.
+export const projectPartPicksSchema = z.object({
+  picks: z
+    .array(z.object({ usageId: pgIntSchema(), pickedQty: nonNegativeIntSchema() }))
+    .min(1)
+    .max(500),
+});
+export type ProjectPartPicksInput = z.infer<typeof projectPartPicksSchema>;
+export type ProjectPartPick = ProjectPartPicksInput['picks'][number];

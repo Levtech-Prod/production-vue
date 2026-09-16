@@ -755,10 +755,11 @@ CREATE TABLE IF NOT EXISTS project_parts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_parts_project_id ON project_parts(project_id);
--- Drives the cross-project "reserved quantity" aggregate: only lines with an
--- outstanding claim on physical stock are in the index.
-CREATE INDEX IF NOT EXISTS idx_project_parts_part_id
-  ON project_parts(part_id) WHERE prepared_qty < from_stock_qty + received_qty;
+-- Drives the cross-project "reserved quantity" aggregate. Not partial (see
+-- migration 026): that aggregate no longer filters on prepared_qty, because a
+-- prepared part is boxed up for its project but still counted in "available"
+-- until something writes the `removed` stock entry for it.
+CREATE INDEX IF NOT EXISTS idx_project_parts_part_id ON project_parts(part_id);
 
 -- One row per PLACE the part is used — a (product-in-the-project, sub-product
 -- revision) pair, not just a product. The obvious alternative, a nullable
@@ -777,11 +778,42 @@ CREATE TABLE IF NOT EXISTS project_part_usages (
   -- that may have moved.
   sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id),
   qty_per_unit            INTEGER NOT NULL CHECK (qty_per_unit > 0),
+  -- The pick list behind one sub-product's Preparation card (migration 026):
+  -- how much of this line has been pulled into the job box. A quantity, not a
+  -- tick, because a line routinely needs 5 while the shelf holds 2 and the
+  -- rest is on order. `project_parts.prepared_qty` is the sum of these across
+  -- the part's usage rows, written in the same transaction, which is what lets
+  -- chk_project_parts_prepared_within_pickable stop a pick the project cannot
+  -- cover. The per-line ceiling spans two tables, so the API enforces that one.
+  picked_qty              INTEGER NOT NULL DEFAULT 0
+    CONSTRAINT chk_project_part_usages_picked_non_negative CHECK (picked_qty >= 0),
   UNIQUE (project_part_id, project_product_id, sub_product_revision_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_part_usages_project_product
   ON project_part_usages(project_product_id);
+
+-- Which sub-products are already prepared (see migration 026). Sparse: a row
+-- exists only for a sub-product that IS prepared. It records a fact and moves
+-- no quantity: project_parts.prepared_qty is the sum of project_part_usages.
+-- picked_qty, maintained line by line as the pick list is filled, so marking
+-- only states that every line is complete and un-marking only takes that
+-- statement back. The quantities are never stored here because they are always
+-- re-derivable from project_part_usages x project_products.quantity.
+--
+-- `project_parts.prepared_qty` alone cannot carry this: a part fitted in two
+-- sub-products of one product is a single project_parts row, so its prepared
+-- quantity cannot say which sub-product consumed it.
+CREATE TABLE IF NOT EXISTS project_sub_product_preparations (
+  id                      SERIAL PRIMARY KEY,
+  -- Which product-IN-THE-PROJECT, not which product: the same product pinned
+  -- at two revisions is two sets of sub-products, prepared independently.
+  project_product_id      INTEGER NOT NULL REFERENCES project_products(id) ON DELETE CASCADE,
+  sub_product_revision_id INTEGER NOT NULL REFERENCES sub_product_revisions(id),
+  prepared_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  prepared_by             INTEGER REFERENCES users(id),
+  UNIQUE (project_product_id, sub_product_revision_id)
+);
 
 -- The offer grid. A missing row and a NULL price mean the same thing (no
 -- quote); the API writes a row only when the salesman types something, and a

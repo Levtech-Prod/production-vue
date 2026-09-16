@@ -1,40 +1,30 @@
 <template>
-  <!-- The left edge carries the project's own colour, so the same project is
-       recognisable wherever it appears across the five columns. Seeded by id,
-       not randomised or stored — a colour that changes between renders
-       identifies nothing, and ids being sequential means ten projects in a row
-       are ten different hues. The inline style wins over whichever border
-       class the selection state sets, which is why selection reads on the
-       other three sides and the ring. -->
-  <div
-    class="rounded-lg border border-l-4 bg-white p-2.5 shadow-sm transition-all"
-    :class="[
-      selected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200 hover:border-slate-300',
-      dimmed ? 'opacity-60' : '',
-      project.status === 'stopped' ? 'grayscale' : '',
-    ]"
-    :style="{ borderLeftColor: cardAccent(project.id).stroke }"
+  <!-- Only the *Projects* card takes a click: selecting a project is what
+       opens the Parts table below the board, and that belongs to the column
+       that owns the project rather than to every copy of its card. -->
+  <BoardCardShell
+    :project-id="project.id"
+    :clickable="primary"
+    :selected="selected"
+    :dimmed="dimmed"
+    :grayscale="project.status === 'stopped'"
+    @activate="emit('select')"
   >
     <div class="flex items-start gap-1">
-      <!-- Only the tile body selects: the menu beside it is a button of its
-           own and must not sit inside another one. -->
-      <button
-        type="button"
-        class="min-w-0 flex-1 text-left"
-        @click="emit('select')"
-      >
-        <span class="block truncate text-sm font-semibold text-slate-800">
-          {{ project.name }}
-        </span>
-      </button>
+      <span class="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+        {{ project.name }}
+      </span>
 
       <span v-if="primary" class="badge shrink-0" :class="STATUS_BADGE[project.status]">
         {{ t(`project_status.${project.status}`) }}
       </span>
 
+      <!-- Stops the click here: the menu is its own control, and letting its
+           click reach the card would toggle selection every time it opens. -->
       <ProjectCardMenu
         v-if="primary && hasCardActions(project.status)"
         :status="project.status"
+        @click.stop
         @edit="emit('edit')"
         @start="emit('start')"
         @delete="emit('delete')"
@@ -43,31 +33,85 @@
     </div>
 
     <ul v-if="project.products.length" class="mt-2 space-y-0.5">
-      <li
-        v-for="(product, index) in visibleProducts"
-        :key="index"
-        class="flex items-baseline gap-2 text-xs text-slate-500"
-      >
-        <span class="min-w-0 flex-1 truncate" :title="`${product.name} · ${product.sku}`">
-          {{ product.name }}
-          <span class="text-slate-400">{{ product.revisionLabel }}</span>
-        </span>
-        <span class="shrink-0 tabular-nums">× {{ product.quantity }}</span>
+      <li v-for="product in visibleProducts" :key="product.projectProductId">
+        <div class="flex items-baseline gap-2 text-xs text-slate-500">
+          <span class="min-w-0 flex-1 truncate" :title="`${product.name} · ${product.sku}`">
+            {{ product.name }}
+            <span class="text-slate-400">{{ product.revisionLabel }}</span>
+          </span>
+          <span class="shrink-0 tabular-nums">× {{ product.quantity }}</span>
+
+          <!-- *Prepared* only: how much of this product is done. Plain text,
+               not a control — the sub-products behind the figure are listed
+               below rather than hidden behind a click on it. -->
+          <span
+            v-if="productProgress"
+            class="shrink-0 font-semibold tabular-nums text-emerald-600"
+          >
+            {{ preparedPercent(product) }}%
+          </span>
+        </div>
       </li>
     </ul>
 
     <button
-      v-if="project.products.length > PRODUCT_PREVIEW_COUNT"
+      v-if="project.products.length > PREVIEW_COUNT"
       type="button"
       class="mt-1 text-xs font-medium text-blue-600 hover:underline"
-      @click="productsExpanded = !productsExpanded"
+      @click.stop="productsExpanded = !productsExpanded"
     >
       {{
         productsExpanded
           ? t('show_less')
-          : t('show_n_more', { n: project.products.length - PRODUCT_PREVIEW_COUNT })
+          : t('show_n_more', { n: project.products.length - PREVIEW_COUNT })
       }}
     </button>
+
+    <!-- What is already prepared, named rather than merely counted — and the
+         only place a mark made by mistake can be taken back, so it is always
+         on the card rather than behind a click nothing announced. -->
+    <div
+      v-if="productProgress && preparedSubProducts.length"
+      class="mt-2 border-t border-slate-100 pt-2"
+    >
+      <ul class="space-y-0.5">
+        <li
+          v-for="{ product, subProduct } in visiblePreparedSubProducts"
+          :key="`${subProduct.projectProductId}-${subProduct.subProductRevisionId}`"
+          class="flex items-center gap-1.5 text-[11px]"
+        >
+          <Check class="h-3 w-3 shrink-0 text-emerald-500" />
+          <span
+            class="min-w-0 flex-1 truncate text-slate-600"
+            :title="`${product.name} · ${subProduct.name} ${subProduct.revisionLabel}`"
+          >
+            {{ subProduct.name }}
+            <span class="text-slate-400">{{ subProduct.revisionLabel }}</span>
+            <span class="text-slate-400">· {{ product.sku }}</span>
+          </span>
+          <button
+            type="button"
+            class="shrink-0 font-medium text-blue-600 hover:underline"
+            @click.stop="emit('unprepare', product, subProduct)"
+          >
+            {{ t('undo') }}
+          </button>
+        </li>
+      </ul>
+
+      <button
+        v-if="preparedSubProducts.length > PREVIEW_COUNT"
+        type="button"
+        class="mt-1 text-xs font-medium text-blue-600 hover:underline"
+        @click.stop="preparedExpanded = !preparedExpanded"
+      >
+        {{
+          preparedExpanded
+            ? t('show_less')
+            : t('show_n_more', { n: preparedSubProducts.length - PREVIEW_COUNT })
+        }}
+      </button>
+    </div>
 
     <div
       v-if="badgeKey || project.deadline"
@@ -78,25 +122,24 @@
       <span v-if="badgeKey" class="badge bg-slate-100 text-slate-600">
         {{ t(badgeKey, { n: badge ?? 0 }) }}
       </span>
-      <span
-        v-if="project.deadline"
-        class="inline-flex items-center gap-1 text-xs text-slate-400"
-      >
+      <span v-if="project.deadline" class="inline-flex items-center gap-1 text-xs text-slate-400">
         <CalendarDays class="h-3.5 w-3.5" />
         {{ formatDate(project.deadline) }}
       </span>
     </div>
 
-    <!-- Preparation progress, on the project's home card only. A project with
-         no frozen lines has not started, which is a different thing from 0%
-         of its work being done — saying "0%" there reads as a stalled project
-         rather than one that has not begun. -->
+    <!-- Whole-project preparation progress, on the project's home card only,
+         counted in sub-products — the same fraction the *Preparation* cards
+         and the *Prepared* percentages show, so taking a mark back moves all
+         three together. A project with nothing frozen has not started, which
+         is a different thing from 0% of its work being done: saying "0%"
+         there reads as a stalled project rather than one that has not begun. -->
     <div v-if="primary" class="mt-2.5">
       <div
         class="h-1.5 overflow-hidden rounded-full bg-slate-100"
         :title="
           started
-            ? t('n_lines_ready', { done: project.doneLines, total: project.lineCount })
+            ? t('n_sub_products_prepared_of', { done: preparedCount, total: subProductCount })
             : t('progress_not_started')
         "
       >
@@ -110,17 +153,23 @@
         {{ started ? `${donePercent}%` : t('progress_not_started') }}
       </p>
     </div>
-  </div>
+  </BoardCardShell>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { CalendarDays } from 'lucide-vue-next';
+import { CalendarDays, Check } from 'lucide-vue-next';
 import ProjectCardMenu, { hasCardActions } from './ProjectCardMenu.vue';
+import BoardCardShell from './BoardCardShell.vue';
+import { preparedPercent } from './columns.ts';
 import { formatDate } from '../../../utils/formatters.ts';
-import { cardAccent } from '../../../utils/cardAccent.ts';
-import type { ProjectBoardCard, ProjectStatus } from '../../../types/projects.ts';
+import type {
+  ProjectBoardCard,
+  ProjectBoardProduct,
+  ProjectBoardSubProduct,
+  ProjectStatus,
+} from '../../../types/projects.ts';
 
 const props = defineProps<{
   project: ProjectBoardCard;
@@ -131,29 +180,69 @@ const props = defineProps<{
    *  *Projects* column, whose count is the product list above. */
   badgeKey?: string;
   badge?: number;
+  /** The *Prepared* column tile: each product gains the share of it that is
+   *  prepared, and the sub-products behind those figures are listed with a
+   *  way to take each mark back. */
+  productProgress?: boolean;
   selected?: boolean;
   dimmed?: boolean;
 }>();
 
-const emit = defineEmits<{ select: []; edit: []; start: []; delete: []; stop: [] }>();
+const emit = defineEmits<{
+  select: [];
+  edit: [];
+  start: [];
+  delete: [];
+  stop: [];
+  unprepare: [product: ProjectBoardProduct, subProduct: ProjectBoardSubProduct];
+}>();
 
 const { t } = useI18n();
 
-const PRODUCT_PREVIEW_COUNT = 3;
+/** How many rows either list shows before it needs asking. One number, because
+ *  the two lists sit on the same card and a card a few hundred pixels wide
+ *  cannot afford a different answer for each. */
+const PREVIEW_COUNT = 3;
 
 const productsExpanded = ref(false);
 
 const visibleProducts = computed(() =>
   productsExpanded.value
     ? props.project.products
-    : props.project.products.slice(0, PRODUCT_PREVIEW_COUNT),
+    : props.project.products.slice(0, PREVIEW_COUNT),
 );
 
-/** A project only has frozen lines from Start onwards (plan §7 step 8). */
-const started = computed(() => props.project.lineCount > 0);
+const preparedExpanded = ref(false);
+
+/** The prepared sub-products, each with the product it sits under — which the
+ *  Undo action needs, and which tells two similarly named sub-products apart
+ *  on a project that builds more than one thing. */
+const preparedSubProducts = computed(() =>
+  props.project.subProducts.flatMap((subProduct) => {
+    if (!subProduct.prepared) return [];
+    const product = props.project.products.find(
+      (prod) => prod.projectProductId === subProduct.projectProductId,
+    );
+    return product ? [{ product, subProduct }] : [];
+  }),
+);
+
+const visiblePreparedSubProducts = computed(() =>
+  preparedExpanded.value
+    ? preparedSubProducts.value
+    : preparedSubProducts.value.slice(0, PREVIEW_COUNT),
+);
+
+/** A project only has frozen sub-products from Start onwards (plan §7 step 8). */
+const subProductCount = computed(() => props.project.subProducts.length);
+const started = computed(() => subProductCount.value > 0);
+
+const preparedCount = computed(
+  () => props.project.subProducts.filter((sub) => sub.prepared).length,
+);
 
 const donePercent = computed(() =>
-  started.value ? Math.round((props.project.doneLines / props.project.lineCount) * 100) : 0,
+  started.value ? Math.round((preparedCount.value / subProductCount.value) * 100) : 0,
 );
 
 // Deliberately not `utils/statusColors.ts`: that palette maps a revision's
