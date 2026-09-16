@@ -25,12 +25,19 @@
 -- `project_parts` row, so its prepared quantity cannot name which of the two
 -- consumed it.
 --
--- Sparse: a row exists only for a sub-product that IS prepared. Marking one
--- adds its parts' quantities to `project_parts.prepared_qty` in the same
--- transaction; un-marking subtracts exactly the same amounts. The quantities
--- are deliberately NOT stored here — they are always re-derivable as
--- `project_part_usages.qty_per_unit x project_products.quantity`, and a stored
--- copy is one more thing that can drift from the rows it summarises.
+-- Sparse: a row exists only for a sub-product that IS prepared. It records a
+-- FACT, and moves no quantity: the parts were taken out of the project's
+-- pickable stock line by line as `project_part_usages.picked_qty` was raised,
+-- and `project_parts.prepared_qty` is the sum of those picks. Marking is the
+-- statement that every line is complete; un-marking takes that statement back
+-- and deliberately leaves the picks alone, because "this is not done" and
+-- "these parts went back on the shelf" are different things and the second one
+-- is said by lowering a pick.
+--
+-- Nothing is stored here but the fact and who recorded it. The quantities are
+-- always re-derivable as `project_part_usages.qty_per_unit x
+-- project_products.quantity`, and a stored copy is one more thing that can
+-- drift from the rows it summarises.
 --
 -- The set of sub-products a project HAS is not stored either: it is the
 -- distinct (project_product_id, sub_product_revision_id) pairs of

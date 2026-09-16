@@ -87,7 +87,11 @@ export interface ProjectPartRow {
     qtyForProduct: number;
   }[];
   requiredQty: number;
-  availableQty: number;
+  /** Free stock, not the shelf total: `available` minus what other started
+   *  projects have claimed. Named for what it is — it was `availableQty` while
+   *  it carried `stock.available`, and kept the name for one commit after it
+   *  stopped, which is a column headed "Available" that can read -8. */
+  freeQty: number;
   reservedQty: number;
   fromStockQty: number;
   missingQty: number;
@@ -368,12 +372,24 @@ export async function freezeProjectBom(
   return bom.length;
 }
 
-/** The frozen parts list as Start stored it. `available` / `reserved` stay
- *  live: stock moves afterwards, and showing that is the table's job. */
+/**
+ * The frozen parts list as Start stored it. `available` / `reserved` stay
+ * live: stock moves afterwards, and showing that is the table's job.
+ *
+ * `projectPartIds` narrows it to named rows, for the caller that wrote one and
+ * only wants that one back. Without it a single-cell edit read every part of
+ * the BOM, every usage row behind them and the stock aggregate over all of
+ * them, to return one row and throw the rest away — on a project with a few
+ * hundred parts, per keystroke-debounce. It is a filter, not a different
+ * query: one shape, so the row a write answers with is assembled exactly like
+ * the rows the table was loaded with.
+ */
 export async function loadFrozenProjectBom(
   db: Queryable,
   projectId: number,
+  projectPartIds?: number[],
 ): Promise<ProjectBomPart[]> {
+  const partIdFilter = projectPartIds ?? null;
   const partsResult = await db.query<FrozenPartRow>(
     `SELECT pp.id, pp.part_id AS "partId", p.name AS "partName", p.code, p.image,
        p.category_id AS "categoryId", pc.name AS "categoryName",
@@ -386,8 +402,9 @@ export async function loadFrozenProjectBom(
      JOIN parts p ON p.id = pp.part_id
      JOIN part_categories pc ON pc.id = p.category_id
      WHERE pp.project_id = $1
+       AND ($2::int[] IS NULL OR pp.id = ANY($2::int[]))
      ORDER BY p.name, p.id`,
-    [projectId],
+    [projectId, partIdFilter],
   );
   if (partsResult.rows.length === 0) return [];
 
@@ -403,8 +420,9 @@ export async function loadFrozenProjectBom(
      JOIN products prod ON prod.id = pprod.product_id
      JOIN product_revisions rev ON rev.id = pprod.product_revision_id
      WHERE pp.project_id = $1
+       AND ($2::int[] IS NULL OR pp.id = ANY($2::int[]))
      ORDER BY pprod.position, pprod.id`,
-    [projectId],
+    [projectId, partIdFilter],
   );
 
   const usagesByPart = new Map<number, ProjectBomUsage[]>();
@@ -503,8 +521,9 @@ export function toProjectPartRows(
       // actually still draw on, not one that double-promises what's spoken
       // for. Unclamped, same as `stock.free`: a negative value is a stale
       // claim outrunning the shelf, and §4.2 says to surface that rather
-      // than hide it.
-      availableQty: row.stock.free,
+      // than hide it. The Parts table heads this column "Free stock" for
+      // exactly that reason — a negative "Available" reads as a bug.
+      freeQty: row.stock.free,
       reservedQty: row.stock.reserved,
       fromStockQty: row.fromStockQty,
       missingQty: row.missingQty,

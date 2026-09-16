@@ -343,8 +343,10 @@ async function onSaved(payload: ProjectPayload) {
       notify.showToast(t('success.save_project'), 'success');
     }
     modalOpen.value = false;
-    await loadBoard();
-    // PATCH replaces the whole product set, so a draft's parts change (§6.3).
+    // The board is already current: the store put the card the write answered
+    // with in place of the old one. Only the Parts table still has to be told,
+    // because PATCH replaces the whole product set and a draft's parts are
+    // computed from it (§6.3).
     if (editedProjectId !== null) partsTableRef.value?.invalidateProject(editedProjectId);
   } catch (err) {
     saveError.value = translateApiError(err, { t, te }, 'errors.save_project_failed');
@@ -401,8 +403,8 @@ const {
 } = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.startProject(project.id);
-    await loadBoard();
-    // The rows go from computed (id: null) to frozen (id: number) (§6.3).
+    // The board card came back with the write. The Parts table did not: its
+    // rows go from computed (id: null) to frozen (id: number) (§6.3).
     partsTableRef.value?.invalidateProject(project.id);
   },
   'success.start_project',
@@ -418,7 +420,6 @@ const {
 } = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.stopProject(project.id);
-    await loadBoard();
   },
   'success.stop_project',
   'errors.stop_project_failed',
@@ -436,9 +437,14 @@ const stopPickedPieces = computed(() =>
 // ---- Preparation ------------------------------------------------------------
 //
 // Marking a sub-product prepared and taking that mark back are the same flow
-// as the three above, over a sub-product instead of a project. Both change
-// `project_parts.prepared_qty`, which is what *Preparation* and *Prepared*
-// membership is computed from (§4.1) — so both refetch rather than patch.
+// as the three above, over a sub-product instead of a project. Both move the
+// project between *Preparation* and *Prepared* (§4.1), and both answer with
+// the card that says so, which the store puts in place of the old one — no
+// board reload, and nothing here recomputing membership.
+//
+// Neither touches the Parts table. Marking moves no quantity at all (it
+// records that the picks already did), and the quantities the picks DO move —
+// `prepared_qty` — are not a column that table shows.
 
 // The card opens its pick list; the Parts table below the board stays tied to
 // the *Projects* column's selection, which is the only card that still takes a
@@ -449,19 +455,15 @@ function openPreparation(target: SubProductTarget) {
   preparationTarget.value = target;
 }
 
-// Each tick is saved as it is made, so closing only has to refresh the counts
-// the cards read off the board.
-async function closePreparation(changed: boolean) {
+// Every save inside the modal goes through the store and brings the board card
+// back with it, so closing has nothing left to reconcile.
+function closePreparation() {
   preparationTarget.value = null;
-  if (changed) await loadBoard();
 }
 
-async function onSubProductPrepared() {
-  const projectId = preparationTarget.value?.project.id ?? null;
+function onSubProductPrepared() {
   preparationTarget.value = null;
   notify.showToast(t('success.mark_prepared'), 'success');
-  await loadBoard();
-  if (projectId !== null) partsTableRef.value?.invalidateProject(projectId);
 }
 
 function subProductLabel({ product, subProduct }: SubProductTarget): string {
@@ -477,10 +479,6 @@ function preparationAction(prepared: boolean) {
     await (prepared
       ? store.prepareSubProduct(project.id, ref)
       : store.unprepareSubProduct(project.id, ref));
-    await loadBoard();
-    // The write moved `prepared_qty`, which the Parts table reads as its
-    // "to pick" column — the same reason Start invalidates it.
-    partsTableRef.value?.invalidateProject(project.id);
   };
 }
 

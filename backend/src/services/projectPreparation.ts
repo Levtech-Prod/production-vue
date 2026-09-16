@@ -15,6 +15,13 @@
 // the mark back merely records that it is not. The parts come back to the
 // shelf by lowering the picks that put them in the box — one action, one
 // meaning, and no second copy of the same total to keep in step.
+//
+// A WHOLE LIST AT A TIME. Picking is written as a batch over one sub-product
+// (`applySubProductPicks`), not a line at a time. Filling a pick list is one
+// action far more often than thirty, and the per-line version was thirty
+// transactions each taking their own project-wide lock — while still leaving
+// the lines it did not write showing a headroom a sibling had just moved,
+// because two lines of one project can draw on the same part.
 import type { PoolClient } from 'pg';
 import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
@@ -155,9 +162,10 @@ interface SubProductUsageRow {
  * The lock is what makes marking honest. Without it the "every line is picked
  * in full" check below is an unlocked read, and a pick that lowers a line
  * between that read and the INSERT leaves a sub-product recorded as prepared
- * with an incomplete list — which `setUsagePickedQty` then refuses to correct,
- * because it will not edit a prepared sub-product. Ordered by `pp.id`, the
- * same order `setUsagePickedQty` takes its single pair in.
+ * with an incomplete list — which `applySubProductPicks` then refuses to
+ * correct, because it will not edit a prepared sub-product. Ordered by
+ * `pp.id`, over the same rows and in the same order `applySubProductPicks`
+ * locks them, so the two can never deadlock against each other.
  */
 async function loadSubProductUsages(
   client: PoolClient,
@@ -265,6 +273,166 @@ export async function unmarkSubProductPrepared(
   return labelsOf(usages);
 }
 
+/** One pick-list line as the write about to change it sees it. */
+export interface PickLineState {
+  /** What the line needs, across the product's project quantity. */
+  requiredQty: number;
+  /** What is already in the box for it. */
+  pickedQty: number;
+  /** What the project holds for that part and has put in no box yet. */
+  unpickedQty: number;
+}
+
+/**
+ * How much `project_parts.prepared_qty` moves when a line is set to
+ * `pickedQty`, or the reason it may not be. Pure, so both ceilings and the
+ * order they are reported in are testable with no database (CLAUDE.md's first
+ * tier) — the same shape `resolveProjectPartUpdate` uses for the Parts table's
+ * two floors.
+ *
+ * The ceilings are enforced in opposite places on purpose. The per-line one is
+ * this function's alone: it spans `project_part_usages` and `project_products`,
+ * so no CHECK can hold it. The project-wide one is really enforced by
+ * `chk_project_parts_prepared_within_pickable`; repeating it here only buys a
+ * reason in place of a constraint violation. A NEGATIVE delta is always
+ * allowed — putting parts back needs no headroom.
+ *
+ * `pickedQty` is assumed non-negative; the zod schema at the boundary is what
+ * guarantees it.
+ */
+export function resolvePickQty(current: PickLineState, pickedQty: number): number {
+  if (pickedQty > current.requiredQty) {
+    throw new ApiError(422, ErrorCodes.PICKED_QTY_ABOVE_REQUIRED);
+  }
+  const delta = pickedQty - current.pickedQty;
+  if (delta > current.unpickedQty) {
+    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_PARTS_UNAVAILABLE);
+  }
+  return delta;
+}
+
+/** One line of a batch, as `resolveBulkPicks` needs to see it. */
+export interface BulkPickLine extends PickLineState {
+  usageId: number;
+  /** The `project_parts` row this line's picked quantity is summed onto, and
+   *  the key the headroom below is tracked by — `unpickedQty` is a per-PART
+   *  number, so lines sharing this id are looking at one pile. Today's only
+   *  caller passes one sub-product's list, where `project_part_usages`' UNIQUE
+   *  on (part, product, revision) means each id appears exactly once; the
+   *  tracking is what keeps the resolver right for a batch that ever spans
+   *  more than that, and what makes it safe to read as "resolve these picks"
+   *  rather than "resolve these picks, one sub-product at a time". */
+  projectPartId: number;
+}
+
+/** One line the batch actually moves, and by how much. */
+export interface ResolvedPick {
+  usageId: number;
+  projectPartId: number;
+  requiredQty: number;
+  /** The absolute quantity to store. */
+  pickedQty: number;
+  delta: number;
+}
+
+export interface ResolvedBulkPicks {
+  /** Only the lines that move. A line re-sent at the quantity it already
+   *  holds is not a write, and a "pick everything" over a half-filled list
+   *  is mostly such lines. */
+  moved: ResolvedPick[];
+  /** Net movement per `project_parts` row, so the write below is one UPDATE
+   *  per part rather than one per line. */
+  deltaByProjectPart: Map<number, number>;
+}
+
+/** Which way a line is being moved: -1 puts parts back, +1 takes more, 0
+ *  leaves it (or is not in the batch at all). */
+function pickDirection(line: BulkPickLine, requested: Map<number, number>): number {
+  const want = requested.get(line.usageId);
+  if (want === undefined || want === line.pickedQty) return 0;
+  return want < line.pickedQty ? -1 : 1;
+}
+
+/**
+ * Resolve a whole batch of picks against one shared pile per part.
+ *
+ * `unpickedQty` on every line is the holding of that line's PART across the
+ * whole project, so lines sharing a part are looking at one pile. The running
+ * headroom below is what keeps that honest: the project-wide ceiling is really
+ * `chk_project_parts_prepared_within_pickable`, and a batch that let two lines
+ * each claim the last three pieces would reach it as a raw 23514 naming
+ * nothing. Within one sub-product's list a part cannot appear twice, so today
+ * that tracking is a guarantee rather than a fix — the sharing this service
+ * actually has to get right happens BETWEEN sub-products, one request after
+ * another, and is handled by reading the holding under the write's own lock.
+ *
+ * Lines that put parts back are resolved first. Putting parts back needs no
+ * headroom, so doing it first can only ever make a batch more likely to be
+ * accepted — and it is what lets one batch move a piece from one line to
+ * another of the same part. Among lines pulling in the same direction the
+ * caller's order is kept (`sort` is stable), which for the only caller is the
+ * `pp.id, ppu.id` order the rows were locked in: two lines competing for the
+ * last piece resolve the same way every time rather than by request order.
+ *
+ * Pure, so the shared-pile arithmetic — the part of this that a loop over
+ * `resolvePickQty` gets wrong — is tested with no database.
+ */
+export function resolveBulkPicks(
+  lines: BulkPickLine[],
+  requested: Map<number, number>,
+): ResolvedBulkPicks {
+  const headroom = new Map<number, number>();
+  for (const line of lines) {
+    if (!headroom.has(line.projectPartId)) headroom.set(line.projectPartId, line.unpickedQty);
+  }
+
+  const moved: ResolvedPick[] = [];
+  const deltaByProjectPart = new Map<number, number>();
+
+  for (const line of [...lines].sort(
+    (a, b) => pickDirection(a, requested) - pickDirection(b, requested),
+  )) {
+    const want = requested.get(line.usageId);
+    if (want === undefined) continue;
+
+    const available = headroom.get(line.projectPartId) ?? 0;
+    const delta = resolveLinePick(line, available, want);
+    headroom.set(line.projectPartId, available - delta);
+    if (delta === 0) continue;
+
+    moved.push({
+      usageId: line.usageId,
+      projectPartId: line.projectPartId,
+      requiredQty: line.requiredQty,
+      pickedQty: want,
+      delta,
+    });
+    deltaByProjectPart.set(
+      line.projectPartId,
+      (deltaByProjectPart.get(line.projectPartId) ?? 0) + delta,
+    );
+  }
+
+  return { moved, deltaByProjectPart };
+}
+
+/** `resolvePickQty` against the batch's running headroom, naming the line it
+ *  refused: a batch of thirty ticked at once has to be able to point at the
+ *  one row that stopped it. */
+function resolveLinePick(line: BulkPickLine, available: number, pickedQty: number): number {
+  try {
+    return resolvePickQty(
+      { requiredQty: line.requiredQty, pickedQty: line.pickedQty, unpickedQty: available },
+      pickedQty,
+    );
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw new ApiError(err.status, err.code, { ...err.payload, usageId: line.usageId });
+    }
+    throw err;
+  }
+}
+
 /** What a pick-list line's three quantities are, after any write to it. */
 export interface ProjectPartPickState {
   usageId: number;
@@ -316,77 +484,54 @@ export async function loadSubProductParts(
   return result.rows;
 }
 
-/** One pick-list line as the write about to change it sees it. */
-export interface PickLineState {
-  /** What the line needs, across the product's project quantity. */
-  requiredQty: number;
-  /** What is already in the box for it. */
+/** One line of a pick request: the absolute quantity now in the job box. */
+export interface PickRequest {
+  usageId: number;
   pickedQty: number;
-  /** What the project holds for that part and has put in no box yet. */
-  unpickedQty: number;
 }
 
 /**
- * How much `project_parts.prepared_qty` moves when a line is set to
- * `pickedQty`, or the reason it may not be. Pure, so both ceilings and the
- * order they are reported in are testable with no database (CLAUDE.md's first
- * tier) — the same shape `resolveProjectPartUpdate` uses for the Parts table's
- * two floors.
+ * Set how much of one sub-product's pick list is in the job box — any number
+ * of lines at once — and move the same net difference on
+ * `project_parts.prepared_qty` so the two never disagree.
  *
- * The ceilings are enforced in opposite places on purpose. The per-line one is
- * this function's alone: it spans `project_part_usages` and `project_products`,
- * so no CHECK can hold it. The project-wide one is really enforced by
- * `chk_project_parts_prepared_within_pickable`; repeating it here only buys a
- * reason in place of a constraint violation. A NEGATIVE delta is always
- * allowed — putting parts back needs no headroom.
+ * ONE REQUEST, ONE TRANSACTION, WHOLE LIST. Filling a pick list is a "tick
+ * everything that is here" action far more often than a line-by-line one, and
+ * a round trip per line is not merely slow: each one was its own transaction
+ * taking its own project lock, so ticking thirty parts serialized thirty
+ * writes against every other write to that project. Taking the batch means
+ * the shared-pile arithmetic (`resolveBulkPicks`) happens once against one
+ * locked read, and two lines of one list sharing a scarce part can no longer
+ * both be told there is room.
  *
- * `pickedQty` is assumed non-negative; the zod schema at the boundary is what
- * guarantees it.
- */
-export function resolvePickQty(current: PickLineState, pickedQty: number): number {
-  if (pickedQty > current.requiredQty) {
-    throw new ApiError(422, ErrorCodes.PICKED_QTY_ABOVE_REQUIRED);
-  }
-  const delta = pickedQty - current.pickedQty;
-  if (delta > current.unpickedQty) {
-    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_PARTS_UNAVAILABLE);
-  }
-  return delta;
-}
-
-/**
- * Set how much of one pick-list line is in the job box, and move the same
- * difference on `project_parts.prepared_qty` so the two never disagree.
+ * THE WHOLE LIST IS LOCKED, not only the lines being written — the same set,
+ * in the same `pp.id` order, that `markSubProductPrepared` takes. Two reasons:
+ * a pick that lands between the mark's completeness check and its INSERT would
+ * record a sub-product prepared with an incomplete list, and the untouched
+ * lines' `onHandQty` moves when a sibling takes from the same part, so they
+ * are returned too and must be read under the same lock as the write.
  *
- * Scoped by project id so a line belonging to another project cannot be
- * reached through this one's URL.
- *
- * BOTH rows are locked, and the usage row is the one that matters. Under READ
- * COMMITTED a row this statement does not lock is read from the statement's
- * snapshot: locking `pp` alone re-fetched the holding but left `picked_qty`
- * stale, so two people setting the same line to 3 at once each computed
- * `delta = 3 - 0` and `prepared_qty` ended at 6 against 3 actually picked —
- * a drift that no later edit could unwind, since the picked quantity is
- * written absolutely and only the difference is applied to the sum.
+ * Scoped by project id AND by the sub-product pair, so a line belonging to
+ * another project — or to another sub-product of this one — cannot be reached
+ * through this URL.
  *
  * Deliberately not audited (§5.6): a pick is adjusted freely while the box is
  * filling, and a log of every keystroke would bury the mark that closes it.
  */
-export async function setUsagePickedQty(
+export async function applySubProductPicks(
   client: PoolClient,
   projectId: number,
-  projectPartUsageId: number,
-  pickedQty: number,
-): Promise<ProjectPartPickState> {
-  const current = await client.query<{
-    projectPartId: number;
-    requiredQty: number;
-    pickedQty: number;
-    /** What the project holds and has not put in any box yet. */
-    unpickedQty: number;
-    prepared: boolean;
-  }>(
+  ref: ProjectSubProductRef,
+  requests: PickRequest[],
+): Promise<ProjectPartPickState[]> {
+  // Last value wins for a line named twice: the request is a set of absolute
+  // quantities, not a sequence of movements, so the only sane reading of a
+  // repeat is that the caller changed its mind before sending.
+  const requested = new Map(requests.map((r) => [r.usageId, r.pickedQty]));
+
+  const current = await client.query<BulkPickLine & { prepared: boolean }>(
     `SELECT
+       ppu.id                                                AS "usageId",
        pp.id                                                 AS "projectPartId",
        ppu.qty_per_unit * pprod.quantity                     AS "requiredQty",
        ppu.picked_qty                                        AS "pickedQty",
@@ -398,35 +543,65 @@ export async function setUsagePickedQty(
      LEFT JOIN project_sub_product_preparations prep
             ON prep.project_product_id = ppu.project_product_id
            AND prep.sub_product_revision_id = ppu.sub_product_revision_id
-     WHERE ppu.id = $1 AND pp.project_id = $2
+     WHERE pp.project_id = $1
+       AND ppu.project_product_id = $2
+       AND ppu.sub_product_revision_id = $3
+     ORDER BY pp.id
      FOR UPDATE OF pp, ppu`,
-    [projectPartUsageId, projectId],
+    [projectId, ref.projectProductId, ref.subProductRevisionId],
   );
-  const row = current.rows[0];
-  if (!row) throw new ApiError(404, ErrorCodes.PROJECT_PART_USAGE_NOT_FOUND);
+  const lines = current.rows;
+  if (lines.length === 0) throw new ApiError(404, ErrorCodes.SUB_PRODUCT_NOT_IN_PROJECT);
+
   // A finished sub-product's box is not open for editing; its card is in
   // *Prepared*, and changing a pick under it would move prepared_qty for a
   // sub-product that is already counted as done.
-  if (row.prepared) throw new ApiError(409, ErrorCodes.SUB_PRODUCT_ALREADY_PREPARED);
+  if (lines[0].prepared) throw new ApiError(409, ErrorCodes.SUB_PRODUCT_ALREADY_PREPARED);
 
-  const delta = resolvePickQty(row, pickedQty);
-
-  if (delta !== 0) {
-    await client.query(
-      `UPDATE project_parts SET prepared_qty = prepared_qty + $1, updated_at = NOW()
-       WHERE id = $2`,
-      [delta, row.projectPartId],
-    );
-    await client.query(`UPDATE project_part_usages SET picked_qty = $1 WHERE id = $2`, [
-      pickedQty,
-      projectPartUsageId,
-    ]);
+  // A line this sub-product does not have is a 404 rather than something to
+  // skip quietly: the caller believes it is writing to it.
+  const known = new Set(lines.map((line) => line.usageId));
+  for (const usageId of requested.keys()) {
+    if (!known.has(usageId)) {
+      throw new ApiError(404, ErrorCodes.PROJECT_PART_USAGE_NOT_FOUND, { usageId });
+    }
   }
 
-  return {
-    usageId: projectPartUsageId,
-    requiredQty: row.requiredQty,
-    pickedQty,
-    onHandQty: Math.min(row.requiredQty, pickedQty + row.unpickedQty - delta),
-  };
+  const { moved, deltaByProjectPart } = resolveBulkPicks(lines, requested);
+
+  if (moved.length > 0) {
+    // One statement per table for the whole batch, and `project_parts` first:
+    // its CHECK runs per statement, and the net delta per part is what
+    // `resolveBulkPicks` has already proved fits.
+    const partIds = [...deltaByProjectPart.keys()];
+    await client.query(
+      `UPDATE project_parts AS pp
+       SET prepared_qty = pp.prepared_qty + u.delta, updated_at = NOW()
+       FROM unnest($1::int[], $2::int[]) AS u(id, delta)
+       WHERE pp.id = u.id`,
+      [partIds, partIds.map((id) => deltaByProjectPart.get(id) ?? 0)],
+    );
+    await client.query(
+      `UPDATE project_part_usages AS ppu
+       SET picked_qty = u.picked_qty
+       FROM unnest($1::int[], $2::int[]) AS u(id, picked_qty)
+       WHERE ppu.id = u.id`,
+      [moved.map((m) => m.usageId), moved.map((m) => m.pickedQty)],
+    );
+  }
+
+  // Every line, not only the written ones: taking from a shared part lowers
+  // what its siblings could still be filled to, and a caller that had to ask
+  // again to find that out would be back to two round trips.
+  const newPickedByUsage = new Map(moved.map((m) => [m.usageId, m.pickedQty]));
+  return lines.map((line) => {
+    const pickedQty = newPickedByUsage.get(line.usageId) ?? line.pickedQty;
+    const unpickedQty = line.unpickedQty - (deltaByProjectPart.get(line.projectPartId) ?? 0);
+    return {
+      usageId: line.usageId,
+      requiredQty: line.requiredQty,
+      pickedQty,
+      onHandQty: Math.min(line.requiredQty, pickedQty + unpickedQty),
+    };
+  });
 }

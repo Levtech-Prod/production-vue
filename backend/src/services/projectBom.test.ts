@@ -273,7 +273,7 @@ async function main() {
     );
     check('draft: revision label travels with the chip', screw.products[0].revisionLabel, 'R3');
     check('draft: category name ships with the row', screw.part.categoryName, 'test-projectBom');
-    check('draft: available excludes the other project\'s claim', screw.availableQty, 6); // 10 - 4
+    check('draft: free stock excludes the other project\'s claim', screw.freeQty, 6); // 10 - 4
     check('draft: reserved is the other started project', screw.reservedQty, 4);
     check('draft: from stock is capped at free stock', screw.fromStockQty, 6);
     check('draft: the rest has to be bought', screw.missingQty, 20);
@@ -381,8 +381,8 @@ async function main() {
     );
     check(
       'frozen: a claim larger than what is left on the shelf is flagged',
-      [frozenScrew.availableQty, frozenScrew.reservedQty, frozenScrew.stockShortfall],
-      [6, 4, true], // availableQty is free stock now: 10 - 4
+      [frozenScrew.freeQty, frozenScrew.reservedQty, frozenScrew.stockShortfall],
+      [6, 4, true], // freeQty is free stock now: 10 - 4
     );
     check(
       'frozen: an uncontested row is not flagged',
@@ -415,7 +415,7 @@ async function main() {
     );
     check(
       'a started claim is counted against every other project',
-      [beforeStop.availableQty, beforeStop.reservedQty],
+      [beforeStop.freeQty, beforeStop.reservedQty],
       [-8, 18], // reserved: 4 from the other project + 6 + 8 claimed by this one
                 // (prepared_qty is no longer subtracted — migration 026); available
                 // is free stock (10 - 18) and goes negative here on purpose — this
@@ -430,8 +430,8 @@ async function main() {
     );
     check(
       'stopping releases the claim and writes no stock',
-      [afterStop.availableQty, afterStop.reservedQty],
-      [6, 4], // availableQty is free stock now: 10 - 4
+      [afterStop.freeQty, afterStop.reservedQty],
+      [6, 4], // freeQty is free stock now: 10 - 4
     );
 
     const stoppedScrew = rowFor(
@@ -573,8 +573,8 @@ async function main() {
     );
     check(
       'a started freeze reserves its claim against every other project',
-      [observer.availableQty, observer.reservedQty, observer.fromStockQty, observer.missingQty],
-      [0, 10, 0, 6], // availableQty is free stock now: 10 - 10
+      [observer.freeQty, observer.reservedQty, observer.fromStockQty, observer.missingQty],
+      [0, 10, 0, 6], // freeQty is free stock now: 10 - 10
     );
 
     // --- recalculate from stock (§5.2, §5.3) --------------------------------

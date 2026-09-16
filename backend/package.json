@@ -13,7 +13,8 @@
     "uploads:resync-names": "dotenv -e .env -- tsx scripts/resync-upload-folder-names.ts",
     "test:unit": "tsx src/db.test.ts && tsx src/routes/routeParams.test.ts && tsx src/routes/projectPartAudit.test.ts && tsx src/schemas/revisions.schema.test.ts && tsx src/services/audit.test.ts && tsx src/services/projectBom.unit.test.ts && tsx src/services/projectPreparation.unit.test.ts",
     "test:projectStock": "dotenv -e .env -- tsx src/services/projectStock.test.ts",
-    "test:projectBom": "dotenv -e .env -- tsx src/services/projectBom.test.ts"
+    "test:projectBom": "dotenv -e .env -- tsx src/services/projectBom.test.ts",
+    "test:projectPreparation": "dotenv -e .env -- tsx src/services/projectPreparation.test.ts"
   },
   "dependencies": {
     "bcryptjs": "latest",

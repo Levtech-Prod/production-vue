@@ -794,9 +794,11 @@ CREATE INDEX IF NOT EXISTS idx_project_part_usages_project_product
   ON project_part_usages(project_product_id);
 
 -- Which sub-products are already prepared (see migration 026). Sparse: a row
--- exists only for a sub-product that IS prepared. Marking one adds its parts'
--- quantities to project_parts.prepared_qty in the same transaction, un-marking
--- subtracts them; the quantities are never stored here because they are always
+-- exists only for a sub-product that IS prepared. It records a fact and moves
+-- no quantity: project_parts.prepared_qty is the sum of project_part_usages.
+-- picked_qty, maintained line by line as the pick list is filled, so marking
+-- only states that every line is complete and un-marking only takes that
+-- statement back. The quantities are never stored here because they are always
 -- re-derivable from project_part_usages x project_products.quantity.
 --
 -- `project_parts.prepared_qty` alone cannot carry this: a part fitted in two

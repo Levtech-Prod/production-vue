@@ -589,6 +589,7 @@ const messages = {
     n_sub_products_prepared_of: '{done} of {total} sub-products prepared',
     sub_product_parts_not_picked: 'Every line on the list has to be picked in full first.',
     part_prepared: 'Prepared',
+    pick_all_available: 'Pick everything available',
     on_hand_quantity: 'On hand',
     picked_quantity: 'Picked',
     part_cannot_be_completed:
@@ -597,7 +598,7 @@ const messages = {
       'The project holds {available} of the {required} this sub-product needs — the rest still has to arrive.',
     // Project Parts table (projects-preparation-plan.md §6.4)
     required_quantity: 'Required',
-    available_quantity: 'Available',
+    free_stock_quantity: 'Free stock',
     reserved_quantity: 'Reserved',
     purchase_quantity: 'Purchase',
     ordered_quantity: 'Ordered',
@@ -1521,6 +1522,7 @@ const messages = {
     n_sub_products_prepared_of: '{total} altermékből {done} kész',
     sub_product_parts_not_picked: 'Előbb a lista minden sorát teljesen ki kell szedni.',
     part_prepared: 'Előkészítve',
+    pick_all_available: 'Minden elérhető kiszedése',
     on_hand_quantity: 'Rendelkezésre áll',
     picked_quantity: 'Kiszedve',
     part_cannot_be_completed:
@@ -1529,7 +1531,7 @@ const messages = {
       'A projekt {required} darabból {available} darabbal rendelkezik ehhez az altermékhez — a többinek még meg kell érkeznie.',
     // Projekt alkatrésztábla (projects-preparation-plan.md §6.4)
     required_quantity: 'Szükséges',
-    available_quantity: 'Elérhető',
+    free_stock_quantity: 'Szabad készlet',
     reserved_quantity: 'Foglalt',
     purchase_quantity: 'Beszerzés',
     ordered_quantity: 'Megrendelve',

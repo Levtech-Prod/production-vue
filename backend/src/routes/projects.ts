@@ -14,7 +14,7 @@ import {
   projectPayloadSchema,
   projectListQuerySchema,
   projectPartUpdateSchema,
-  projectPartPickSchema,
+  projectPartPicksSchema,
   projectSubProductRefSchema,
   type ProjectProductInput,
   type ProjectStatus,
@@ -37,13 +37,13 @@ import {
 } from '../services/projectBom.js';
 import { buildProjectPartQtyEvents } from './projectPartAudit.js';
 import {
-  loadBoardSubProducts,
+  applySubProductPicks,
   loadSubProductParts,
   markSubProductPrepared,
-  setUsagePickedQty,
   unmarkSubProductPrepared,
   type SubProductPreparationLabels,
 } from '../services/projectPreparation.js';
+import { loadBoardCard, loadBoardCards } from '../services/projectBoard.js';
 
 const router = Router();
 
@@ -248,18 +248,52 @@ interface LockedProject {
  * 404. Taking the lock as the status is read is the point: without it a Start
  * and a PATCH can both pass their own draft check and then both write.
  *
- * One column list for all four callers rather than four tailored SELECTs —
- * on a single row by primary key the extra columns cost nothing, and one
- * shape is one thing to keep true.
+ * One column list for every caller rather than a tailored SELECT each — on a
+ * single row by primary key the extra columns cost nothing, and one shape is
+ * one thing to keep true.
+ *
+ * `mode` decides how much of the project the caller is claiming.
+ *
+ * `exclusive` (`FOR UPDATE`) is for anything that writes the `projects` row
+ * itself — Start, Stop, the draft PATCH, Delete — and for the one parts write
+ * that touches EVERY row at once, `POST /:id/parts/recalculate`. It is the
+ * project's big lock, and holding it is what lets `reseedFromStock` take
+ * `FOR UPDATE` over all of `project_parts` in whatever order the scan returns
+ * them: nothing else can be holding any of those rows.
+ *
+ * `shared` (`FOR SHARE`) is for a write that touches NAMED rows: one Parts
+ * table cell, or one sub-product's pick list. Those only need the status to
+ * hold still while they work. Shared locks do not block each other, so two
+ * people editing different rows of one project — or ticking different pick
+ * lists — no longer queue behind each other, while either still blocks, and is
+ * blocked by, a Stop or a recalculate. What they contend for is locked where
+ * it is: the PATCH takes one `project_parts` row, and `applySubProductPicks`
+ * takes a sub-product's rows in `pp.id` order, the same order
+ * `markSubProductPrepared` takes them in, so no two of them can deadlock.
  */
-async function lockProject(client: PoolClient, projectId: number): Promise<LockedProject> {
+async function lockProject(
+  client: PoolClient,
+  projectId: number,
+  mode: 'exclusive' | 'shared' = 'exclusive',
+): Promise<LockedProject> {
   const result = await client.query<LockedProject>(
     `SELECT name, description, to_char(deadline, 'YYYY-MM-DD') AS deadline, status
-     FROM projects WHERE id = $1 FOR UPDATE`,
+     FROM projects WHERE id = $1 ${mode === 'shared' ? 'FOR SHARE' : 'FOR UPDATE'}`,
     [projectId],
   );
   const project = result.rows[0];
   if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
+  return project;
+}
+
+/** The lock a write against NAMED rows of a frozen BOM takes, with the guard
+ *  that goes with it — the two were already always used together. */
+async function lockProjectForPartsWrite(
+  client: PoolClient,
+  projectId: number,
+): Promise<LockedProject> {
+  const project = await lockProject(client, projectId, 'shared');
+  requireStartedForPartsWrite(project.status);
   return project;
 }
 
@@ -290,120 +324,15 @@ function productsToKeyed(
   }));
 }
 
-// GET /api/projects — board payload (§4.1): per-project part-line counts and
-// the project's sub-products, with column membership derived here (not in SQL)
-// so the rule stays in one readable place. `?status=` is repeatable (defaults
-// to draft+started, see §6.3); `?q=` searches the name.
+// GET /api/projects — board payload (§4.1). The query, the sub-product read
+// and the column-membership rule all live in `services/projectBoard.ts`, since
+// every write that can move a project between columns now answers with the one
+// card it changed and has to derive membership exactly the same way.
+// `?status=` is repeatable (defaults to draft+started, see §6.3); `?q=`
+// searches the name.
 router.get('/', requireAuth, async (req, res) => {
   const data = projectListQuerySchema.parse(req.query);
-
-  const result = await query<{
-    id: number;
-    name: string;
-    description: string | null;
-    deadline: string | null;
-    status: string;
-    createdAt: string;
-    products: {
-      projectProductId: number;
-      name: string;
-      sku: string;
-      revisionLabel: string;
-      quantity: number;
-    }[];
-    toBuyLines: number;
-    onOrderLines: number;
-  }>(
-    `SELECT
-       p.id,
-       p.name,
-       p.description,
-       to_char(p.deadline, 'YYYY-MM-DD') AS deadline,
-       p.status,
-       p.created_at AS "createdAt",
-       -- The card lists what the project builds, so the names travel with the
-       -- board rather than costing one request per card. A sub-select, not a
-       -- join: joining project_products alongside project_parts would
-       -- multiply the rows the counts below are computed from.
-       (SELECT COALESCE(
-                 json_agg(json_build_object(
-                   -- The board needs the id to hang each product's
-                   -- sub-product progress off (§4.1), not only its name.
-                   'projectProductId', pprod.id,
-                   'name', prod.name,
-                   'sku', prod.sku,
-                   'revisionLabel', rev.label,
-                   'quantity', pprod.quantity
-                 ) ORDER BY pprod.position, pprod.id),
-                 '[]')
-        FROM project_products pprod
-        JOIN products prod ON prod.id = pprod.product_id
-        JOIN product_revisions rev ON rev.id = pprod.product_revision_id
-        WHERE pprod.project_id = p.id) AS products,
-       -- Only the two buying columns are counted off project_parts now.
-       -- Preparation progress is per sub-product (migration 026), everywhere
-       -- it appears: the *Projects* card's bar, the *Preparation* cards' bars
-       -- and the *Prepared* card's percentages all read the same fraction, so
-       -- taking a mark back moves every one of them.
-       COUNT(*) FILTER (WHERE pp.missing_qty  > pp.ordered_qty)::int  AS "toBuyLines",
-       COUNT(*) FILTER (WHERE pp.ordered_qty  > pp.received_qty)::int AS "onOrderLines"
-     FROM projects p
-     LEFT JOIN project_parts pp ON pp.project_id = p.id
-     WHERE p.status = ANY($1::text[])
-       AND ($2::text IS NULL OR p.name ILIKE '%' || $2 || '%')
-     GROUP BY p.id
-     ORDER BY p.created_at DESC`,
-    [data.status, data.q ?? null],
-  );
-
-  // A second round trip rather than another sub-select: the query above
-  // aggregates over `project_parts`, and joining the usage rows into it would
-  // multiply the rows its line counts are computed from. Read for every frozen
-  // project, not only the ones in a derived column — a stopped project's
-  // preparation state is part of the record, and the membership flags below
-  // are what keep its cards off the board.
-  const subProductsByProject = await loadBoardSubProducts(
-    pool,
-    result.rows.map((row) => row.id),
-  );
-
-  // Column membership (§4.1): *Offers* and *Ordered* are ANY ("some parts
-  // still need buying"). *Preparation* and *Prepared* are per sub-product
-  // since migration 026 — a project sits in both at once while some of its
-  // sub-products are done and others are not, which now reads correctly
-  // because the *Prepared* card carries a percentage per product (§8.1).
-  //
-  // Only a started or completed project reaches a derived column at all
-  // (§3.1). A draft has no `project_parts` rows so its counts are zero
-  // anyway, but a *stopped* one keeps its rows while its claims are released,
-  // and without this guard it would keep appearing under Offers or Ordered
-  // instead of sitting greyed in *Projects* alone.
-  const projects = result.rows.map((row) => {
-    const { status, toBuyLines, onOrderLines } = row;
-    const derived = status === 'started' || status === 'completed';
-    const subProducts = subProductsByProject.get(row.id) ?? [];
-    return {
-      ...row,
-      // Each product carries its own sub-product tally, which is both the
-      // progress bar on a *Preparation* card and the percentage the
-      // *Prepared* card shows beside the product — one number, one meaning.
-      products: row.products.map((product) => {
-        const own = subProducts.filter((s) => s.projectProductId === product.projectProductId);
-        return {
-          ...product,
-          subProductCount: own.length,
-          preparedSubProducts: own.filter((s) => s.prepared).length,
-        };
-      }),
-      subProducts,
-      inOffers: derived && toBuyLines > 0,
-      inOrdered: derived && onOrderLines > 0,
-      inPreparation: derived && subProducts.some((s) => s.inPreparation),
-      inPrepared: derived && subProducts.some((s) => s.prepared),
-    };
-  });
-
-  res.json(projects);
+  res.json(await loadBoardCards(pool, { statuses: data.status, q: data.q ?? null }));
 });
 
 // POST /api/projects — create as `draft` with its pinned products.
@@ -412,7 +341,7 @@ router.post('/', requireAuth, async (req, res) => {
   await validateProductSet(data.products);
 
   const userId = req.user?.id;
-  const project = await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
     const projectResult = await client.query<{ id: number }>(
       `INSERT INTO projects (name, description, deadline, created_by)
        VALUES ($1, $2, $3, $4)
@@ -431,10 +360,16 @@ router.post('/', requireAuth, async (req, res) => {
       userId,
     );
 
-    return loadProject(client, projectId);
+    // The board card alongside the project: every mutation answers with the
+    // one card it changed so the browser patches its board instead of
+    // reloading it, and the membership rule stays where it was (decision 2).
+    return {
+      project: await loadProject(client, projectId),
+      card: await loadBoardCard(client, projectId),
+    };
   });
 
-  res.json(project);
+  res.json(result);
 });
 
 // GET /api/projects/:id — project + its pinned products.
@@ -479,9 +414,8 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
   const data = projectPartUpdateSchema.parse(req.body);
   const userId = req.user?.id;
 
-  const row = await withTransaction(async (client) => {
-    const project = await lockProject(client, projectId);
-    requireStartedForPartsWrite(project.status);
+  const result = await withTransaction(async (client) => {
+    await lockProjectForPartsWrite(client, projectId);
 
     const current = await client.query<{
       partName: string;
@@ -543,13 +477,22 @@ router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
       await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
     }
 
-    const rows = toProjectPartRows(await loadFrozenProjectBom(client, projectId), 'started');
-    const updated = rows.find((r) => r.id === projectPartId);
+    // Just this row, not the whole BOM: it is the only one that moved, and
+    // reading the rest to throw it away is what made a single cell edit as
+    // expensive as loading the table.
+    const [updated] = toProjectPartRows(
+      await loadFrozenProjectBom(client, projectId, [projectPartId]),
+      'started',
+    );
     if (!updated) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
-    return updated;
+    // The card too: `missing_qty` against `ordered_qty` is what *Offers*
+    // counts, so this write can move the project between columns. Answering
+    // with both is what lets the browser patch the row and the card it
+    // already has instead of reloading the table and the board behind it.
+    return { row: updated, card: await loadBoardCard(client, projectId) };
   });
 
-  res.json(row);
+  res.json(result);
 });
 
 // POST /api/projects/:id/parts/recalculate — re-seed from today's free stock
@@ -558,7 +501,13 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
   const userId = req.user?.id;
 
-  const { changed, skipped } = await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
+    // The project's big lock, not the shared one the single-row writes take:
+    // `reseedFromStock` locks every `project_parts` row of the project in
+    // whatever order the scan returns them, which is only safe while nothing
+    // else can be holding one of them. A pick list ticked at the same time
+    // takes its rows in `pp.id` order, and the two orders together are a
+    // deadlock — so they are made to take turns here instead.
     const project = await lockProject(client, projectId);
     requireStartedForPartsWrite(project.status);
     const reseed = await reseedFromStock(client, projectId);
@@ -578,17 +527,22 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
       await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
     }
 
-    return reseed;
+    return {
+      changed: reseed.changed,
+      skipped: reseed.skipped,
+      card: await loadBoardCard(client, projectId),
+    };
   });
 
-  res.json({ changed, skipped });
+  res.json(result);
 });
 
-// Preparation (migration 026). Both routes move the same quantities in
-// opposite directions — marking a sub-product prepared takes its parts out of
-// the project's pickable stock, un-marking puts them back — so both are a
-// `project_parts` write and both carry the same "started projects only" guard
-// as the Parts table edits above.
+// Preparation (migration 026). Neither of the two routes below moves a
+// quantity: the picks that filled the job box already did, line by line, and
+// `project_parts.prepared_qty` is their sum. Marking records that every line
+// is complete and un-marking takes that back, leaving the picks where they
+// are. They still carry the same "started projects only" guard as the Parts
+// table edits above, because what they record is only true of a live project.
 
 /** One audit event per mark or un-mark (§5.6): which sub-product, under which
  *  product, and which way it moved. */
@@ -634,26 +588,33 @@ router.get(
   },
 );
 
-// PATCH /api/projects/:id/preparations/usages/:projectPartUsageId — how much of
-// one pick-list line is in the job box. This is the write that moves
-// `project_parts.prepared_qty`, so it carries the same "started projects only"
-// guard as every other write against a frozen BOM.
-router.patch('/:id/preparations/usages/:projectPartUsageId', requireAuth, async (req, res) => {
-  const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
-  const usageId = requireId(
-    req.params.projectPartUsageId,
-    ErrorCodes.PROJECT_PART_USAGE_NOT_FOUND,
-  );
-  const { pickedQty } = projectPartPickSchema.parse(req.body);
+// PATCH /api/projects/:id/preparations/:projectProductId/:subProductRevisionId/picks
+// — how much of each of a sub-product's pick-list lines is in the job box.
+// This is the write that moves `project_parts.prepared_qty`, so it carries the
+// same "started projects only" guard as every other write against a frozen BOM.
+//
+// A batch, and the whole list back. One line per request meant a transaction
+// and a project lock per checkbox, and left every OTHER line of the list
+// showing a stale `onHandQty` whenever two of them share a part. Both go away
+// together: the batch is resolved against one locked read, and the answer is
+// the list as it now stands, plus the board card the write may have moved.
+router.patch(
+  '/:id/preparations/:projectProductId/:subProductRevisionId/picks',
+  requireAuth,
+  async (req, res) => {
+    const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
+    const ref = subProductRefFromParams(req.params);
+    const { picks } = projectPartPicksSchema.parse(req.body);
 
-  const row = await withTransaction(async (client) => {
-    const project = await lockProject(client, projectId);
-    requireStartedForPartsWrite(project.status);
-    return setUsagePickedQty(client, projectId, usageId, pickedQty);
-  });
+    const result = await withTransaction(async (client) => {
+      await lockProjectForPartsWrite(client, projectId);
+      const parts = await applySubProductPicks(client, projectId, ref, picks);
+      return { parts, card: await loadBoardCard(client, projectId) };
+    });
 
-  res.json(row);
-});
+    res.json(result);
+  },
+);
 
 // POST /api/projects/:id/preparations — mark one sub-product prepared. Refused
 // with 409 SUB_PRODUCT_PARTS_UNAVAILABLE unless every part it needs is in hand.
@@ -662,9 +623,8 @@ router.post('/:id/preparations', requireAuth, async (req, res) => {
   const ref = projectSubProductRefSchema.parse(req.body);
   const userId = req.user?.id;
 
-  await withTransaction(async (client) => {
-    const project = await lockProject(client, projectId);
-    requireStartedForPartsWrite(project.status);
+  const card = await withTransaction(async (client) => {
+    await lockProjectForPartsWrite(client, projectId);
     const labels = await markSubProductPrepared(client, projectId, ref, userId);
     await writeAudit(
       client,
@@ -674,9 +634,10 @@ router.post('/:id/preparations', requireAuth, async (req, res) => {
       changeSet({}, subProductPreparationEvents(labels, true)),
       userId,
     );
+    return loadBoardCard(client, projectId);
   });
 
-  res.json({ ...ref, prepared: true });
+  res.json({ ...ref, prepared: true, card });
 });
 
 // DELETE /api/projects/:id/preparations/:projectProductId/:subProductRevisionId
@@ -691,9 +652,8 @@ router.delete(
     const ref = subProductRefFromParams(req.params);
     const userId = req.user?.id;
 
-    await withTransaction(async (client) => {
-      const project = await lockProject(client, projectId);
-      requireStartedForPartsWrite(project.status);
+    const card = await withTransaction(async (client) => {
+      await lockProjectForPartsWrite(client, projectId);
       const labels = await unmarkSubProductPrepared(client, projectId, ref);
       await writeAudit(
         client,
@@ -703,9 +663,10 @@ router.delete(
         changeSet({}, subProductPreparationEvents(labels, false)),
         userId,
       );
+      return loadBoardCard(client, projectId);
     });
 
-    res.json({ ...ref, prepared: false });
+    res.json({ ...ref, prepared: false, card });
   },
 );
 
@@ -717,7 +678,7 @@ router.delete(
 router.post('/:id/start', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 
-  const project = await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
     const before = await lockProject(client, projectId);
     // Every non-draft status means the project was already started once:
     // stopped and completed are terminal (migration 023), so there is no path
@@ -744,10 +705,16 @@ router.post('/:id/start', requireAuth, async (req, res) => {
       req.user?.id,
     );
 
-    return loadProject(client, projectId);
+    // The board card alongside the project: every mutation answers with the
+    // one card it changed so the browser patches its board instead of
+    // reloading it, and the membership rule stays where it was (decision 2).
+    return {
+      project: await loadProject(client, projectId),
+      card: await loadBoardCard(client, projectId),
+    };
   });
 
-  res.json(project);
+  res.json(result);
 });
 
 // POST /api/projects/:id/stop — a status flip, and deliberately nothing else.
@@ -765,7 +732,7 @@ router.post('/:id/start', requireAuth, async (req, res) => {
 router.post('/:id/stop', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 
-  const project = await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
     const before = await lockProject(client, projectId);
     if (before.status !== 'started') {
       throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
@@ -785,10 +752,16 @@ router.post('/:id/stop', requireAuth, async (req, res) => {
       req.user?.id,
     );
 
-    return loadProject(client, projectId);
+    // The board card alongside the project: every mutation answers with the
+    // one card it changed so the browser patches its board instead of
+    // reloading it, and the membership rule stays where it was (decision 2).
+    return {
+      project: await loadProject(client, projectId),
+      card: await loadBoardCard(client, projectId),
+    };
   });
 
-  res.json(project);
+  res.json(result);
 });
 
 // PATCH /api/projects/:id — replace fields and the whole product set.
@@ -799,7 +772,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
   const revisionInfo = await validateProductSet(data.products);
 
   const userId = req.user?.id;
-  const project = await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
     const before = await lockProject(client, projectId);
     if (before.status !== 'draft') {
       throw new ApiError(409, ErrorCodes.PROJECT_NOT_EDITABLE);
@@ -864,10 +837,16 @@ router.patch('/:id', requireAuth, async (req, res) => {
       userId,
     );
 
-    return loadProject(client, projectId);
+    // The board card alongside the project: every mutation answers with the
+    // one card it changed so the browser patches its board instead of
+    // reloading it, and the membership rule stays where it was (decision 2).
+    return {
+      project: await loadProject(client, projectId),
+      card: await loadBoardCard(client, projectId),
+    };
   });
 
-  res.json(project);
+  res.json(result);
 });
 
 // DELETE /api/projects/:id — draft only: 409 PROJECT_NOT_EDITABLE otherwise.

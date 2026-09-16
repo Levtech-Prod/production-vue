@@ -23,7 +23,21 @@
       <table v-else class="w-full text-left text-sm">
         <thead class="table-head text-xs">
           <tr>
-            <th class="w-10 px-3 py-2">{{ t('part_prepared') }}</th>
+            <th class="w-10 px-3 py-2">
+              <!-- Filling a pick list is normally one action, not one per
+                   line: this ticks every line as far as the project can cover
+                   it, in a single request. It only ever fills — there is no
+                   click here that empties thirty boxes at once, which the
+                   per-row checkboxes already do one at a time and on purpose. -->
+              <input
+                type="checkbox"
+                class="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
+                :checked="allComplete"
+                :disabled="busy || !canPickMore"
+                :title="canPickMore ? t('pick_all_available') : t('part_prepared')"
+                @change="pickAllAvailable"
+              />
+            </th>
             <th class="px-3 py-2">{{ t('name') }}</th>
             <th class="px-3 py-2">{{ t('code') }}</th>
             <th class="px-3 py-2 text-right">{{ t('required_quantity') }}</th>
@@ -119,9 +133,10 @@ import { useI18n } from 'vue-i18n';
 import { TriangleAlert } from 'lucide-vue-next';
 import BaseModal from '../../../components/modal/BaseModal.vue';
 import { projectsApi } from '../../../api/projectsAPI.ts';
+import { useProjectsStore } from '../../../stores/projectsStore.ts';
 import { translateApiError } from '../../../utils/apiError.ts';
 import type { SubProductTarget } from './columns.ts';
-import type { ProjectSubProductPart } from '../../../types/projects.ts';
+import type { ProjectPartPick, ProjectSubProductPart } from '../../../types/projects.ts';
 
 const props = defineProps<{
   /** The sub-product whose pick list is open; `null` closes the dialog. */
@@ -129,23 +144,23 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  /** `changed` is true when any line moved, so the board's counts are stale
-   *  and the caller should refetch. */
-  close: [changed: boolean];
+  close: [];
   prepared: [];
 }>();
 
 const { t, te } = useI18n();
+// Every write here answers with the board card it moved, and handing it to the
+// store is what keeps the cards behind this dialog right. Nothing reloads the
+// board on close any more, so this is the only thing keeping it current.
+const projects = useProjectsStore();
 
 const rows = ref<ProjectSubProductPart[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
-// One write at a time: each one moves the part's prepared quantity, and two in
-// flight would be two reads of a headroom only one of them can have.
+// One write at a time. A batch is resolved against a single locked read on the
+// server, so the shared pile is safe within one request — but two requests in
+// flight would still be two reads of a headroom only one of them can have.
 const busy = ref(false);
-// Picks are saved one at a time, so the parent only needs to know that at
-// least one landed — the board reads its counts back from the server.
-let changed = false;
 
 const inputs = new Map<number, HTMLInputElement>();
 
@@ -162,6 +177,8 @@ const completeCount = computed(() => rows.value.filter(isComplete).length);
 const allComplete = computed(
   () => rows.value.length > 0 && completeCount.value === rows.value.length,
 );
+/** Is there anything left the project could actually put in the box today? */
+const canPickMore = computed(() => rows.value.some((row) => row.pickedQty < row.onHandQty));
 
 watch(
   () => props.target,
@@ -169,7 +186,6 @@ watch(
     if (!target) return;
     rows.value = [];
     inputs.clear();
-    changed = false;
     error.value = null;
     loading.value = true;
     try {
@@ -187,6 +203,46 @@ watch(
   { immediate: true },
 );
 
+/**
+ * Send a batch of picks and take the whole list back from the answer.
+ *
+ * Every line is re-read, not only the ones sent: two lines of one project can
+ * draw on the same part, so taking pieces for one moves what another could
+ * still be filled to. The server computes that under the lock it wrote with —
+ * working it out here would be a guess at a number another user can move.
+ */
+async function savePicks(picks: ProjectPartPick[]) {
+  const target = props.target;
+  if (!target || busy.value || picks.length === 0) return;
+
+  busy.value = true;
+  error.value = null;
+  try {
+    const { parts } = await projects.saveSubProductPicks(
+      target.project.id,
+      {
+        projectProductId: target.subProduct.projectProductId,
+        subProductRevisionId: target.subProduct.subProductRevisionId,
+      },
+      picks,
+    );
+    const byUsage = new Map(parts.map((part) => [part.usageId, part]));
+    rows.value = rows.value.map((row) => {
+      const updated = byUsage.get(row.usageId);
+      return updated ? { ...row, ...updated } : row;
+    });
+  } catch (err) {
+    error.value = translateApiError(err, { t, te }, 'errors.save_part_pick_failed');
+  } finally {
+    busy.value = false;
+    // The stored quantity goes back in every box, whatever happened: a refused
+    // or clamped write leaves the bound number unchanged, so Vue sees nothing
+    // to re-render and a field keeps what was typed into it.
+    for (const row of rows.value) restoreInput(row);
+  }
+}
+
+/** One line, typed or ticked. */
 async function save(row: ProjectSubProductPart, raw: number | string) {
   if (!props.target || busy.value) return;
   // An empty or unreadable box is not an instruction to empty the line: a
@@ -199,32 +255,33 @@ async function save(row: ProjectSubProductPart, raw: number | string) {
     restoreInput(row);
     return;
   }
-  const next = Math.min(Math.max(parsed, 0), row.onHandQty);
-
-  busy.value = true;
-  error.value = null;
-  try {
-    // The server's answer, not the typed number: a refused or clamped write
-    // must leave the row reading what is actually stored.
-    const { data } = await projectsApi.setPartPickedQty(
-      props.target.project.id,
-      row.usageId,
-      next,
-    );
-    row.pickedQty = data.pickedQty;
-    row.onHandQty = data.onHandQty;
-    changed = true;
-  } catch (err) {
-    error.value = translateApiError(err, { t, te }, 'errors.save_part_pick_failed');
-  } finally {
-    busy.value = false;
+  const pickedQty = Math.min(Math.max(parsed, 0), row.onHandQty);
+  if (pickedQty === row.pickedQty) {
     restoreInput(row);
+    return;
   }
+  await savePicks([{ usageId: row.usageId, pickedQty }]);
 }
 
-/** Put the stored quantity back in the box. `:value` alone cannot: when a
- *  write is refused or clamped the bound number never changed, so Vue sees
- *  nothing to re-render and the field keeps what was typed into it. */
+/**
+ * Fill every line as far as the project can cover it — the whole list in one
+ * request.
+ *
+ * `onHandQty` is already capped at what each line needs, so this completes what
+ * can be completed and part-fills the rest, which is what someone walking the
+ * shelf with the list actually does. Within one sub-product each part appears
+ * on exactly one line (`project_part_usages` is unique on the three ids), so
+ * these quantities do not compete with each other for the same pile.
+ */
+async function pickAllAvailable() {
+  const picks = rows.value
+    .filter((row) => row.pickedQty < row.onHandQty)
+    .map((row) => ({ usageId: row.usageId, pickedQty: row.onHandQty }));
+  if (picks.length === 0) return;
+  await savePicks(picks);
+}
+
+/** Put the stored quantity back in the box. */
 function restoreInput(row: ProjectSubProductPart) {
   const input = inputs.get(row.usageId);
   if (input) input.value = String(row.pickedQty);
@@ -235,7 +292,7 @@ async function markPrepared() {
   busy.value = true;
   error.value = null;
   try {
-    await projectsApi.prepareSubProduct(props.target.project.id, {
+    await projects.prepareSubProduct(props.target.project.id, {
       projectProductId: props.target.subProduct.projectProductId,
       subProductRevisionId: props.target.subProduct.subProductRevisionId,
     });
@@ -248,6 +305,6 @@ async function markPrepared() {
 }
 
 function close() {
-  emit('close', changed);
+  emit('close');
 }
 </script>

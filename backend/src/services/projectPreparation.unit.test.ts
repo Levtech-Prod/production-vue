@@ -15,11 +15,19 @@
 // holds 2, the other 3 are on order. Picking those 2 must be accepted, and
 // picking a third must not.
 //
+// `resolveBulkPicks` then applies those ceilings across a whole batch, which
+// is where the interesting arithmetic is: `unpickedQty` is a per-PART holding,
+// so two lines of one batch can be looking at the same pile. Run as a loop
+// over `resolvePickQty` each would read the stored holding and both would be
+// allowed to take it — a batch of two that overdraws the project and reaches
+// chk_project_parts_prepared_within_pickable as a raw 23514 naming nothing.
+//
 // Run: npm run test:unit
 // ===========================================================================
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { check, checkRefuses, report } from '../testing/check.js';
-import { resolvePickQty } from './projectPreparation.js';
+import { resolveBulkPicks, resolvePickQty, type BulkPickLine } from './projectPreparation.js';
 
 async function main() {
   // The 2-of-5 line: nothing picked yet, and the project holds 2.
@@ -80,6 +88,85 @@ async function main() {
     resolvePickQty({ requiredQty: 6, pickedQty: 0, unpickedQty: 6 }, 6),
     6,
   );
+
+  // =========================================================================
+  // resolveBulkPicks — the same ceilings, against one shared pile per part.
+  // =========================================================================
+
+  /** Two lines drawing on ONE project_parts row holding 5 pieces. */
+  const sharedPile = (): BulkPickLine[] => [
+    { usageId: 1, projectPartId: 100, requiredQty: 4, pickedQty: 0, unpickedQty: 5 },
+    { usageId: 2, projectPartId: 100, requiredQty: 4, pickedQty: 0, unpickedQty: 5 },
+  ];
+
+  check(
+    'a batch reports the net movement per part, not per line',
+    [...resolveBulkPicks(sharedPile(), new Map([[1, 3], [2, 2]])).deltaByProjectPart],
+    [[100, 5]],
+  );
+  await checkRefuses(
+    'two lines cannot each take the last of a pile they share',
+    () => resolveBulkPicks(sharedPile(), new Map([[1, 3], [2, 3]])),
+    409,
+    ErrorCodes.SUB_PRODUCT_PARTS_UNAVAILABLE,
+  );
+
+  // A loop over resolvePickQty would accept the batch above: each line sees
+  // `unpickedQty: 5` as stored, and 3 is under it. The running headroom is the
+  // whole difference, so it is worth pinning that the SECOND line is the one
+  // refused — the first was legitimately affordable when it was resolved.
+  try {
+    resolveBulkPicks(sharedPile(), new Map([[1, 3], [2, 3]]));
+    check('the over-drawing batch throws', 'no error thrown', 'threw');
+  } catch (err) {
+    check(
+      'and names the line that could not be covered, so a list of thirty can point at one row',
+      err instanceof ApiError ? err.payload : err,
+      { usageId: 2 },
+    );
+  }
+
+  check(
+    'a line the batch does not name is left alone, however its neighbours move',
+    resolveBulkPicks(sharedPile(), new Map([[1, 5 - 1]])).moved.map((m) => m.usageId),
+    [1],
+  );
+  check(
+    'and a line re-sent at the quantity it already holds is not a write',
+    resolveBulkPicks(sharedPile(), new Map([[1, 0], [2, 4]])).moved.map((m) => m.usageId),
+    [2],
+  );
+
+  // Putting parts back is resolved first, which is what lets one batch move a
+  // piece from one line of a part to another. Resolved in the given order
+  // instead, the taking line would be refused against a pile the putting-back
+  // line was about to refill — and which of the two came first in the request
+  // is not something a "tick everything" click has any reason to control.
+  const pileSpentOnLineOne: BulkPickLine[] = [
+    { usageId: 1, projectPartId: 100, requiredQty: 4, pickedQty: 4, unpickedQty: 0 },
+    { usageId: 2, projectPartId: 100, requiredQty: 4, pickedQty: 0, unpickedQty: 0 },
+  ];
+  check(
+    'one batch can move a piece between two lines of the same part, in either order',
+    [...resolveBulkPicks(pileSpentOnLineOne, new Map([[2, 1], [1, 3]])).deltaByProjectPart],
+    [[100, 0]],
+  );
+
+  // Two parts, so two independent piles — the ordinary case, and a check that
+  // the headroom is keyed by part rather than shared across the batch.
+  const twoParts: BulkPickLine[] = [
+    { usageId: 1, projectPartId: 100, requiredQty: 4, pickedQty: 0, unpickedQty: 4 },
+    { usageId: 2, projectPartId: 200, requiredQty: 6, pickedQty: 0, unpickedQty: 6 },
+  ];
+  check(
+    'separate parts do not compete for each other\'s headroom',
+    [...resolveBulkPicks(twoParts, new Map([[1, 4], [2, 6]])).deltaByProjectPart],
+    [
+      [100, 4],
+      [200, 6],
+    ],
+  );
+  check('an empty batch moves nothing', resolveBulkPicks(twoParts, new Map()).moved, []);
 
   process.exit(report() === 0 ? 0 : 1);
 }

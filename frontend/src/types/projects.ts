@@ -166,7 +166,11 @@ export interface ProjectPartRow {
   part: ProjectPartInfo;
   products: ProjectPartRowProduct[];
   requiredQty: number;
-  availableQty: number;
+  /** Free stock: what is on the shelf minus what other started projects have
+   *  claimed. Unclamped, so it can be negative when a stale claim outruns the
+   *  shelf (§4.2) — which is why the table heads it "Free stock" rather than
+   *  "Available". */
+  freeQty: number;
   reservedQty: number;
   fromStockQty: number;
   missingQty: number;
@@ -186,10 +190,47 @@ export interface ProjectPartsPayload {
   rows: ProjectPartRow[];
 }
 
+// ---- Write results ---------------------------------------------------------
+//
+// Every write that can move a project between the board's columns answers with
+// the one card it changed. The board patches that card in place instead of
+// refetching all of them, and the membership rule stays on the server where
+// decision 2 puts it — the card is the server's answer, not a rule the browser
+// re-applies.
+
+export interface WithBoardCard {
+  card: ProjectBoardCard;
+}
+
+/** `POST /api/projects`, `PATCH /api/projects/:id`, Start and Stop. */
+export interface ProjectWriteResult extends WithBoardCard {
+  project: Project;
+}
+
+/** `PATCH /api/projects/:id/parts/:projectPartId` — the row as the table
+ *  should now show it, so the caller patches instead of reloading. */
+export interface ProjectPartUpdateResult extends WithBoardCard {
+  row: ProjectPartRow;
+}
+
 /** `POST /api/projects/:id/parts/recalculate` (§5.2/§5.3). */
-export interface ProjectPartsRecalculateResult {
+export interface ProjectPartsRecalculateResult extends WithBoardCard {
   changed: ProjectPartRow[];
   skipped: ProjectPartRow[];
+}
+
+/** `PATCH /api/projects/:id/preparations/:a/:b/picks` — the whole pick list as
+ *  it now stands, not only the lines written: taking from a shared part moves
+ *  what its siblings can still be filled to. */
+export interface SubProductPicksResult extends WithBoardCard {
+  parts: ProjectPartPickState[];
+}
+
+/** `POST`/`DELETE /api/projects/:id/preparations/...`. */
+export interface SubProductPreparationResult extends WithBoardCard {
+  projectProductId: number;
+  subProductRevisionId: number;
+  prepared: boolean;
 }
 
 // ---- Payloads -------------------------------------------------------------
@@ -203,6 +244,7 @@ import type {
   ProjectProductInput as ProjectProductInputSchema,
   ProjectStatus as ProjectStatusSchema,
   ProjectPartUpdateInput as ProjectPartUpdateInputSchema,
+  ProjectPartPick as ProjectPartPickSchema,
   ProjectSubProductRef as ProjectSubProductRefSchema,
 } from '../../../backend/src/schemas/projects.schema.ts';
 
@@ -213,6 +255,8 @@ export type ProjectStatus = ProjectStatusSchema;
 export type ProjectPartUpdate = ProjectPartUpdateInputSchema;
 /** Which sub-product a preparation write is about. */
 export type ProjectSubProductRef = ProjectSubProductRefSchema;
+/** One line of a pick request: the absolute quantity now in the job box. */
+export type ProjectPartPick = ProjectPartPickSchema;
 
 /** Display order for the board's status filter. */
 export const PROJECT_STATUSES = [
