@@ -2,7 +2,13 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { projectsApi } from '../api/projectsAPI.ts';
 import { i18n } from '../i18n';
-import type { Project, ProjectBoardCard, ProjectBoardQuery, ProjectPayload } from '../types/projects.ts';
+import type {
+  Project,
+  ProjectBoardCard,
+  ProjectBoardQuery,
+  ProjectPayload,
+  ProjectSubProductRef,
+} from '../types/projects.ts';
 
 export const useProjectsStore = defineStore('projects', () => {
   const board = ref<ProjectBoardCard[]>([]);
@@ -64,6 +70,18 @@ export const useProjectsStore = defineStore('projects', () => {
     return response.data;
   }
 
+  // Preparing a sub-product moves quantities on `project_parts`, which is what
+  // both *Preparation* and *Prepared* membership is computed from — so, like
+  // Start and Stop, neither of these patches the board and the caller
+  // refetches it.
+  async function prepareSubProduct(id: number, ref: ProjectSubProductRef) {
+    await projectsApi.prepareSubProduct(id, ref);
+  }
+
+  async function unprepareSubProduct(id: number, ref: ProjectSubProductRef) {
+    await projectsApi.unprepareSubProduct(id, ref);
+  }
+
   return {
     board,
     loading,
@@ -75,5 +93,7 @@ export const useProjectsStore = defineStore('projects', () => {
     deleteProject,
     startProject,
     stopProject,
+    prepareSubProduct,
+    unprepareSubProduct,
   };
 });

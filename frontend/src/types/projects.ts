@@ -47,26 +47,74 @@ export interface ProjectBoardCard {
   createdAt: string;
   /** What the project builds, in the order the modal pinned them. */
   products: ProjectBoardProduct[];
-  lineCount: number;
+  /** Every sub-product the frozen BOM mentions, across all the products above.
+   *  Empty until the project is started. One *Preparation* card each. */
+  subProducts: ProjectBoardSubProduct[];
   toBuyLines: number;
   onOrderLines: number;
-  toPickLines: number;
-  /** Lines with nothing outstanding — the card's progress bar. Not
-   *  `lineCount` minus the three counts above: those overlap. */
-  doneLines: number;
   inOffers: boolean;
   inOrdered: boolean;
   inPreparation: boolean;
   inPrepared: boolean;
 }
 
-/** One product line as the board shows it — no ids, since a card only names
- *  what the project builds. */
+/** One product line as the board shows it. */
 export interface ProjectBoardProduct {
+  projectProductId: number;
   name: string;
   sku: string;
   revisionLabel: string;
   quantity: number;
+  /** Sub-products of this product in this project, and how many are prepared.
+   *  The same fraction twice over: the progress bar on each of its
+   *  *Preparation* cards, and the percentage beside it on the *Prepared*
+   *  card. */
+  subProductCount: number;
+  preparedSubProducts: number;
+}
+
+/** One sub-product of one pinned product — a *Preparation* card, and a line
+ *  under its product on the *Prepared* card. Preparation is done one of these
+ *  at a time, which is why the board splits them out. */
+export interface ProjectBoardSubProduct {
+  projectProductId: number;
+  subProductRevisionId: number;
+  name: string;
+  sku: string | null;
+  revisionLabel: string;
+  /** Distinct parts this sub-product needs, frozen at Start. */
+  partCount: number;
+  /** How many of those the project already holds enough of. */
+  readyPartCount: number;
+  /** How many lines are picked in full. All of them is what enables
+   *  "Mark prepared". */
+  pickedPartCount: number;
+  prepared: boolean;
+  /** Whether this sub-product belongs in the *Preparation* column — the
+   *  server's call, not the board's. */
+  inPreparation: boolean;
+}
+
+/** One pick-list line's three quantities, as any write to it answers. */
+export interface ProjectPartPickState {
+  /** `project_part_usages.id` — the row the picked quantity is stored on. */
+  usageId: number;
+  /** What this sub-product needs, across the product's project quantity. */
+  requiredQty: number;
+  /** How much of it is already in the job box. */
+  pickedQty: number;
+  /** The most this line could be picked to right now: what is in the box plus
+   *  what the project still holds unpicked, capped at what the line needs.
+   *  Counted per part for the whole project, so two sub-products sharing a
+   *  scarce part are looking at the same pile. */
+  onHandQty: number;
+}
+
+/** One line of a sub-product's pick list, as its modal shows it. */
+export interface ProjectSubProductPart extends ProjectPartPickState {
+  partId: number;
+  name: string;
+  code: string;
 }
 
 /** What the board asks the API for (§6.3). `status` is never empty — the API
@@ -152,6 +200,7 @@ import type {
   ProjectProductInput as ProjectProductInputSchema,
   ProjectStatus as ProjectStatusSchema,
   ProjectPartUpdateInput as ProjectPartUpdateInputSchema,
+  ProjectSubProductRef as ProjectSubProductRefSchema,
 } from '../../../backend/src/schemas/projects.schema.ts';
 
 export type ProjectPayload = ProjectPayloadSchema;
@@ -159,6 +208,8 @@ export type ProjectProductInput = ProjectProductInputSchema;
 export type ProjectStatus = ProjectStatusSchema;
 /** `PATCH /api/projects/:id/parts/:projectPartId` (§5.2). */
 export type ProjectPartUpdate = ProjectPartUpdateInputSchema;
+/** Which sub-product a preparation write is about. */
+export type ProjectSubProductRef = ProjectSubProductRefSchema;
 
 /** Display order for the board's status filter. */
 export const PROJECT_STATUSES = [
