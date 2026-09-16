@@ -61,6 +61,9 @@
         @start="openStartTarget"
         @delete="openDeleteTarget"
         @stop="openStopTarget"
+        @open="openPreparation"
+        @prepare="openPrepareTarget"
+        @unprepare="openUnprepareTarget"
       />
     </div>
 
@@ -70,6 +73,12 @@
       ref="partsTableRef"
       :project-id="selectedProjectId"
       class="min-h-0 flex-1"
+    />
+
+    <SubProductPreparationModal
+      :target="preparationTarget"
+      @close="closePreparation"
+      @prepared="onSubProductPrepared"
     />
 
     <ProjectModal
@@ -118,6 +127,34 @@
       @confirm="confirmStopProject"
       @cancel="cancelStopProject"
     />
+
+    <!-- Both preparation actions are confirmed for the same reason Start is:
+         each moves real stock. Marking takes the sub-product's parts out of
+         what the project can still pick; undoing puts them back, which is
+         equally worth a second look on a shared board. -->
+    <DeleteConfirmModal
+      :target="prepareTarget"
+      title-key="mark_prepared"
+      message-key="confirmations.mark_prepared_msg"
+      confirm-text-key="mark_prepared"
+      variant="primary"
+      :label="subProductLabel"
+      :loading="prepareBusy"
+      @confirm="confirmPrepare"
+      @cancel="cancelPrepare"
+    />
+
+    <DeleteConfirmModal
+      :target="unprepareTarget"
+      title-key="undo_prepared"
+      message-key="confirmations.undo_prepared_msg"
+      confirm-text-key="undo"
+      variant="primary"
+      :label="subProductLabel"
+      :loading="unprepareBusy"
+      @confirm="confirmUnprepare"
+      @cancel="cancelUnprepare"
+    />
   </div>
 </template>
 
@@ -127,6 +164,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Plus, Search } from 'lucide-vue-next';
 import ProjectBoard from './board/ProjectBoard.vue';
+import SubProductPreparationModal from './board/SubProductPreparationModal.vue';
+import type { SubProductTarget } from './board/columns.ts';
 import ProjectModal from './ProjectModal.vue';
 import ProjectPartsTable from './ProjectPartsTable.vue';
 import DeleteConfirmModal from '../../components/notification/DeleteConfirmModal.vue';
@@ -313,14 +352,14 @@ async function onSaved(payload: ProjectPayload) {
 // the two message keys. `useConfirmDelete` is reused unchanged for all three
 // (§11.4); what is shared here is the action wrapped around it.
 
-function confirmedCardAction(
-  run: (project: ProjectBoardCard) => Promise<void>,
+function confirmedCardAction<T>(
+  run: (target: T) => Promise<void>,
   successKey: string,
   errorKey: string,
 ) {
-  return useConfirmDelete<ProjectBoardCard>(async (project) => {
+  return useConfirmDelete<T>(async (target) => {
     try {
-      await run(project);
+      await run(target);
       notify.showToast(t(successKey), 'success');
       return true;
     } catch (err) {
@@ -336,7 +375,7 @@ const {
   open: openDeleteTarget,
   confirm: confirmDeleteProject,
   cancel: cancelDeleteProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   (project) => store.deleteProject(project.id),
   'success.delete_project',
   'errors.delete_project_failed',
@@ -351,7 +390,7 @@ const {
   open: openStartTarget,
   confirm: confirmStartProject,
   cancel: cancelStartProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.startProject(project.id);
     await loadBoard();
@@ -368,13 +407,88 @@ const {
   open: openStopTarget,
   confirm: confirmStopProject,
   cancel: cancelStopProject,
-} = confirmedCardAction(
+} = confirmedCardAction<ProjectBoardCard>(
   async (project) => {
     await store.stopProject(project.id);
     await loadBoard();
   },
   'success.stop_project',
   'errors.stop_project_failed',
+);
+
+// ---- Preparation ------------------------------------------------------------
+//
+// Marking a sub-product prepared and taking that mark back are the same flow
+// as the three above, over a sub-product instead of a project. Both change
+// `project_parts.prepared_qty`, which is what *Preparation* and *Prepared*
+// membership is computed from (§4.1) — so both refetch rather than patch.
+
+// The card opens its pick list; the Parts table below the board stays tied to
+// the *Projects* column's selection, which is the only card that still takes a
+// plain click.
+const preparationTarget = ref<SubProductTarget | null>(null);
+
+function openPreparation(target: SubProductTarget) {
+  preparationTarget.value = target;
+}
+
+// Each tick is saved as it is made, so closing only has to refresh the counts
+// the cards read off the board.
+async function closePreparation(changed: boolean) {
+  preparationTarget.value = null;
+  if (changed) await loadBoard();
+}
+
+async function onSubProductPrepared() {
+  const projectId = preparationTarget.value?.project.id ?? null;
+  preparationTarget.value = null;
+  notify.showToast(t('success.mark_prepared'), 'success');
+  await loadBoard();
+  if (projectId !== null) partsTableRef.value?.invalidateProject(projectId);
+}
+
+function subProductLabel({ product, subProduct }: SubProductTarget): string {
+  return `${product.name} · ${subProduct.name} ${subProduct.revisionLabel}`;
+}
+
+function preparationAction(prepared: boolean) {
+  return async ({ project, subProduct }: SubProductTarget) => {
+    const ref = {
+      projectProductId: subProduct.projectProductId,
+      subProductRevisionId: subProduct.subProductRevisionId,
+    };
+    await (prepared
+      ? store.prepareSubProduct(project.id, ref)
+      : store.unprepareSubProduct(project.id, ref));
+    await loadBoard();
+    // The write moved `prepared_qty`, which the Parts table reads as its
+    // "to pick" column — the same reason Start invalidates it.
+    partsTableRef.value?.invalidateProject(project.id);
+  };
+}
+
+const {
+  target: prepareTarget,
+  busy: prepareBusy,
+  open: openPrepareTarget,
+  confirm: confirmPrepare,
+  cancel: cancelPrepare,
+} = confirmedCardAction<SubProductTarget>(
+  preparationAction(true),
+  'success.mark_prepared',
+  'errors.mark_prepared_failed',
+);
+
+const {
+  target: unprepareTarget,
+  busy: unprepareBusy,
+  open: openUnprepareTarget,
+  confirm: confirmUnprepare,
+  cancel: cancelUnprepare,
+} = confirmedCardAction<SubProductTarget>(
+  preparationAction(false),
+  'success.undo_prepared',
+  'errors.undo_prepared_failed',
 );
 
 onMounted(loadBoard);

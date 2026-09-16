@@ -22,13 +22,21 @@
       @start="emit('start', $event)"
       @delete="emit('delete', $event)"
       @stop="emit('stop', $event)"
+      @open="emit('open', $event)"
+      @prepare="emit('prepare', $event)"
+      @unprepare="emit('unprepare', $event)"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import ProjectBoardColumn from './ProjectBoardColumn.vue';
-import { BOARD_COLUMNS, type BoardCard, type BoardColumn } from './columns.ts';
+import {
+  BOARD_COLUMNS,
+  type BoardCard,
+  type BoardColumn,
+  type SubProductTarget,
+} from './columns.ts';
 import type { ProjectBoardCard } from '../../../types/projects.ts';
 
 const props = defineProps<{
@@ -42,6 +50,9 @@ const emit = defineEmits<{
   start: [project: ProjectBoardCard];
   delete: [project: ProjectBoardCard];
   stop: [project: ProjectBoardCard];
+  open: [target: SubProductTarget];
+  prepare: [target: SubProductTarget];
+  unprepare: [target: SubProductTarget];
 }>();
 
 // The *Projects* column is every project, always (decision 2 — the column
@@ -50,12 +61,14 @@ const emit = defineEmits<{
 // selected, a card belongs on the board only if it *is* that project, so an
 // unrelated card is hidden rather than merely dimmed. Nothing is selected ->
 // every member card shows, same as *Projects*.
+//
+// How many cards a project then puts in the column is the column's own
+// business: one everywhere but *Preparation*, which splits it per sub-product.
 function cardsIn(column: BoardColumn): BoardCard[] {
-  const members = props.projects.filter(column.member);
-  const narrowed =
+  const visible =
     column.key === 'projects' || props.selectedId == null
-      ? members
-      : members.filter((project) => project.id === props.selectedId);
-  return narrowed.map((project) => ({ project, badge: column.badge(project) }));
+      ? props.projects
+      : props.projects.filter((project) => project.id === props.selectedId);
+  return visible.flatMap((project) => column.cards(project));
 }
 </script>
