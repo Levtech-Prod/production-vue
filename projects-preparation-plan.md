@@ -1858,3 +1858,42 @@ the card announced — and since that list holds the only Undo on the board, an
 undiscoverable click was hiding the only way back. It is now always on the
 card, three rows and a "+N more" like the product list above it, and the
 percentage is plain text again.
+
+### 11.16 Fourteenth pass — what the critique found
+
+An adversarial review of the preparation branch turned up three defects that
+would have shipped, all of them in code this plan describes correctly and the
+implementation did not.
+
+**The card vanished at exactly the moment it was needed (§11.14's whole point).**
+Membership counted a line as work-started only when it was picked IN FULL, so
+the 2-of-5 case — pull the 2 the shelf holds, 3 still on order — left a
+sub-product with no complete lines and no remaining headroom, dropping its card
+off the board and the modal with it. Two parts sat in a box nothing mentioned,
+with no route back to them until more stock arrived. The rule is now
+`pickedQty > 0`: ANY quantity in the box holds the card. The comment above that
+line had said so all along; the code tested the wrong number.
+
+**Two lost row locks.** `setUsagePickedQty` locked `project_parts` but read
+`picked_qty` from an unlocked join. Under READ COMMITTED an unlocked row comes
+from the statement's snapshot, so two people setting the same line to 3 each
+computed `delta = 3 - 0` and `prepared_qty` finished at 6 against 3 actually
+picked — and because the picked quantity is written absolutely while only the
+difference reaches the sum, no later edit could unwind it. It now locks
+`pp, ppu`. Separately, `loadSubProductUsages` had lost its lock when marking
+stopped shifting quantities, leaving the "every line is full" check an unlocked
+read that a concurrent pick could invalidate before the INSERT; it locks both
+tables again, ordered by `pp.id` to match.
+
+Four smaller things came out of the same pass: the card now counts PIECES
+(`pickedQty` of `requiredQty`) rather than finished lines, so partial picking is
+visible on the surface people read; `resolvePickQty` is a pure function with
+unit tests (the branch's riskiest arithmetic had none, against CLAUDE.md's
+first-tier rule); the Stop confirmation names how many parts are already in job
+boxes, since stopping frees them like any other claim and nothing else would
+say so; and an emptied quantity box no longer saves a zero on its way to being
+retyped.
+
+The lesson worth keeping: every one of the three real defects was a *count of
+the wrong thing* or a *lock removed alongside the write it guarded*. Both are
+invisible in a diff that reads well line by line.

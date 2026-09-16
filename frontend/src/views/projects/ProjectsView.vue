@@ -117,10 +117,18 @@
       @cancel="cancelStartProject"
     />
 
+    <!-- Stopping releases the whole claim, and since preparation began that
+         includes parts physically pulled into job boxes (§4.2, §11.13). The
+         count is the warning: the shelf figure will not mention them. -->
     <DeleteConfirmModal
       :target="stopTarget"
       title-key="stop_project"
-      message-key="confirmations.stop_project_msg"
+      :message-key="
+        stopPickedPieces > 0
+          ? 'confirmations.stop_project_msg_picked'
+          : 'confirmations.stop_project_msg'
+      "
+      :message-params="{ n: stopPickedPieces }"
       confirm-text-key="stop_project"
       :label="(project) => project.name"
       :loading="stopBusy"
@@ -414,6 +422,15 @@ const {
   },
   'success.stop_project',
   'errors.stop_project_failed',
+);
+
+/** Pieces already pulled into this project's job boxes. Stopping hands them
+ *  back to free stock along with the rest of its claim, and nothing else on
+ *  the confirmation would say so. */
+const stopPickedPieces = computed(() =>
+  stopTarget.value
+    ? stopTarget.value.subProducts.reduce((sum, sub) => sum + sub.pickedQty, 0)
+    : 0,
 );
 
 // ---- Preparation ------------------------------------------------------------

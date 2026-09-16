@@ -86,9 +86,12 @@ export interface ProjectBoardSubProduct {
   partCount: number;
   /** How many of those the project already holds enough of. */
   readyPartCount: number;
-  /** How many lines are picked in full. All of them is what enables
-   *  "Mark prepared". */
-  pickedPartCount: number;
+  /** Pieces across every line: what the sub-product needs, and what is already
+   *  in its box. Quantities rather than finished lines, so the card moves when
+   *  someone pulls 2 of the 5 a line needs — and since no line may hold more
+   *  than it needs, the two being equal is also what enables "Mark prepared". */
+  requiredQty: number;
+  pickedQty: number;
   prepared: boolean;
   /** Whether this sub-product belongs in the *Preparation* column — the
    *  server's call, not the board's. */

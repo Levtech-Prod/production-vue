@@ -189,8 +189,17 @@ watch(
 
 async function save(row: ProjectSubProductPart, raw: number | string) {
   if (!props.target || busy.value) return;
-  const parsed = Math.trunc(Number(raw));
-  const next = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), row.onHandQty) : 0;
+  // An empty or unreadable box is not an instruction to empty the line: a
+  // cleared field on the way to retyping a number would otherwise save a zero
+  // and put the parts back without anyone asking for it. `Number('')` is 0,
+  // so emptiness has to be caught before the parse, not after it.
+  const text = String(raw).trim();
+  const parsed = text === '' ? NaN : Math.trunc(Number(text));
+  if (!Number.isFinite(parsed)) {
+    restoreInput(row);
+    return;
+  }
+  const next = Math.min(Math.max(parsed, 0), row.onHandQty);
 
   busy.value = true;
   error.value = null;
@@ -209,12 +218,16 @@ async function save(row: ProjectSubProductPart, raw: number | string) {
     error.value = translateApiError(err, { t, te }, 'errors.save_part_pick_failed');
   } finally {
     busy.value = false;
-    // `:value` alone cannot undo a rejected edit: the bound number never
-    // changed, so Vue sees nothing to re-render and the box keeps what was
-    // typed into it.
-    const input = inputs.get(row.usageId);
-    if (input) input.value = String(row.pickedQty);
+    restoreInput(row);
   }
+}
+
+/** Put the stored quantity back in the box. `:value` alone cannot: when a
+ *  write is refused or clamped the bound number never changed, so Vue sees
+ *  nothing to re-render and the field keeps what was typed into it. */
+function restoreInput(row: ProjectSubProductPart) {
+  const input = inputs.get(row.usageId);
+  if (input) input.value = String(row.pickedQty);
 }
 
 async function markPrepared() {

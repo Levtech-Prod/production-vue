@@ -27,9 +27,9 @@
       </p>
       <p class="mt-0.5 text-xs" :class="ready ? 'text-emerald-600' : 'text-slate-500'">
         {{
-          t('n_parts_prepared_of', {
-            picked: subProduct.pickedPartCount,
-            total: subProduct.partCount,
+          t('n_pieces_picked_of', {
+            picked: subProduct.pickedQty,
+            total: subProduct.requiredQty,
           })
         }}
       </p>
@@ -99,9 +99,13 @@ const { t } = useI18n();
 
 /** The pick list has to be complete: marking is all-or-nothing, and half a
  *  sub-product prepared would put a card in *Prepared* that nobody can build
- *  from. The card's button is a shortcut for a list already ticked off in the
- *  modal, so the same rule gates both. */
-const ready = computed(() => props.subProduct.pickedPartCount === props.subProduct.partCount);
+ *  from. Counted in pieces, which is the same question as "every line full"
+ *  because no line may hold more than it needs — and unlike a count of
+ *  finished lines, it also moves on a partial pick. */
+const ready = computed(() => {
+  const { requiredQty, pickedQty } = props.subProduct;
+  return requiredQty > 0 && pickedQty === requiredQty;
+});
 
 /** Parts the project does not hold enough of yet. */
 const shortPartCount = computed(

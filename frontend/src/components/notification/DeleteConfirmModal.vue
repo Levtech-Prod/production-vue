@@ -2,7 +2,7 @@
   <ConfirmModal
     :visible="target != null"
     :title="t(titleKey)"
-    :message="`${t(messageKey)}${subject ? `: ${subject}` : ''}`"
+    :message="`${t(messageKey, messageParams ?? {})}${subject ? `: ${subject}` : ''}`"
     :confirm-text="t(confirmTextKey ?? 'delete')"
     :cancel-text="t('cancel')"
     :variant="variant"
@@ -38,6 +38,9 @@ const props = defineProps<{
   titleKey: string;
   /** i18n key for the body, e.g. 'confirmations.delete_firmware_msg'. */
   messageKey: string;
+  /** Interpolation values, for a body whose text names a number or a name the
+   *  caller has to supply. Omit for the usual message that takes none. */
+  messageParams?: Record<string, unknown>;
   /** How to name the target in the body. Omit for a nameless confirmation. */
   label?: (target: T) => string;
   /** i18n key for the confirm button; defaults to 'delete'. */

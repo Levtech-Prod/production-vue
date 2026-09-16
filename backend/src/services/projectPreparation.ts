@@ -33,9 +33,14 @@ export interface ProjectBoardSubProduct {
   /** How many of those the project can still finish off today: already picked
    *  in full, or holding enough to cover what the line has left. */
   readyPartCount: number;
-  /** How many lines are picked in full. All of them is what lets the
-   *  sub-product be marked prepared. */
-  pickedPartCount: number;
+  /** Pieces across every line: what the sub-product needs, and what is already
+   *  in its box. Quantities rather than a count of finished lines, so the card
+   *  moves when someone pulls 2 of the 5 a line needs — and because
+   *  `pickedQty === requiredQty` can only happen when every line is full (no
+   *  line may exceed its own requirement), it is also the test for whether the
+   *  sub-product can be marked prepared. */
+  requiredQty: number;
+  pickedQty: number;
   prepared: boolean;
   /** Whether this sub-product belongs in the *Preparation* column: unfinished,
    *  and either already part-way into its box or holding something that could
@@ -85,9 +90,8 @@ export async function loadBoardSubProducts(
          WHERE pp.from_stock_qty + pp.received_qty - pp.prepared_qty
                >= ppu.qty_per_unit * pprod.quantity - ppu.picked_qty
        )::int                          AS "readyPartCount",
-       COUNT(*) FILTER (
-         WHERE ppu.picked_qty >= ppu.qty_per_unit * pprod.quantity
-       )::int                          AS "pickedPartCount",
+       SUM(ppu.qty_per_unit * pprod.quantity)::int AS "requiredQty",
+       SUM(ppu.picked_qty)::int        AS "pickedQty",
        COUNT(*) FILTER (
          WHERE ppu.picked_qty < ppu.qty_per_unit * pprod.quantity
            AND pp.from_stock_qty + pp.received_qty - pp.prepared_qty > 0
@@ -110,14 +114,15 @@ export async function loadBoardSubProducts(
 
   for (const { projectId, pickablePartCount, ...row } of result.rows) {
     // A card appears once there is something to do and stays until the
-    // sub-product is marked: a line already part-picked keeps it on the board
-    // even when the shelf has nothing more to give, and a list picked in full
-    // keeps it there until someone marks it. Only "nothing picked and nothing
-    // to pick" means no card — the same "some parts are available" rule the
-    // column always had, now asked one sub-product at a time.
+    // sub-product is marked. `pickedQty > 0` is the half that keeps it there:
+    // ANY quantity already in the box holds the card on the board, even a
+    // partial pick on a line the shelf can no longer finish. Counting finished
+    // LINES here instead would drop the card — and the modal with it — at
+    // exactly the moment the 2-of-5 case is half done, stranding the parts
+    // already pulled with no way back to them.
     const subProduct = {
       ...row,
-      inPreparation: !row.prepared && (row.pickedPartCount > 0 || pickablePartCount > 0),
+      inPreparation: !row.prepared && (row.pickedQty > 0 || pickablePartCount > 0),
     };
     const list = byProject.get(projectId);
     if (list) list.push(subProduct);
@@ -142,9 +147,17 @@ interface SubProductUsageRow {
 }
 
 /**
- * The sub-product's usage rows, or 404. Both callers need the same two things
- * out of it: proof the pair is one this project froze, and the labels its audit
- * event is written with.
+ * The sub-product's usage rows with their `project_parts` and
+ * `project_part_usages` rows locked, or 404. Both callers need the same two
+ * things out of it: proof the pair is one this project froze, and the labels
+ * its audit event is written with.
+ *
+ * The lock is what makes marking honest. Without it the "every line is picked
+ * in full" check below is an unlocked read, and a pick that lowers a line
+ * between that read and the INSERT leaves a sub-product recorded as prepared
+ * with an incomplete list — which `setUsagePickedQty` then refuses to correct,
+ * because it will not edit a prepared sub-product. Ordered by `pp.id`, the
+ * same order `setUsagePickedQty` takes its single pair in.
  */
 async function loadSubProductUsages(
   client: PoolClient,
@@ -168,7 +181,9 @@ async function loadSubProductUsages(
      JOIN sub_products sp           ON sp.id = spr.sub_product_id
      WHERE pp.project_id = $1
        AND ppu.project_product_id = $2
-       AND ppu.sub_product_revision_id = $3`,
+       AND ppu.sub_product_revision_id = $3
+     ORDER BY pp.id
+     FOR UPDATE OF pp, ppu`,
     [projectId, ref.projectProductId, ref.subProductRevisionId],
   );
   if (result.rows.length === 0) {
@@ -202,6 +217,7 @@ export async function markSubProductPrepared(
   if (usages.some((u) => u.pickedQty < u.requiredQty)) {
     throw new ApiError(409, ErrorCodes.SUB_PRODUCT_PARTS_NOT_PICKED);
   }
+
 
   const inserted = await client.query<{ id: number }>(
     `INSERT INTO project_sub_product_preparations
@@ -300,16 +316,58 @@ export async function loadSubProductParts(
   return result.rows;
 }
 
+/** One pick-list line as the write about to change it sees it. */
+export interface PickLineState {
+  /** What the line needs, across the product's project quantity. */
+  requiredQty: number;
+  /** What is already in the box for it. */
+  pickedQty: number;
+  /** What the project holds for that part and has put in no box yet. */
+  unpickedQty: number;
+}
+
+/**
+ * How much `project_parts.prepared_qty` moves when a line is set to
+ * `pickedQty`, or the reason it may not be. Pure, so both ceilings and the
+ * order they are reported in are testable with no database (CLAUDE.md's first
+ * tier) — the same shape `resolveProjectPartUpdate` uses for the Parts table's
+ * two floors.
+ *
+ * The ceilings are enforced in opposite places on purpose. The per-line one is
+ * this function's alone: it spans `project_part_usages` and `project_products`,
+ * so no CHECK can hold it. The project-wide one is really enforced by
+ * `chk_project_parts_prepared_within_pickable`; repeating it here only buys a
+ * reason in place of a constraint violation. A NEGATIVE delta is always
+ * allowed — putting parts back needs no headroom.
+ *
+ * `pickedQty` is assumed non-negative; the zod schema at the boundary is what
+ * guarantees it.
+ */
+export function resolvePickQty(current: PickLineState, pickedQty: number): number {
+  if (pickedQty > current.requiredQty) {
+    throw new ApiError(422, ErrorCodes.PICKED_QTY_ABOVE_REQUIRED);
+  }
+  const delta = pickedQty - current.pickedQty;
+  if (delta > current.unpickedQty) {
+    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_PARTS_UNAVAILABLE);
+  }
+  return delta;
+}
+
 /**
  * Set how much of one pick-list line is in the job box, and move the same
  * difference on `project_parts.prepared_qty` so the two never disagree.
  *
  * Scoped by project id so a line belonging to another project cannot be
- * reached through this one's URL. The two ceilings are checked in opposite
- * places on purpose: the per-line one here, because it spans two tables and no
- * CHECK can hold it, and the project-wide one by
- * `chk_project_parts_prepared_within_pickable` — this only pre-empts it to
- * answer with a reason instead of a constraint violation.
+ * reached through this one's URL.
+ *
+ * BOTH rows are locked, and the usage row is the one that matters. Under READ
+ * COMMITTED a row this statement does not lock is read from the statement's
+ * snapshot: locking `pp` alone re-fetched the holding but left `picked_qty`
+ * stale, so two people setting the same line to 3 at once each computed
+ * `delta = 3 - 0` and `prepared_qty` ended at 6 against 3 actually picked —
+ * a drift that no later edit could unwind, since the picked quantity is
+ * written absolutely and only the difference is applied to the sum.
  *
  * Deliberately not audited (§5.6): a pick is adjusted freely while the box is
  * filling, and a log of every keystroke would bury the mark that closes it.
@@ -341,7 +399,7 @@ export async function setUsagePickedQty(
             ON prep.project_product_id = ppu.project_product_id
            AND prep.sub_product_revision_id = ppu.sub_product_revision_id
      WHERE ppu.id = $1 AND pp.project_id = $2
-     FOR UPDATE OF pp`,
+     FOR UPDATE OF pp, ppu`,
     [projectPartUsageId, projectId],
   );
   const row = current.rows[0];
@@ -350,14 +408,8 @@ export async function setUsagePickedQty(
   // *Prepared*, and changing a pick under it would move prepared_qty for a
   // sub-product that is already counted as done.
   if (row.prepared) throw new ApiError(409, ErrorCodes.SUB_PRODUCT_ALREADY_PREPARED);
-  if (pickedQty > row.requiredQty) {
-    throw new ApiError(422, ErrorCodes.PICKED_QTY_ABOVE_REQUIRED);
-  }
 
-  const delta = pickedQty - row.pickedQty;
-  if (delta > row.unpickedQty) {
-    throw new ApiError(409, ErrorCodes.SUB_PRODUCT_PARTS_UNAVAILABLE);
-  }
+  const delta = resolvePickQty(row, pickedQty);
 
   if (delta !== 0) {
     await client.query(

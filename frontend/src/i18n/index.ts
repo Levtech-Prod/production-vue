@@ -584,6 +584,7 @@ const messages = {
     undo_prepared: 'Undo preparation',
     undo: 'Undo',
     n_parts_prepared_of: '{picked} of {total} parts prepared',
+    n_pieces_picked_of: '{picked} of {total} pieces picked',
     n_parts_not_in_stock: '{n} not in stock',
     n_sub_products_prepared_of: '{done} of {total} sub-products prepared',
     sub_product_parts_not_picked: 'Every line on the list has to be picked in full first.',
@@ -933,6 +934,8 @@ const messages = {
         'The parts list will be frozen and the stock it needs claimed. A started project can no longer be edited or deleted',
       stop_project_msg:
         'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed, and parts already ordered will still be delivered',
+      stop_project_msg_picked:
+        'Stopping cannot be undone: a stopped project can no longer be restarted, edited or deleted. It releases the stock it had claimed — including {n} part(s) already picked into its job boxes, which stock will count as free again — and parts already ordered will still be delivered',
       mark_prepared_msg:
         'Its parts leave the stock this project can still pick, and the sub-product moves to Prepared',
       undo_prepared_msg:
@@ -1513,6 +1516,7 @@ const messages = {
     undo_prepared: 'Jelölés visszavonása',
     undo: 'Visszavonás',
     n_parts_prepared_of: '{total} alkatrészből {picked} előkészítve',
+    n_pieces_picked_of: '{total} darabból {picked} kiszedve',
     n_parts_not_in_stock: '{n} nincs készleten',
     n_sub_products_prepared_of: '{total} altermékből {done} kész',
     sub_product_parts_not_picked: 'Előbb a lista minden sorát teljesen ki kell szedni.',
@@ -1854,6 +1858,8 @@ const messages = {
         'Az alkatrészlista rögzül, és a szükséges készlet lefoglalásra kerül. Az elindított projekt már nem szerkeszthető és nem törölhető',
       stop_project_msg:
         'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet, a már megrendelt alkatrészek pedig ettől még megérkeznek',
+      stop_project_msg_picked:
+        'A leállítás nem vonható vissza: a leállított projekt többé nem indítható újra, nem szerkeszthető és nem törölhető. Felszabadítja a lefoglalt készletet — beleértve azt a {n} alkatrészt is, amelyet már kiszedtek a projekt dobozaiba, és amelyet a készlet ismét szabadként fog számolni —, a már megrendelt alkatrészek pedig ettől még megérkeznek',
       mark_prepared_msg:
         'Az alkatrészei kikerülnek a projekt által még kivételezhető készletből, az altermék pedig az Előkészítve oszlopba kerül',
       undo_prepared_msg:
