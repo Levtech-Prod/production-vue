@@ -601,11 +601,14 @@ const messages = {
     free_stock_quantity: 'Free stock',
     reserved_quantity: 'Reserved',
     purchase_quantity: 'Purchase',
+    purchase_quantity_overridden_hint:
+      'Set by hand. Recalculating from stock leaves it alone; type the calculated quantity back to clear it.',
     ordered_quantity: 'Ordered',
     received_quantity: 'Received',
     search_project_parts_placeholder: 'Search by name or category…',
     recalculate_from_stock: 'Recalculate from stock',
-    project_draft_notice: 'Not started — quantities are indicative.',
+    project_draft_notice:
+      'Not started — required and stock quantities follow today’s stock. A purchase quantity you set here is kept, and is what the project starts with.',
     no_project_parts_msg: 'This project has no parts.',
     stock_shortfall_warning:
       'Stock has moved since this was claimed — there may not be enough left for this project.',
@@ -1534,11 +1537,14 @@ const messages = {
     free_stock_quantity: 'Szabad készlet',
     reserved_quantity: 'Foglalt',
     purchase_quantity: 'Beszerzés',
+    purchase_quantity_overridden_hint:
+      'Kézzel megadva. A készlet alapú újraszámítás nem írja felül; a számított mennyiséget visszaírva törölhető.',
     ordered_quantity: 'Megrendelve',
     received_quantity: 'Bevételezve',
     search_project_parts_placeholder: 'Keresés név vagy kategória alapján…',
     recalculate_from_stock: 'Újraszámítás készlet alapján',
-    project_draft_notice: 'Nincs elindítva — a mennyiségek tájékoztató jellegűek.',
+    project_draft_notice:
+      'Nincs elindítva — a szükséges és a készlet mennyiségek a mai készletet követik. Az itt megadott beszerzési mennyiség megmarad, és ezzel indul a projekt.',
     no_project_parts_msg: 'Ehhez a projekthez nem tartozik alkatrész.',
     stock_shortfall_warning:
       'A készlet megváltozott a lefoglalás óta — lehet, hogy nem marad elég ehhez a projekthez.',

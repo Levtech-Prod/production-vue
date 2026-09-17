@@ -10,6 +10,12 @@
 // derived to-buy / on-order / to-pick figures exist once rather than once per
 // branch. That is what lets the Parts table not care which form it got.
 //
+// One quantity is editable in BOTH forms: what to buy. On a draft it is stored
+// in `project_draft_part_quantities` and laid over the computed seed; on a
+// started project it IS `project_parts.missing_qty`, and Start is what moves
+// it from the first to the second (§12, migration 027). Every reader below
+// therefore sees one number in one field, whichever form it came from.
+//
 // Quantities are whole parts (INTEGER since migration 025), so the arithmetic
 // here is exact and nothing needs rounding.
 //
@@ -67,10 +73,13 @@ export interface ProjectBomPart {
   usages: ProjectBomUsage[];
 }
 
-/** `GET /api/projects/:id/parts` (§5.4). `draft` says which form the rows
- *  were built from; nothing else about them differs. */
+/** `GET /api/projects/:id/parts` (§5.4). `status` says which form the rows
+ *  were built from — `draft` is computed, anything else is frozen — and
+ *  nothing else about them differs. The status rather than a `draft` flag,
+ *  because the table also has to know whether the purchase quantity is
+ *  editable, and a stopped project is neither a draft nor editable. */
 export interface ProjectPartsPayload {
-  draft: boolean;
+  status: ProjectStatus;
   rows: ProjectPartRow[];
 }
 
@@ -119,11 +128,26 @@ interface ComputedUsageRow {
   subProductRevisionId: number;
   qtyPerUnit: number;
   productQuantity: number;
+  overriddenMissingQty: number | null;
 }
+
+// The join chain that decides WHICH parts a project's pinned product set
+// needs. Shared, so `COMPUTE_USAGES` and `pruneDraftPartQuantities` can never
+// disagree about what is in the BOM — the prune deletes rows for parts that
+// are NOT in it, which is the same question read the other way round. The
+// display joins below are all on FK-guaranteed rows, so they add columns
+// without changing membership.
+const BOM_PART_SOURCE = `
+  FROM project_products pp
+  JOIN product_revision_sub_products prsp
+    ON prsp.product_revision_id = pp.product_revision_id
+  JOIN sub_product_revision_parts sprp
+    ON sprp.sub_product_revision_id = prsp.sub_product_revision_id
+`;
 
 // §3.4's `usage` CTE with the display columns joined on. No GROUP BY: the two
 // junction tables' UNIQUE constraints already make every row a distinct usage
-// site.
+// site. `$2` narrows it to named parts — see `computeProjectBom`.
 const COMPUTE_USAGES = `
   SELECT
     p.id                        AS "partId",
@@ -138,17 +162,21 @@ const COMPUTE_USAGES = `
     rev.label                   AS "revisionLabel",
     prsp.sub_product_revision_id AS "subProductRevisionId",
     sprp.quantity               AS "qtyPerUnit",
-    pp.quantity                 AS "productQuantity"
-  FROM project_products pp
+    pp.quantity                 AS "productQuantity",
+    -- The purchase quantity typed on this draft (migration 027), or NULL for
+    -- "follow the seed". A per-PART column arriving on every usage row of that
+    -- part, exactly as the part's name and code above do — which is why it
+    -- costs a join rather than the round trip a second query would.
+    dq.missing_qty              AS "overriddenMissingQty"
+  ${BOM_PART_SOURCE}
   JOIN products prod ON prod.id = pp.product_id
   JOIN product_revisions rev ON rev.id = pp.product_revision_id
-  JOIN product_revision_sub_products prsp
-    ON prsp.product_revision_id = pp.product_revision_id
-  JOIN sub_product_revision_parts sprp
-    ON sprp.sub_product_revision_id = prsp.sub_product_revision_id
   JOIN parts p ON p.id = sprp.part_id
   JOIN part_categories pc ON pc.id = p.category_id
+  LEFT JOIN project_draft_part_quantities dq
+    ON dq.project_id = pp.project_id AND dq.part_id = p.id
   WHERE pp.project_id = $1
+    AND ($2::int[] IS NULL OR p.id = ANY($2::int[]))
   ORDER BY p.name, p.id, pp.position, pp.id
 `;
 
@@ -180,11 +208,20 @@ interface FrozenUsageRow {
   productQuantity: number;
 }
 
+/** One part's display columns and its typed purchase quantity — everything
+ *  `COMPUTE_USAGES` repeats on every usage row of that part. */
+interface GroupedPart {
+  part: ProjectBomPartInfo;
+  /** `project_draft_part_quantities.missing_qty`, or null for "follow the
+   *  seed". Always null once the project is started: Start deletes these rows
+   *  as it freezes them into `project_parts`. */
+  overriddenMissingQty: number | null;
+  usages: ProjectBomUsage[];
+}
+
 /** Group flat usage rows by part, preserving the query's ordering. */
-function groupUsages(
-  rows: ComputedUsageRow[],
-): Map<number, { part: ProjectBomPartInfo; usages: ProjectBomUsage[] }> {
-  const byPart = new Map<number, { part: ProjectBomPartInfo; usages: ProjectBomUsage[] }>();
+function groupUsages(rows: ComputedUsageRow[]): Map<number, GroupedPart> {
+  const byPart = new Map<number, GroupedPart>();
   for (const row of rows) {
     let entry = byPart.get(row.partId);
     if (!entry) {
@@ -197,6 +234,7 @@ function groupUsages(
           categoryId: row.categoryId,
           categoryName: row.categoryName,
         },
+        overriddenMissingQty: row.overriddenMissingQty,
         usages: [],
       };
       byPart.set(row.partId, entry);
@@ -244,33 +282,71 @@ function seedFromFreeStock(
   return { fromStockQty, missingQty };
 }
 
-/** The parts list computed from the pinned revisions, seeded from today's free
- *  stock with the progress buckets at zero (§5.3). Writes nothing — Start
- *  re-runs it inside its transaction rather than trust the browser. */
+/**
+ * Whether a draft's typed purchase quantity is a real decision or just the
+ * computed default written back (§12). The storage rule for migration 027's
+ * table turns on this: a row is written only when this is false and deleted
+ * when it is true, which keeps the table holding decisions rather than a copy
+ * of a derivable number — and makes retyping the seeded value the way to undo
+ * an override, with no second gesture to design.
+ *
+ * Reads the seed through `seedFromFreeStock`, not a re-derivation of it, so
+ * "what the default is" is answered in exactly one place.
+ */
+export function isDraftPartQuantityDefault(
+  requiredQty: number,
+  free: number,
+  missingQty: number,
+): boolean {
+  return missingQty === seedFromFreeStock(requiredQty, free, 0).missingQty;
+}
+
+/**
+ * The parts list computed from the pinned revisions, seeded from today's free
+ * stock with the progress buckets at zero (§5.3), and with any purchase
+ * quantity the buyer has already typed on this draft laid over the seed (§12).
+ * Writes nothing — Start re-runs it inside its transaction rather than trust
+ * the browser, which is also what makes those typed quantities the ones it
+ * freezes.
+ *
+ * `partIds` narrows it to named parts, for the caller that wrote one and only
+ * wants that one back — the same filter, for the same reason, as
+ * `loadFrozenProjectBom`'s `projectPartIds`. It is a filter, not a different
+ * query: one shape, so the row a write answers with is assembled exactly like
+ * the rows the table was loaded with.
+ */
 export async function computeProjectBom(
   db: Queryable,
   projectId: number,
+  partIds?: number[],
 ): Promise<ProjectBomPart[]> {
-  const usageResult = await db.query<ComputedUsageRow>(COMPUTE_USAGES, [projectId]);
+  const partIdFilter = partIds ?? null;
+  const usageResult = await db.query<ComputedUsageRow>(COMPUTE_USAGES, [projectId, partIdFilter]);
   const byPart = groupUsages(usageResult.rows);
   if (byPart.size === 0) return [];
 
   const stock = await getPartStock(db, [...byPart.keys()], projectId);
 
-  return [...byPart.values()].map(({ part, usages }) => {
+  return [...byPart.values()].map(({ part, overriddenMissingQty, usages }) => {
     const requiredQty = requiredFrom(usages);
     const partStock = stock.get(part.id) ?? { available: 0, reserved: 0, free: 0 };
     // §11.5: a BOM line of <= 0 is still representable. `requiredQty` is left
     // exactly as computed — the CHECK at Start is what refuses it, and hiding
     // it here hides the reason.
-    const { fromStockQty, missingQty } = seedFromFreeStock(requiredQty, partStock.free, 0);
+    const seeded = seedFromFreeStock(requiredQty, partStock.free, 0);
+    // A typed quantity replaces the seed but NOT `from_stock_qty`: a part the
+    // shelf already covers is both taken from stock and bought, which is the
+    // shelf top-up migration 023 anticipated ("missing_qty may deliberately
+    // exceed required_qty - from_stock_qty"). Overriding both would instead
+    // read as "don't use the stock", which is a different instruction nobody
+    // gave.
     return {
       id: null,
       part,
       requiredQty,
-      fromStockQty,
-      missingQty,
-      missingQtyOverridden: false,
+      fromStockQty: seeded.fromStockQty,
+      missingQty: overriddenMissingQty ?? seeded.missingQty,
+      missingQtyOverridden: overriddenMissingQty !== null,
       orderedQty: 0,
       receivedQty: 0,
       preparedQty: 0,
@@ -278,6 +354,29 @@ export async function computeProjectBom(
       usages,
     };
   });
+}
+
+/**
+ * Drop the typed quantities of parts the draft's BOM no longer contains, for
+ * the caller that has just replaced its pinned product set (`PATCH
+ * /api/projects/:id`). Without it, removing a product would leave its parts'
+ * quantities behind to be silently re-applied if it were ever added back.
+ *
+ * Reads membership through `BOM_PART_SOURCE`, the same join `computeProjectBom`
+ * asks the opposite question of, so the two cannot drift.
+ */
+export async function pruneDraftPartQuantities(
+  client: PoolClient,
+  projectId: number,
+): Promise<void> {
+  await client.query(
+    `DELETE FROM project_draft_part_quantities d
+     WHERE d.project_id = $1
+       AND NOT EXISTS (
+         SELECT 1 ${BOM_PART_SOURCE}
+         WHERE pp.project_id = $1 AND sprp.part_id = d.part_id)`,
+    [projectId],
+  );
 }
 
 // Serialises every project start against every other, so two of them cannot
@@ -331,13 +430,18 @@ export async function freezeProjectBom(
   // usage rows need the ids the first insert assigns, so they could not share
   // one statement without re-deriving the join anyway.
   //
-  // The progress buckets and `missing_qty_overridden` are left to their
-  // column defaults — zero and false is exactly what Start means.
+  // The progress buckets are left to their column defaults — zero is exactly
+  // what Start means. `missing_qty_overridden` is NOT: `computeProjectBom`
+  // sets it true for every part the buyer typed a quantity for while the
+  // project was a draft (§12), and it has to arrive true here or the first
+  // "Recalculate from stock" would seed straight over the decision the
+  // flag exists to protect.
   const inserted = await client.query<{ id: number; partId: number }>(
-    `INSERT INTO project_parts (project_id, part_id, required_qty, from_stock_qty, missing_qty)
-     SELECT $1::int, part_id, required_qty, from_stock_qty, missing_qty
-     FROM unnest($2::int[], $3::int[], $4::int[], $5::int[])
-       AS t(part_id, required_qty, from_stock_qty, missing_qty)
+    `INSERT INTO project_parts
+       (project_id, part_id, required_qty, from_stock_qty, missing_qty, missing_qty_overridden)
+     SELECT $1::int, part_id, required_qty, from_stock_qty, missing_qty, missing_qty_overridden
+     FROM unnest($2::int[], $3::int[], $4::int[], $5::int[], $6::boolean[])
+       AS t(part_id, required_qty, from_stock_qty, missing_qty, missing_qty_overridden)
      RETURNING id, part_id AS "partId"`,
     [
       projectId,
@@ -345,6 +449,7 @@ export async function freezeProjectBom(
       bom.map((row) => row.requiredQty),
       bom.map((row) => row.fromStockQty),
       bom.map((row) => row.missingQty),
+      bom.map((row) => row.missingQtyOverridden),
     ],
   );
 
@@ -368,6 +473,16 @@ export async function freezeProjectBom(
       usages.map((u) => u.usage.qtyPerUnit),
     ],
   );
+
+  // The draft's typed quantities are now in `project_parts.missing_qty`, so
+  // the rows they were in are a second copy of a number that can only drift
+  // from here on — and a project can never be frozen twice (`stopped` and
+  // `completed` are terminal), so nothing will ever read them again. Deleted
+  // in this transaction, which is what keeps the value in exactly one place at
+  // every moment (§12).
+  await client.query(`DELETE FROM project_draft_part_quantities WHERE project_id = $1`, [
+    projectId,
+  ]);
 
   return bom.length;
 }
@@ -547,11 +662,11 @@ export async function loadProjectPartsPayload(
   projectId: number,
   status: ProjectStatus,
 ): Promise<ProjectPartsPayload> {
-  const draft = status === 'draft';
-  const bom = draft
-    ? await computeProjectBom(db, projectId)
-    : await loadFrozenProjectBom(db, projectId);
-  return { draft, rows: toProjectPartRows(bom, status) };
+  const bom =
+    status === 'draft'
+      ? await computeProjectBom(db, projectId)
+      : await loadFrozenProjectBom(db, projectId);
+  return { status, rows: toProjectPartRows(bom, status) };
 }
 
 export interface ResolvedProjectPartQty {

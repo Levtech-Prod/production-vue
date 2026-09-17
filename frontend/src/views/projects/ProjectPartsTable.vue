@@ -20,7 +20,7 @@
            a draft is already computed live from today's stock on every fetch
            (§5.3), so there is nothing here for it to do. -->
       <button
-        v-if="!payload.draft"
+        v-if="!isDraft"
         type="button"
         class="btn-secondary ml-auto inline-flex items-center gap-2"
         :disabled="recalculating || rows.length === 0"
@@ -31,7 +31,7 @@
       </button>
     </div>
 
-    <p v-if="payload.draft" class="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+    <p v-if="isDraft" class="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-700">
       {{ t('project_draft_notice') }}
     </p>
 
@@ -115,8 +115,10 @@
                 min="0"
                 step="1"
                 class="input-cell w-20 tabular-nums"
+                :class="row.missingQtyOverridden ? 'ring-1 ring-blue-300' : ''"
+                :title="row.missingQtyOverridden ? t('purchase_quantity_overridden_hint') : ''"
                 :value="displayedMissing(row)"
-                :disabled="payload.draft || row.id === null"
+                :disabled="!quantityEditable"
                 @keydown="blockNonIntegerKeys"
                 @input="onMissingInput(row, $event)"
                 @blur="flushMissing(row)"
@@ -171,7 +173,7 @@ const notify = useNotificationStore();
 // lets the board stay right without reloading it.
 const projects = useProjectsStore();
 
-const EMPTY_PAYLOAD: ProjectPartsPayload = { draft: false, rows: [] };
+const EMPTY_PAYLOAD: ProjectPartsPayload = { status: 'draft', rows: [] };
 
 const current = computed(() => props.projectId);
 
@@ -187,6 +189,15 @@ const { data: payload, loading, isCurrent, load, invalidateAndRefresh, patchScop
   });
 
 const rows = computed(() => payload.value.rows);
+const isDraft = computed(() => payload.value.status === 'draft');
+/** A draft's purchase quantity is stored against the part until Start freezes
+ *  it (§12); a started project's is `project_parts.missing_qty`. Either way it
+ *  is the same number and the same endpoint. A stopped or completed project's
+ *  rows are a closed record, so its cells are read-only rather than editable
+ *  and refused by the API a round trip later. */
+const quantityEditable = computed(
+  () => payload.value.status === 'draft' || payload.value.status === 'started',
+);
 
 watch(() => props.projectId, (id) => void load(id), { immediate: true });
 
@@ -261,15 +272,15 @@ function productsBreakdown(row: ProjectPartRow): string {
   return `${row.requiredQty} = ${terms}`;
 }
 
-// ---- Missing quantity edit (§6.4) ------------------------------------------
+// ---- Purchase quantity edit (§6.4, §12) ------------------------------------
 //
-// A debounced PATCH per row, keyed by `project_parts.id` — only started
-// projects have one, which is also why the input is disabled otherwise. The
-// value shown while a write is in flight (or about to be) is the locally typed
-// one; when the write lands, the row the response carries replaces the stored
-// one in place. It used to re-read the whole table instead, per edited cell:
-// the server already resolves and returns the row, so the reload was the same
-// numbers fetched a second time.
+// A debounced PATCH per row, keyed by `part.id` — the one key both forms of
+// the table share, and the only one a draft has (its rows carry `id: null`
+// until Start freezes them). The value shown while a write is in flight (or
+// about to be) is the locally typed one; when the write lands, the row the
+// response carries replaces the stored one in place. It used to re-read the
+// whole table instead, per edited cell: the server already resolves and
+// returns the row, so the reload was the same numbers fetched a second time.
 
 const MISSING_QTY_DEBOUNCE_MS = 500;
 
@@ -278,34 +289,32 @@ const missingQtyTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const missingInputs = new Map<number, HTMLInputElement>();
 
 function registerMissingInput(row: ProjectPartRow, el: unknown) {
-  if (row.id === null) return;
-  if (el instanceof HTMLInputElement) missingInputs.set(row.id, el);
-  else missingInputs.delete(row.id);
+  if (el instanceof HTMLInputElement) missingInputs.set(row.part.id, el);
+  else missingInputs.delete(row.part.id);
 }
 
 /** Put a stored quantity back in the box. `:value` alone cannot: when a write
  *  is refused, or clamped to `orderedQty`, or abandoned because the field was
  *  left empty, the bound number never changed, so Vue sees nothing to
  *  re-render and the field keeps whatever was typed into it. */
-function setMissingInput(projectPartId: number, value: number) {
-  const input = missingInputs.get(projectPartId);
+function setMissingInput(partId: number, value: number) {
+  const input = missingInputs.get(partId);
   if (input) input.value = String(value);
 }
 
 function displayedMissing(row: ProjectPartRow): number {
-  return row.id !== null && row.id in pendingMissingQty ? pendingMissingQty[row.id] : row.missingQty;
+  return row.part.id in pendingMissingQty ? pendingMissingQty[row.part.id] : row.missingQty;
 }
 
-function cancelPendingMissing(projectPartId: number) {
-  const timer = missingQtyTimers.get(projectPartId);
+function cancelPendingMissing(partId: number) {
+  const timer = missingQtyTimers.get(partId);
   if (timer) clearTimeout(timer);
-  missingQtyTimers.delete(projectPartId);
-  delete pendingMissingQty[projectPartId];
+  missingQtyTimers.delete(partId);
+  delete pendingMissingQty[partId];
 }
 
 function onMissingInput(row: ProjectPartRow, event: Event) {
-  if (row.id === null) return;
-  const projectPartId = row.id;
+  const partId = row.part.id;
   const raw = (event.target as HTMLInputElement).value.trim();
 
   // An emptied box is a number on its way to being retyped, not an instruction
@@ -316,65 +325,65 @@ function onMissingInput(row: ProjectPartRow, event: Event) {
   // Any pending edit is dropped with it; `flushMissing` restores the field.
   const parsed = raw === '' ? NaN : Math.trunc(Number(raw));
   if (!Number.isFinite(parsed)) {
-    cancelPendingMissing(projectPartId);
+    cancelPendingMissing(partId);
     return;
   }
 
-  pendingMissingQty[projectPartId] = Math.max(0, parsed);
-  const existing = missingQtyTimers.get(projectPartId);
+  pendingMissingQty[partId] = Math.max(0, parsed);
+  const existing = missingQtyTimers.get(partId);
   if (existing) clearTimeout(existing);
   missingQtyTimers.set(
-    projectPartId,
+    partId,
     setTimeout(() => void commitMissing(props.projectId, row), MISSING_QTY_DEBOUNCE_MS),
   );
 }
 
 function flushMissing(row: ProjectPartRow) {
-  if (row.id === null) return;
   // Nothing pending: either nothing was typed, or what was typed was an empty
   // field we refused to read as a zero. Either way the box has to go back to
   // showing what is stored.
-  if (!(row.id in pendingMissingQty)) {
-    setMissingInput(row.id, row.missingQty);
+  if (!(row.part.id in pendingMissingQty)) {
+    setMissingInput(row.part.id, row.missingQty);
     return;
   }
-  const timer = missingQtyTimers.get(row.id);
+  const timer = missingQtyTimers.get(row.part.id);
   if (timer) clearTimeout(timer);
-  missingQtyTimers.delete(row.id);
+  missingQtyTimers.delete(row.part.id);
   void commitMissing(props.projectId, row);
 }
 
-/** Replace one row in the cached payload with the one a write answered with. */
+/** Replace one row in the cached payload with the one a write answered with.
+ *  Matched on the part, not `project_parts.id`, which is null on a draft. */
 function applyRow(projectId: number, updated: ProjectPartRow) {
   patchScope(projectId, (current) => ({
     ...current,
-    rows: current.rows.map((row) => (row.id === updated.id ? updated : row)),
+    rows: current.rows.map((row) => (row.part.id === updated.part.id ? updated : row)),
   }));
 }
 
 async function commitMissing(projectId: number, row: ProjectPartRow) {
-  const projectPartId = row.id;
-  if (projectPartId === null) return;
-  const raw = pendingMissingQty[projectPartId];
+  const partId = row.part.id;
+  const raw = pendingMissingQty[partId];
   if (raw === undefined) return;
   // Cleared BEFORE the request, not after it: a blur landing while the write
   // is in flight would otherwise still find the value pending and send the
   // same edit a second time, for one keystroke.
-  cancelPendingMissing(projectPartId);
+  cancelPendingMissing(partId);
 
   // A line can never be made to owe less than it has already bought (§3.3);
   // the API enforces this too (MISSING_QTY_BELOW_ORDERED), this just avoids
   // a round trip for the common case of typing a smaller, still-valid number.
+  // `orderedQty` is zero on a draft, so this is a no-op there.
   const missingQty = Math.max(raw, row.orderedQty);
   try {
-    const { data } = await projectsApi.updatePart(projectId, projectPartId, { missingQty });
+    const { data } = await projectsApi.updatePartQuantity(projectId, partId, { missingQty });
     applyRow(projectId, data.row);
     // `missing_qty` against `ordered_qty` is what the *Offers* column counts,
     // so this edit can move the project between columns.
     projects.upsertCard(data.card);
-    setMissingInput(projectPartId, data.row.missingQty);
+    setMissingInput(partId, data.row.missingQty);
   } catch (err) {
-    setMissingInput(projectPartId, row.missingQty);
+    setMissingInput(partId, row.missingQty);
     notify.showToast(translateApiError(err, { t, te }, 'errors.save_project_part_failed'), 'error');
   }
 }

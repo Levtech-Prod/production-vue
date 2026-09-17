@@ -57,11 +57,21 @@ export const projectsApi = {
   getParts(id: number) {
     return api.get<ProjectPartsPayload>(`/projects/${id}/parts`);
   },
-  /** Started projects only. Answers with the row as the table should now show
-   *  it, and the board card the change may have moved — so neither has to be
-   *  read back. */
-  updatePart(id: number, projectPartId: number, payload: ProjectPartUpdate) {
-    return api.patch<ProjectPartUpdateResult>(`/projects/${id}/parts/${projectPartId}`, payload);
+  /**
+   * Sets what to buy of one part. Drafts and started projects both — a draft
+   * stores it against the part until Start freezes it (plan §12), a started
+   * project writes `project_parts.missing_qty` directly; one number either
+   * way, which is why `partId` is `parts.id` rather than `project_parts.id`
+   * (a draft has no project part to name).
+   *
+   * Answers with the row as the table should now show it, and the board card
+   * the change may have moved — so neither has to be read back.
+   */
+  updatePartQuantity(id: number, partId: number, payload: ProjectPartUpdate) {
+    return api.patch<ProjectPartUpdateResult>(
+      `/projects/${id}/parts/${partId}/quantity`,
+      payload,
+    );
   },
   /** Re-seeds every non-overridden row from today's free stock (plan §5.3). */
   recalculateParts(id: number) {

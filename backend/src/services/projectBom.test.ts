@@ -449,18 +449,18 @@ async function main() {
     const draftPayload = await loadProjectPartsPayload(client, PROJECT_DRAFT, 'draft');
     check(
       'draft status picks the computed rows',
-      [draftPayload.draft, draftPayload.rows.length, draftPayload.rows[0].id],
-      [true, 3, null],
+      [draftPayload.status, draftPayload.rows.length, draftPayload.rows[0].id],
+      ['draft', 3, null],
     );
     const startedPayload = await loadProjectPartsPayload(client, PROJECT_STARTED, 'stopped');
     check(
       'a non-draft status picks the frozen rows',
       [
-        startedPayload.draft,
+        startedPayload.status,
         startedPayload.rows.length,
         startedPayload.rows.every((r) => r.id !== null),
       ],
-      [false, 3, true],
+      ['stopped', 3, true],
     );
 
     // Neither reader may go per-part: one flatten plus one stock read for a

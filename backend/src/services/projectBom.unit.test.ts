@@ -9,12 +9,16 @@
 //    it, net of what's been received, or chk_project_parts_prepared_within_pickable
 //    would refuse the write as an unattributable constraint violation.
 //
+// Plus `isDraftPartQuantityDefault` (§12), the rule that decides whether a
+// draft's typed purchase quantity is stored at all — the difference between a
+// table holding decisions and one holding a copy of a derivable number.
+//
 // Run: npm run test:unit
 // ===========================================================================
 import { ErrorCodes } from '../errorCodes.js';
 import { ApiError } from '../apiError.js';
 import { check, checkRefuses, report, failureCount } from '../testing/check.js';
-import { resolveProjectPartUpdate } from './projectBom.js';
+import { isDraftPartQuantityDefault, resolveProjectPartUpdate } from './projectBom.js';
 
 async function main() {
   // orderedQty=12 -> missing_qty floor. receivedQty=2, preparedQty=5 ->
@@ -127,6 +131,52 @@ async function main() {
       undefined,
     );
   }
+
+  // --- isDraftPartQuantityDefault (§12) -----------------------------------
+  //
+  // The seed is `required - MIN(required, free stock)`, floored at zero, so
+  // "the default" moves with stock and with what the project needs.
+
+  check(
+    'the shortfall is the default — typing it back clears the override',
+    isDraftPartQuantityDefault(100, 40, 60),
+    true,
+  );
+  check(
+    'a reel-sized purchase is a decision',
+    isDraftPartQuantityDefault(100, 40, 260),
+    false,
+  );
+  check(
+    'buying less than the shortfall is a decision too',
+    isDraftPartQuantityDefault(100, 40, 10),
+    false,
+  );
+  check(
+    'a part the shelf fully covers defaults to buying none',
+    isDraftPartQuantityDefault(10, 40, 0),
+    true,
+  );
+  check(
+    'topping up the shelf on a part that is fully in stock is a decision — the case §12 exists for',
+    isDraftPartQuantityDefault(10, 40, 500),
+    false,
+  );
+  check(
+    'a part with nothing on the shelf defaults to buying all of it',
+    isDraftPartQuantityDefault(7, 0, 7),
+    true,
+  );
+  check(
+    'negative free stock (a stale claim, §11.8) is treated as none, not as extra demand',
+    isDraftPartQuantityDefault(7, -8, 7),
+    true,
+  );
+  check(
+    'buying nothing when the shelf is short is a decision, not the default',
+    isDraftPartQuantityDefault(7, 0, 0),
+    false,
+  );
 
   report();
   process.exit(failureCount() === 0 ? 0 : 1);

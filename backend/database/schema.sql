@@ -815,6 +815,26 @@ CREATE TABLE IF NOT EXISTS project_sub_product_preparations (
   UNIQUE (project_product_id, sub_product_revision_id)
 );
 
+-- The purchase quantity decided BEFORE Start (migration 027). Sparse, and it
+-- holds the number in exactly one place: a draft has no project_parts row, so
+-- the decision lives here; Start copies it into project_parts.missing_qty with
+-- missing_qty_overridden = TRUE and deletes the row in the same transaction.
+--
+-- A row exists only while the typed quantity differs from what the live seed
+-- (required_qty - free stock) would compute, so typing the seeded number back
+-- is what undoes an override. Keyed on parts.id because PATCH /api/projects/:id
+-- replaces the whole pinned product set, destroying anything keyed on it.
+CREATE TABLE IF NOT EXISTS project_draft_part_quantities (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  -- CASCADE, unlike project_parts.part_id: a draft's typed quantity is a note,
+  -- not a claim, and must not make a part undeletable.
+  part_id     INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+  missing_qty INTEGER NOT NULL CHECK (missing_qty >= 0),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, part_id)
+);
+
 -- The offer grid. A missing row and a NULL price mean the same thing (no
 -- quote); the API writes a row only when the salesman types something, and a
 -- cleared cell deletes its row. Zero is a real, distinct value — a free part.
