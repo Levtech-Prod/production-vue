@@ -31,10 +31,10 @@ import {
 import {
   computeProjectBom,
   freezeProjectBom,
-  isDraftPartQuantityDefault,
   loadProjectPartsPayload,
   loadFrozenProjectBom,
   pruneDraftPartQuantities,
+  resolveDraftPartQuantity,
   toProjectPartRows,
   resolveProjectPartUpdate,
   reseedFromStock,
@@ -513,22 +513,32 @@ async function writeDraftPartQuantity(
   // un-pinned since the table was loaded.
   if (!row) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
 
-  if (missingQty !== row.missingQty) {
-    const isDefault = isDraftPartQuantityDefault(row.requiredQty, row.stock.free, missingQty);
-    if (isDefault) {
-      await client.query(
-        `DELETE FROM project_draft_part_quantities WHERE project_id = $1 AND part_id = $2`,
-        [projectId, partId],
-      );
-    } else {
-      await client.query(
-        `INSERT INTO project_draft_part_quantities (project_id, part_id, missing_qty)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (project_id, part_id)
-         DO UPDATE SET missing_qty = EXCLUDED.missing_qty, updated_at = NOW()`,
-        [projectId, partId, missingQty],
-      );
-    }
+  const resolved = resolveDraftPartQuantity(
+    {
+      requiredQty: row.requiredQty,
+      free: row.stock.free,
+      missingQty: row.missingQty,
+      overridden: row.missingQtyOverridden,
+    },
+    missingQty,
+  );
+
+  if (resolved.action === 'delete') {
+    await client.query(
+      `DELETE FROM project_draft_part_quantities WHERE project_id = $1 AND part_id = $2`,
+      [projectId, partId],
+    );
+  } else if (resolved.action === 'upsert') {
+    await client.query(
+      `INSERT INTO project_draft_part_quantities (project_id, part_id, missing_qty)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (project_id, part_id)
+       DO UPDATE SET missing_qty = EXCLUDED.missing_qty, updated_at = NOW()`,
+      [projectId, partId, missingQty],
+    );
+  }
+
+  if (resolved.audit) {
     // §5.6: the same field, and the same dispute, as a started project's edit
     // — a quantity decided before Start is no less a purchasing decision, and
     // Start freezes it verbatim.
@@ -540,10 +550,10 @@ async function writeDraftPartQuantity(
       { fromStockQty: row.fromStockQty, missingQty },
       userId,
     );
-    row.missingQty = missingQty;
-    row.missingQtyOverridden = !isDefault;
   }
 
+  row.missingQty = resolved.missingQty;
+  row.missingQtyOverridden = resolved.overridden;
   const [updated] = toProjectPartRows([row], 'draft');
   return updated;
 }
@@ -609,7 +619,9 @@ router.patch('/:id/parts/:partId/quantity', requireAuth, async (req, res) => {
 });
 
 // POST /api/projects/:id/parts/recalculate — re-seed from today's free stock
-// (§5.2, §5.3). Same "started projects only" guard as the PATCH above.
+// (§5.2, §5.3). Started projects only — NOT the same guard as the quantity
+// PATCH above, which also accepts drafts (§12). A draft has nothing to
+// re-seed: its rows are recomputed from live stock on every read already.
 router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
   const userId = req.user?.id;
@@ -654,8 +666,10 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
 // quantity: the picks that filled the job box already did, line by line, and
 // `project_parts.prepared_qty` is their sum. Marking records that every line
 // is complete and un-marking takes that back, leaving the picks where they
-// are. They still carry the same "started projects only" guard as the Parts
-// table edits above, because what they record is only true of a live project.
+// are. They carry a "started projects only" guard, because what they record is
+// only true of a live project — the quantity PATCH above no longer does, since
+// a purchase decision can be made before Start (§12), but nothing can be
+// picked or prepared before there is a frozen BOM to pick from.
 
 /** One audit event per mark or un-mark (§5.6): which sub-product, under which
  *  product, and which way it moved. */
@@ -968,8 +982,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
 });
 
 // DELETE /api/projects/:id — draft only: 409 PROJECT_NOT_EDITABLE otherwise.
-// Cascades (see migration 023) remove its products; nothing else can
-// reference a draft project since the BOM only freezes at Start.
+// Cascades remove its products (migration 023) and any purchase quantities
+// typed against it (migration 027). Those two are all a draft can have: the
+// BOM, and everything hanging off it, only freezes at Start.
 router.delete('/:id', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 

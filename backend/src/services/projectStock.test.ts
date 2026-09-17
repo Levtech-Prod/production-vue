@@ -14,6 +14,9 @@
 //     writes no `removed` stock entry, so those parts are boxed up for the
 //     project but still counted in `available` — dropping them out of
 //     `reserved` would promise them to the next project to start)
+//   - a shelf TOP-UP: a started project that bought more than it needs, whose
+//     surplus must NOT be reserved to it (§12) — the case that makes the
+//     LEAST(required_qty, ...) cap load-bearing
 //   - a project excluding its own claim from "reserved by others"
 //   - getPartStock issuing exactly one round trip per call, from a single
 //     snapshot, whether given the pool or an existing transaction client
@@ -42,11 +45,13 @@ const PART_NO_STOCK = 9990001;
 const PART_FULLY_CONSUMED = 9990002;
 const PART_CLAIMED_TWICE = 9990003;
 const PART_FULLY_PREPARED_CLAIM = 9990004;
+const PART_SHELF_TOP_UP = 9990005; // bought in surplus to restock the shelf (§12)
 
 const PROJECT_STARTED_A = 9990001; // outstanding claim on PART_CLAIMED_TWICE
 const PROJECT_STOPPED_B = 9990002; // claim on PART_CLAIMED_TWICE, but stopped
 const PROJECT_STARTED_C = 9990003; // fully-prepared claim on PART_FULLY_PREPARED_CLAIM
 const PROJECT_CALLER = 9990004; // the project "asking" — has no claims of its own
+const PROJECT_STARTED_D = 9990005; // bought 25 of a part it needs 10 of (§12)
 
 /** Wraps a Queryable and counts how many statements are sent through it. */
 function countingQueryable(db: Queryable): { db: Queryable; count: () => number } {
@@ -71,8 +76,16 @@ async function seed(client: Queryable) {
        ($1, $5, 'No stock',             'TEST-PS-NOSTOCK'),
        ($2, $5, 'Fully consumed',       'TEST-PS-CONSUMED'),
        ($3, $5, 'Claimed twice',        'TEST-PS-CLAIMED'),
-       ($4, $5, 'Fully prepared claim', 'TEST-PS-PREPARED')`,
-    [PART_NO_STOCK, PART_FULLY_CONSUMED, PART_CLAIMED_TWICE, PART_FULLY_PREPARED_CLAIM, CATEGORY_ID],
+       ($4, $5, 'Fully prepared claim', 'TEST-PS-PREPARED'),
+       ($6, $5, 'Shelf top-up',         'TEST-PS-TOPUP')`,
+    [
+      PART_NO_STOCK,
+      PART_FULLY_CONSUMED,
+      PART_CLAIMED_TWICE,
+      PART_FULLY_PREPARED_CLAIM,
+      CATEGORY_ID,
+      PART_SHELF_TOP_UP,
+    ],
   );
   await client.query(`INSERT INTO companies (id, name) VALUES ($1, 'test-projectStock co')`, [
     COMPANY_ID,
@@ -84,8 +97,17 @@ async function seed(client: Queryable) {
        ($1, $4, 'received', 100, 100, 1),
        ($1, $4, 'received', 30,  30,  1),
        ($2, $4, 'received', 50,  10,  1),
-       ($3, $4, 'received', 20,  0,   1)`,
-    [PART_FULLY_CONSUMED, PART_CLAIMED_TWICE, PART_FULLY_PREPARED_CLAIM, COMPANY_ID],
+       ($3, $4, 'received', 20,  0,   1),
+       -- 10 already on the shelf, plus the 25 D's order brought in.
+       ($5, $4, 'received', 10,  0,   1),
+       ($5, $4, 'received', 25,  0,   1)`,
+    [
+      PART_FULLY_CONSUMED,
+      PART_CLAIMED_TWICE,
+      PART_FULLY_PREPARED_CLAIM,
+      COMPANY_ID,
+      PART_SHELF_TOP_UP,
+    ],
   );
 
   await client.query(
@@ -93,8 +115,9 @@ async function seed(client: Queryable) {
        ($1, 'test A', 'started'),
        ($2, 'test B', 'stopped'),
        ($3, 'test C', 'started'),
-       ($4, 'test caller', 'draft')`,
-    [PROJECT_STARTED_A, PROJECT_STOPPED_B, PROJECT_STARTED_C, PROJECT_CALLER],
+       ($4, 'test caller', 'draft'),
+       ($5, 'test D', 'started')`,
+    [PROJECT_STARTED_A, PROJECT_STOPPED_B, PROJECT_STARTED_C, PROJECT_CALLER, PROJECT_STARTED_D],
   );
 
   // ordered_qty / received_qty / prepared_qty are chained CHECKs (§3.3): each
@@ -106,8 +129,19 @@ async function seed(client: Queryable) {
      VALUES
        ($1, $4, 15, 10, 5, 5, 5, 3),  -- A: claim on PART_CLAIMED_TWICE = 10+5 = 15 (prepared_qty no longer subtracted — migration 026)
        ($2, $4, 20, 20, 0, 0, 0, 0),  -- B: same part, but stopped — must not count
-       ($3, $5, 15, 15, 0, 0, 0, 15)`, // C: fully prepared claim on PART_FULLY_PREPARED_CLAIM — still counts
-    [PROJECT_STARTED_A, PROJECT_STOPPED_B, PROJECT_STARTED_C, PART_CLAIMED_TWICE, PART_FULLY_PREPARED_CLAIM],
+       ($3, $5, 15, 15, 0, 0, 0, 15),  -- C: fully prepared claim on PART_FULLY_PREPARED_CLAIM — still counts
+       -- D (§12): needs 10, had 10 on the shelf, and ordered 25 more to
+       -- restock it. The raw sum would claim 10 + 25 = 35; the cap claims 10.
+       ($6, $7, 10, 10, 25, 25, 25, 0)`,
+    [
+      PROJECT_STARTED_A,
+      PROJECT_STOPPED_B,
+      PROJECT_STARTED_C,
+      PART_CLAIMED_TWICE,
+      PART_FULLY_PREPARED_CLAIM,
+      PROJECT_STARTED_D,
+      PART_SHELF_TOP_UP,
+    ],
   );
 }
 
@@ -140,6 +174,18 @@ async function main() {
       reservedExcludingSelf.get(PART_CLAIMED_TWICE) ?? 0,
       0,
     );
+
+    // §12: the 25 D bought to restock the shelf are on the shelf, not spoken
+    // for. Uncapped this read 35 reserved and -0 free, hiding the whole
+    // restock from every other project for as long as D runs.
+    const topUp = await getPartStock(client, [PART_SHELF_TOP_UP], PROJECT_CALLER);
+    check('shelf top-up: available counts the surplus', topUp.get(PART_SHELF_TOP_UP)?.available, 35);
+    check(
+      'shelf top-up: reserved is capped at what the project needs, not what it bought',
+      topUp.get(PART_SHELF_TOP_UP)?.reserved,
+      10,
+    );
+    check('shelf top-up: the surplus is free for other projects', topUp.get(PART_SHELF_TOP_UP)?.free, 25);
 
     const fullyPrepared = await getPartStock(client, [PART_FULLY_PREPARED_CLAIM], PROJECT_CALLER);
     check(
@@ -178,7 +224,11 @@ async function main() {
     check('getAvailableQuantities issues exactly one round trip', availableCounter.count(), 1);
 
     const reservedCounter = countingQueryable(client);
-    await getReservedQuantities(reservedCounter.db, [PART_NO_STOCK, PART_CLAIMED_TWICE], PROJECT_CALLER);
+    await getReservedQuantities(
+      reservedCounter.db,
+      [PART_NO_STOCK, PART_CLAIMED_TWICE],
+      PROJECT_CALLER,
+    );
     check('getReservedQuantities issues exactly one round trip', reservedCounter.count(), 1);
 
     report();

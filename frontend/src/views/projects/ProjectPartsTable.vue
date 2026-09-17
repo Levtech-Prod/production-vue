@@ -20,7 +20,7 @@
            a draft is already computed live from today's stock on every fetch
            (§5.3), so there is nothing here for it to do. -->
       <button
-        v-if="!isDraft"
+        v-if="!isDraft && !loading"
         type="button"
         class="btn-secondary ml-auto inline-flex items-center gap-2"
         :disabled="recalculating || rows.length === 0"
@@ -31,7 +31,10 @@
       </button>
     </div>
 
-    <p v-if="isDraft" class="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+    <!-- `!loading` as well as `isDraft`: the empty payload a scope starts
+         from has to carry SOME status, and whichever one it carries would
+         otherwise render as fact for the length of the first fetch. -->
+    <p v-if="isDraft && !loading" class="shrink-0 bg-amber-50 px-4 py-2 text-sm text-amber-700">
       {{ t('project_draft_notice') }}
     </p>
 
@@ -173,6 +176,9 @@ const notify = useNotificationStore();
 // lets the board stay right without reloading it.
 const projects = useProjectsStore();
 
+// The status here is never rendered as fact: everything that branches on it
+// is also gated on `!loading`, because a scope with no data yet has no status
+// to tell the truth about.
 const EMPTY_PAYLOAD: ProjectPartsPayload = { status: 'draft', rows: [] };
 
 const current = computed(() => props.projectId);

@@ -285,20 +285,60 @@ function seedFromFreeStock(
 /**
  * Whether a draft's typed purchase quantity is a real decision or just the
  * computed default written back (§12). The storage rule for migration 027's
- * table turns on this: a row is written only when this is false and deleted
- * when it is true, which keeps the table holding decisions rather than a copy
- * of a derivable number — and makes retyping the seeded value the way to undo
- * an override, with no second gesture to design.
+ * table turns on this: a row exists only while this is false, which keeps the
+ * table holding decisions rather than a copy of a derivable number.
  *
  * Reads the seed through `seedFromFreeStock`, not a re-derivation of it, so
  * "what the default is" is answered in exactly one place.
  */
-export function isDraftPartQuantityDefault(
+function isDraftPartQuantityDefault(
   requiredQty: number,
   free: number,
   missingQty: number,
 ): boolean {
   return missingQty === seedFromFreeStock(requiredQty, free, 0).missingQty;
+}
+
+/** What `PATCH /:id/parts/:partId/quantity` should do to a draft's stored
+ *  quantity, and what the row then reads as. */
+export interface DraftPartQuantityWrite {
+  action: 'upsert' | 'delete' | 'none';
+  /** The row's effective purchase quantity after the write. */
+  missingQty: number;
+  /** Whether a stored row now backs it — `missing_qty_overridden` at Start. */
+  overridden: boolean;
+  /** Whether the effective NUMBER moved, which is the only thing §5.6 has an
+   *  event shape for. Clearing an override that already equalled the seed
+   *  changes where the number comes from, not what it is. */
+  audit: boolean;
+}
+
+/**
+ * Resolve a typed purchase quantity against the draft row as it currently
+ * reads (§12.2).
+ *
+ * THE ACTION FOLLOWS WHAT SHOULD BE STORED AGAINST WHAT IS, never against
+ * what the cell was displaying. Gating on "the displayed value changed" looks
+ * equivalent and is not: once stock drifts so that a stored override happens
+ * to equal today's seed, the displayed value stops changing when the user
+ * types that number, and the row can never be deleted again — leaving a part
+ * permanently exempt from every recalculate, with the UI still inviting the
+ * user to clear it. `overridden !== current.overridden` is what catches that
+ * case, and it is why this is a function with a test rather than an `if` in a
+ * route handler.
+ *
+ * Pure — no DB — so the whole decision table runs with no database
+ * (CLAUDE.md's first test tier).
+ */
+export function resolveDraftPartQuantity(
+  current: { requiredQty: number; free: number; missingQty: number; overridden: boolean },
+  typed: number,
+): DraftPartQuantityWrite {
+  const overridden = !isDraftPartQuantityDefault(current.requiredQty, current.free, typed);
+  const audit = typed !== current.missingQty;
+  const action =
+    overridden === current.overridden && !audit ? 'none' : overridden ? 'upsert' : 'delete';
+  return { action, missingQty: typed, overridden, audit };
 }
 
 /**
@@ -617,15 +657,21 @@ export function toProjectPartRows(
   // record, not a claim. A draft's is prospective, and does flag.
   const claimIsCounted = status === 'draft' || status === 'started';
   return parts.map((row) => {
+    // This project's own claim on physical stock: the SAME expression
+    // `services/projectStock.ts` sums over OTHER started projects to get
+    // `reserved`, so the shortfall test below compares like with like — if
+    // one of the two gains a term the other must too. Capped at
+    // `required_qty` because a purchase made to top the shelf up is not a
+    // claim on the shelf (§12); the cap cannot hide a prepared part, since
+    // `prepared_qty <= required_qty` always.
+    const ownClaim = Math.min(row.requiredQty, row.fromStockQty + row.receivedQty);
     // What is still to be picked for this project — the Parts table's own
-    // column, and nothing else reads it.
-    const toPickQty = row.fromStockQty + row.receivedQty - row.preparedQty;
-    // This project's own claim on physical stock: the same expression §4.2
-    // now sums over OTHER started projects to get `reserved`, so the
-    // shortfall test below compares like with like. Deliberately NOT
-    // `toPickQty` — a prepared part has left the picking queue but not the
-    // shelf's books, so it is still claimed (migration 026).
-    const ownClaim = row.fromStockQty + row.receivedQty;
+    // column, and nothing else reads it. Off `ownClaim`, not the raw sum: a
+    // surplus bought for the shelf is never picked into this project's boxes.
+    // Deliberately not the other way round — a prepared part has left the
+    // picking queue but not the shelf's books, so it stays in `ownClaim`
+    // (migration 026).
+    const toPickQty = ownClaim - row.preparedQty;
     return {
       id: row.id,
       part: row.part,

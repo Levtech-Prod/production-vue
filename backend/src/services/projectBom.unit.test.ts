@@ -9,16 +9,19 @@
 //    it, net of what's been received, or chk_project_parts_prepared_within_pickable
 //    would refuse the write as an unattributable constraint violation.
 //
-// Plus `isDraftPartQuantityDefault` (§12), the rule that decides whether a
-// draft's typed purchase quantity is stored at all — the difference between a
-// table holding decisions and one holding a copy of a derivable number.
+// Plus `resolveDraftPartQuantity` (§12.2), which decides whether a draft's
+// typed purchase quantity is stored at all — the difference between a table
+// holding decisions and one holding a copy of a derivable number. Its whole
+// decision table is here because the first version of it gated on "the
+// displayed value changed", which is a different question and is wrong in one
+// specific state; see the coincidence block at the end.
 //
 // Run: npm run test:unit
 // ===========================================================================
 import { ErrorCodes } from '../errorCodes.js';
 import { ApiError } from '../apiError.js';
 import { check, checkRefuses, report, failureCount } from '../testing/check.js';
-import { isDraftPartQuantityDefault, resolveProjectPartUpdate } from './projectBom.js';
+import { resolveDraftPartQuantity, resolveProjectPartUpdate } from './projectBom.js';
 
 async function main() {
   // orderedQty=12 -> missing_qty floor. receivedQty=2, preparedQty=5 ->
@@ -132,50 +135,99 @@ async function main() {
     );
   }
 
-  // --- isDraftPartQuantityDefault (§12) -----------------------------------
+  // --- resolveDraftPartQuantity (§12.2) -----------------------------------
   //
   // The seed is `required - MIN(required, free stock)`, floored at zero, so
-  // "the default" moves with stock and with what the project needs.
+  // "the default" moves with stock and with what the project needs. A row is
+  // stored only while the typed value differs from it.
 
+  /** The row as the draft table reads it, with no stored override. */
+  const seeded = (requiredQty: number, free: number, missingQty: number) => ({
+    requiredQty,
+    free,
+    missingQty,
+    overridden: false,
+  });
+  /** The same row with a stored override; `missingQty` is what it holds. */
+  const stored = (requiredQty: number, free: number, missingQty: number) => ({
+    requiredQty,
+    free,
+    missingQty,
+    overridden: true,
+  });
+
+  // Nothing stored yet.
   check(
-    'the shortfall is the default — typing it back clears the override',
-    isDraftPartQuantityDefault(100, 40, 60),
-    true,
+    'retyping the seeded shortfall on an un-overridden row writes nothing',
+    resolveDraftPartQuantity(seeded(100, 40, 60), 60),
+    { action: 'none', missingQty: 60, overridden: false, audit: false },
   );
   check(
-    'a reel-sized purchase is a decision',
-    isDraftPartQuantityDefault(100, 40, 260),
-    false,
+    'a reel-sized purchase is stored',
+    resolveDraftPartQuantity(seeded(100, 40, 60), 260),
+    { action: 'upsert', missingQty: 260, overridden: true, audit: true },
   );
   check(
-    'buying less than the shortfall is a decision too',
-    isDraftPartQuantityDefault(100, 40, 10),
-    false,
+    'buying less than the shortfall is stored too',
+    resolveDraftPartQuantity(seeded(100, 40, 60), 10),
+    { action: 'upsert', missingQty: 10, overridden: true, audit: true },
   );
   check(
-    'a part the shelf fully covers defaults to buying none',
-    isDraftPartQuantityDefault(10, 40, 0),
-    true,
-  );
-  check(
-    'topping up the shelf on a part that is fully in stock is a decision — the case §12 exists for',
-    isDraftPartQuantityDefault(10, 40, 500),
-    false,
-  );
-  check(
-    'a part with nothing on the shelf defaults to buying all of it',
-    isDraftPartQuantityDefault(7, 0, 7),
-    true,
-  );
-  check(
-    'negative free stock (a stale claim, §11.8) is treated as none, not as extra demand',
-    isDraftPartQuantityDefault(7, -8, 7),
-    true,
+    'topping up the shelf on a part that is fully in stock — the case §12 exists for',
+    resolveDraftPartQuantity(seeded(10, 40, 0), 500),
+    { action: 'upsert', missingQty: 500, overridden: true, audit: true },
   );
   check(
     'buying nothing when the shelf is short is a decision, not the default',
-    isDraftPartQuantityDefault(7, 0, 0),
-    false,
+    resolveDraftPartQuantity(seeded(7, 0, 7), 0),
+    { action: 'upsert', missingQty: 0, overridden: true, audit: true },
+  );
+  check(
+    'a part with nothing on the shelf defaults to buying all of it',
+    resolveDraftPartQuantity(seeded(7, 0, 7), 7),
+    { action: 'none', missingQty: 7, overridden: false, audit: false },
+  );
+  check(
+    'negative free stock (a stale claim, §11.8) is treated as none, not as extra demand',
+    resolveDraftPartQuantity(seeded(7, -8, 7), 7),
+    { action: 'none', missingQty: 7, overridden: false, audit: false },
+  );
+
+  // Something stored.
+  check(
+    'changing a stored quantity rewrites it',
+    resolveDraftPartQuantity(stored(100, 40, 260), 300),
+    { action: 'upsert', missingQty: 300, overridden: true, audit: true },
+  );
+  check(
+    're-sending a stored quantity writes nothing — the row already holds it',
+    resolveDraftPartQuantity(stored(100, 40, 260), 260),
+    { action: 'none', missingQty: 260, overridden: true, audit: false },
+  );
+  check(
+    'typing the seeded quantity back clears the override',
+    resolveDraftPartQuantity(stored(100, 40, 260), 60),
+    { action: 'delete', missingQty: 60, overridden: false, audit: true },
+  );
+
+  // --- the coincidence: a stored override that now EQUALS the seed ---------
+  //
+  // Required 40, nothing on the shelf, so the seed was 40 and the buyer typed
+  // 10. Thirty pieces then arrive from somewhere else, free stock is 30, and
+  // the seed becomes 40 - 30 = 10 — the number already stored and already on
+  // screen. Typing 10 must still delete the row: the displayed value has not
+  // moved, but the row has to go or there is no way left to clear it, and it
+  // would freeze at Start as `missing_qty_overridden` and sit out every
+  // recalculate for the life of the project.
+  check(
+    'clearing an override that has come to equal the seed still deletes the row',
+    resolveDraftPartQuantity(stored(40, 30, 10), 10),
+    { action: 'delete', missingQty: 10, overridden: false, audit: false },
+  );
+  check(
+    'and the same row is left alone when the typed value is still a decision',
+    resolveDraftPartQuantity(stored(40, 30, 10), 11),
+    { action: 'upsert', missingQty: 11, overridden: true, audit: true },
   );
 
   report();

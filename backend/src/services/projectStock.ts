@@ -10,11 +10,25 @@
 // quantity (the only case where "sum then floor" and "floor then sum" would
 // disagree) impossible at the database level, not just unlikely in practice.
 //
-// "Reserved" is what OTHER started projects have claimed: SUM(from_stock_qty +
-// received_qty) over their project_parts rows. There is deliberately no
-// reservations table to release when a project stops — filtering on
-// projects.status = 'started' means a stopped project's claim simply stops
-// being summed (§4.2).
+// "Reserved" is what OTHER started projects have claimed:
+// SUM(LEAST(required_qty, from_stock_qty + received_qty)) over their
+// project_parts rows. There is deliberately no reservations table to release
+// when a project stops — filtering on projects.status = 'started' means a
+// stopped project's claim simply stops being summed (§4.2).
+//
+// AMENDED (§12). §4.2 wrote this as the bare sum, from a reading where
+// `missing_qty` never much exceeded the shortfall, so `from_stock_qty +
+// received_qty` could not outrun what the project would actually consume.
+// §12 makes the opposite routine: the buyer tops the shelf back up by ordering
+// MORE than the project needs, and those goods arrive as ordinary stock. Left
+// uncapped, the surplus is counted as claimed by the project that bought it —
+// so restocking the shelf would hide the restock from every other project
+// until this one ends, which is precisely backwards. A project can never
+// consume past `required_qty`, so that is the cap.
+//
+// The cap cannot drop a PREPARED part out of `reserved` (the failure migration
+// 026 exists to prevent): `prepared_qty` is the sum of per-line picks, each
+// capped at what its line needs, so prepared_qty <= required_qty always.
 //
 // AMENDED (migration 026). §4.2 wrote this as `... - prepared_qty`, because it
 // assumed picking a part also consumes it: the Preparation pick list (§7 step
@@ -57,7 +71,7 @@ const AVAILABLE_SELECT = `
 
 const RESERVED_SELECT = `
   SELECT pp.part_id,
-         SUM(pp.from_stock_qty + pp.received_qty) AS reserved
+         SUM(LEAST(pp.required_qty, pp.from_stock_qty + pp.received_qty)) AS reserved
   FROM project_parts pp
   JOIN projects pr ON pr.id = pp.project_id
   WHERE pp.part_id = ANY($1::int[])
@@ -82,7 +96,9 @@ export async function getAvailableQuantities(
  * Quantity per part id claimed by OTHER started projects — a claim against
  * physical stock that must not be promised twice. Received goods count too:
  * they are sitting in stock earmarked for that project, and so do parts
- * already prepared, which are boxed up for it but still on the books.
+ * already prepared, which are boxed up for it but still on the books. Capped
+ * at `required_qty`, because a purchase made to top the shelf up is not a
+ * claim on the shelf (§12, and the header above).
  * `excludeProjectId` is the project asking, so its own rows are never a
  * competing claim against itself.
  */

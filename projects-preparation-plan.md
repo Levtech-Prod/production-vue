@@ -621,7 +621,17 @@ GROUP BY part_id;
 -- the Preparation pick list (§7 step 19) writes the `removed` stock entry.
 -- Marking a sub-product prepared does not, so those parts are boxed up for
 -- the project and still counted in `available` — they have to stay reserved.
-SELECT part_id, SUM(from_stock_qty + received_qty) AS reserved
+--
+-- AMENDED AGAIN (§12): capped at `required_qty`. This was written as the bare
+-- sum when `missing_qty` exceeding the shortfall was an oddity; §12 makes it
+-- routine, because the buyer restocks the shelf by ordering MORE than the
+-- project needs. Those goods arrive as ordinary stock, and uncapped they
+-- would be counted as claimed by the project that bought them — so restocking
+-- the shelf would hide the restock from everyone else until that project
+-- ends. A project can never consume past `required_qty`, so that is the cap,
+-- and it cannot drop a prepared part out (`prepared_qty <= required_qty`
+-- always, since each pick is capped at what its line needs).
+SELECT part_id, SUM(LEAST(required_qty, from_stock_qty + received_qty)) AS reserved
 FROM project_parts pp
 JOIN projects pr ON pr.id = pp.project_id
 WHERE pp.part_id = ANY($1)
@@ -641,7 +651,9 @@ release.
 `from_stock_qty` is fixed at start; if someone then removes stock by hand, the
 sum of all claims can exceed what is on the shelf. Chasing that with
 recalculation would fight the user. Instead it is surfaced: the Parts table
-flags any row where `available < reserved + (from_stock_qty - prepared_qty)`,
+flags any row where `available < reserved + LEAST(required_qty, from_stock_qty
++ received_qty)` — the same capped expression on both sides, so the row's own
+claim and everyone else's are counted the same way —
 and the Preparation page (phase 3) refuses a pick that would drive stock
 negative. The stale claim is a real-world event — someone took the parts — and
 showing it is more useful than silently rewriting numbers.
@@ -1966,9 +1978,9 @@ CREATE TABLE IF NOT EXISTS project_draft_part_quantities (
 ### 12.2 Sparse, and what that buys
 
 A row exists **only while the typed quantity differs from what the live seed
-would compute**. `isDraftPartQuantityDefault` (pure, unit-tested) is the test,
-and it reads the seed through `seedFromFreeStock` rather than re-deriving it,
-so "what the default is" is answered in one place.
+would compute**. `resolveDraftPartQuantity` (pure, unit-tested) decides, and it
+reads the seed through `seedFromFreeStock` rather than re-deriving it, so "what
+the default is" is answered in one place.
 
 Two things fall out of that rule, which is why it is the rule:
 
@@ -1977,6 +1989,16 @@ Two things fall out of that rule, which is why it is the rule:
 - **Typing the calculated quantity back is how an override is undone.** There
   is no second gesture to design, no clear button, and no state where a row
   says the same thing the seed says.
+
+**The action follows what should be STORED against what is, never against what
+the cell was displaying.** The two look equivalent and are not, and the first
+implementation of this got it wrong — see §12.7. Gating on "the typed value
+differs from the displayed one" breaks in exactly one state: once stock drifts
+so that a stored override happens to equal today's seed, typing that number
+changes nothing on screen, so the row is never deleted and the override can
+never be cleared again. `overridden !== current.overridden` is the term that
+catches it, and it is why this is a function with a decision table behind it
+rather than an `if` in a route handler.
 
 A typed quantity replaces the seed but **not `from_stock_qty`**. A part the
 shelf already covers is both taken from stock *and* bought — the shelf top-up
@@ -2056,3 +2078,45 @@ silently re-applied if it were ever added back.
 - The Offer Processing page (phase 2, unbuilt) must select its rows on
   `missing_qty > ordered_qty` alone. If it ever gains a "not in stock" filter,
   this whole section is undone.
+
+### 12.7 What the adversarial review found
+
+Five defects, reviewed against the branch before it shipped. Two were real.
+
+**The undo this section advertises did not work in one state.** `§12.2`'s rule
+— type the calculated quantity back and the override clears — was implemented
+as `if (typed !== row.missingQty)`, which is *the displayed value changing*,
+not *what should be stored*. Reachable case: a part needs 40 with an empty
+shelf, so the seed is 40 and the buyer types 10; thirty pieces then arrive from
+elsewhere, free stock is 30, and the seed becomes 40 − 30 = 10 — the number
+already stored and already on screen. Typing 10 then does nothing, and since
+the started PATCH can only ever set `missing_qty_overridden`, the part sits out
+every recalculate for the life of the project while the tooltip goes on
+inviting the user to clear it. Now `resolveDraftPartQuantity`, with its whole
+decision table unit-tested including that coincidence.
+
+**A shelf top-up would have been reserved to the buyer.** §4.2's uncapped
+`from_stock_qty + received_qty` was safe while `missing_qty` rarely exceeded
+the shortfall. This section makes the opposite routine, so the 25 boards bought
+to restock the shelf would have been counted as claimed by the project that
+bought them, invisible to everyone else until it ended — the exact opposite of
+restocking. Fixed with the `LEAST(required_qty, ...)` cap in §4.2, on both
+sides of the shortfall test so the two stay comparable, plus a top-up fixture
+in `projectStock.test.ts`. Latent rather than live, because order receiving
+(phase 3, step 18) is what moves `received_qty` and is not built — which is
+why it was worth finding now rather than then.
+
+Three smaller ones: the decision above had no test because it lived inside an
+Express handler nothing imports (CLAUDE.md's first-tier rule, and §11.16's own
+lesson, both said so); the payload's new `status` field made the amber "not
+started" notice render over a *started* project for the length of its first
+fetch, since the empty payload a scope starts from has to carry some status
+(everything that branches on it is now gated on `!loading` too); and three
+comments still pointed at a "started projects only" guard that this section
+deliberately removed.
+
+The pattern worth keeping, and it is the same one §11.16 recorded: **both real
+defects were a test of the wrong quantity.** One compared the displayed value
+when the question was what to store; the other summed what a project bought
+when the question was what it will consume. Neither is visible in a diff that
+reads well line by line.
