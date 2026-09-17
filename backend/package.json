@@ -11,10 +11,11 @@
     "db:test": "dotenv -e .env -- sh -c 'for f in database/tests/*.test.sql; do echo \"Running $f\"; psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\" || exit 1; done'",
     "uploads:migrate": "dotenv -e .env -- tsx scripts/migrate-uploads.ts",
     "uploads:resync-names": "dotenv -e .env -- tsx scripts/resync-upload-folder-names.ts",
-    "test:unit": "tsx src/db.test.ts && tsx src/routes/routeParams.test.ts && tsx src/routes/projectPartAudit.test.ts && tsx src/schemas/revisions.schema.test.ts && tsx src/services/audit.test.ts && tsx src/services/projectBom.unit.test.ts && tsx src/services/projectPreparation.unit.test.ts",
+    "test:unit": "tsx src/db.test.ts && tsx src/routes/routeParams.test.ts && tsx src/routes/projectPartAudit.test.ts && tsx src/schemas/revisions.schema.test.ts && tsx src/services/audit.test.ts && tsx src/services/projectBom.unit.test.ts && tsx src/services/projectPreparation.unit.test.ts && tsx src/services/projectOffers.unit.test.ts",
     "test:projectStock": "dotenv -e .env -- tsx src/services/projectStock.test.ts",
     "test:projectBom": "dotenv -e .env -- tsx src/services/projectBom.test.ts",
-    "test:projectPreparation": "dotenv -e .env -- tsx src/services/projectPreparation.test.ts"
+    "test:projectPreparation": "dotenv -e .env -- tsx src/services/projectPreparation.test.ts",
+    "test:projectOffers": "dotenv -e .env -- tsx src/services/projectOffers.test.ts"
   },
   "dependencies": {
     "bcryptjs": "latest",

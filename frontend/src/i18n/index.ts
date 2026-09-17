@@ -815,6 +815,7 @@ const messages = {
         'This revision cannot be deleted because a project is using it.',
       OFFER_COMPANY_ALREADY_ADDED:
         'This company is already a column on the offer sheet.',
+      OFFER_COMPANY_NOT_FOUND: 'This company is not a column on the offer sheet.',
       OFFER_COMPANY_IN_USE:
         'This company cannot be removed because parts have already been ordered from it.',
       OFFER_PRICE_MISSING:
@@ -1745,6 +1746,7 @@ const messages = {
         'A revízió nem törölhető, mert egy projekt használja.',
       OFFER_COMPANY_ALREADY_ADDED:
         'Ez a cég már szerepel az ajánlati táblázatban.',
+      OFFER_COMPANY_NOT_FOUND: 'Ez a cég nem szerepel az ajánlati táblázatban.',
       OFFER_COMPANY_IN_USE:
         'A cég nem távolítható el, mert már rendeltek tőle alkatrészt.',
       OFFER_PRICE_MISSING:

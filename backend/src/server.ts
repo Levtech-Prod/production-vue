@@ -20,6 +20,7 @@ import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
 import projectRoutes from './routes/projects.js';
+import projectOfferRoutes from './routes/projectOffers.js';
 import { ApiError } from './apiError.js';
 import { ErrorCodes } from './errorCodes.js';
 import { startTmpSweeper } from './services/tmpSweeper.js';
@@ -41,6 +42,10 @@ app.use('/api/sub-product-types', subProductTypeRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+// Before `projectRoutes`, which owns the same prefix: its `GET /:id` would
+// otherwise match `/api/projects/offer-queue` and answer a plain word with an
+// invalid-id 400.
+app.use('/api/projects', projectOfferRoutes);
 app.use('/api/projects', projectRoutes);
 
 // A revision-mode document type with no extension list accepts every file

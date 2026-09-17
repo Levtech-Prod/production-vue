@@ -11,6 +11,11 @@ import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { requireId } from './routeParams.js';
 import {
+  lockProject,
+  lockProjectForPartsWrite,
+  requireStartedForPartsWrite,
+} from './projectAccess.js';
+import {
   projectPayloadSchema,
   projectListQuerySchema,
   projectPartUpdateSchema,
@@ -239,81 +244,6 @@ async function loadProject(
   );
 
   return { ...project, products: productsResult.rows };
-}
-
-interface LockedProject {
-  name: string;
-  description: string | null;
-  deadline: string | null;
-  status: ProjectStatus;
-}
-
-/**
- * Lock the project row and read what any transition or edit needs of it, or
- * 404. Taking the lock as the status is read is the point: without it a Start
- * and a PATCH can both pass their own draft check and then both write.
- *
- * One column list for every caller rather than a tailored SELECT each — on a
- * single row by primary key the extra columns cost nothing, and one shape is
- * one thing to keep true.
- *
- * `mode` decides how much of the project the caller is claiming.
- *
- * `exclusive` (`FOR UPDATE`) is for anything that writes the `projects` row
- * itself — Start, Stop, the draft PATCH, Delete — and for the one parts write
- * that touches EVERY row at once, `POST /:id/parts/recalculate`. It is the
- * project's big lock, and holding it is what lets `reseedFromStock` take
- * `FOR UPDATE` over all of `project_parts` in whatever order the scan returns
- * them: nothing else can be holding any of those rows.
- *
- * `shared` (`FOR SHARE`) is for a write that touches NAMED rows: one Parts
- * table cell, or one sub-product's pick list. Those only need the status to
- * hold still while they work. Shared locks do not block each other, so two
- * people editing different rows of one project — or ticking different pick
- * lists — no longer queue behind each other, while either still blocks, and is
- * blocked by, a Stop or a recalculate. What they contend for is locked where
- * it is: the PATCH takes one `project_parts` row, and `applySubProductPicks`
- * takes a sub-product's rows in `pp.id` order, the same order
- * `markSubProductPrepared` takes them in, so no two of them can deadlock.
- */
-async function lockProject(
-  client: PoolClient,
-  projectId: number,
-  mode: 'exclusive' | 'shared' = 'exclusive',
-): Promise<LockedProject> {
-  const result = await client.query<LockedProject>(
-    `SELECT name, description, to_char(deadline, 'YYYY-MM-DD') AS deadline, status
-     FROM projects WHERE id = $1 ${mode === 'shared' ? 'FOR SHARE' : 'FOR UPDATE'}`,
-    [projectId],
-  );
-  const project = result.rows[0];
-  if (!project) throw new ApiError(404, ErrorCodes.PROJECT_NOT_FOUND);
-  return project;
-}
-
-/** The lock a write against NAMED rows of a frozen BOM takes, with the guard
- *  that goes with it — the two were already always used together. */
-async function lockProjectForPartsWrite(
-  client: PoolClient,
-  projectId: number,
-): Promise<LockedProject> {
-  const project = await lockProject(client, projectId, 'shared');
-  requireStartedForPartsWrite(project.status);
-  return project;
-}
-
-/**
- * Guard shared by the PATCH and recalculate routes below: both act on
- * `project_parts`, which only exists once Start has frozen it. A draft's rows
- * genuinely don't exist yet, so PROJECT_PARTS_NOT_FROZEN is literally true;
- * a stopped or completed project's rows exist but are a closed record, which
- * PROJECT_NOT_STARTED already means — the same code the Stop route itself
- * uses for "not currently started" — rather than reusing the "not generated"
- * wording for a project whose parts list plainly was generated.
- */
-function requireStartedForPartsWrite(status: ProjectStatus): void {
-  if (status === 'draft') throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
-  if (status !== 'started') throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
 }
 
 /** Keyed by revision id — the same product pinned to a different revision

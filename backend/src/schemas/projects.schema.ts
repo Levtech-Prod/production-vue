@@ -9,11 +9,12 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 // completed ones are hidden until asked for.
 export const DEFAULT_PROJECT_LIST_STATUSES: ProjectStatus[] = ['draft', 'started'];
 
-// project_products' id/revision-id/quantity columns are all plain `integer`,
-// so a value like 99999999999 passes zod (well under Number.MAX_SAFE_INTEGER)
-// but throws a raw "integer out of range" (22003) once it reaches an `::int[]`
-// cast. Same ceiling the id parser applies to route params.
-const pgIntSchema = () => z.number().int().positive().max(POSTGRES_INT_MAX);
+// Every id and quantity in this module is a plain `integer` column, so a value
+// like 99999999999 passes zod (well under Number.MAX_SAFE_INTEGER) but throws a
+// raw "integer out of range" (22003) once it reaches an `::int[]` cast. Same
+// ceiling the id parser applies to route params. Exported because the offer
+// schemas send ids into the same columns.
+export const pgIntSchema = () => z.number().int().positive().max(POSTGRES_INT_MAX);
 
 /** One pinned product at one of its revisions, with the project's quantity. */
 export const projectProductInputSchema = z.object({

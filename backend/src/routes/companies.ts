@@ -15,7 +15,12 @@ router.get('/', requireAuth, async (_req, res) => {
   res.json(result.rows);
 });
 
-router.post('/', requireAuth, requireAdmin, async (req, res) => {
+// Every logged-in user, not admins only (§8.5): the offer grid lets a salesman
+// add a supplier that is not in the list yet while quoting, and the same inline
+// creation already sits in the stock entry form. Creating a name is harmless
+// and reversible — the DELETE below, which can strand stock entries and
+// orders, is not, and stays admin-only.
+router.post('/', requireAuth, async (req, res) => {
   const data = companyPayloadSchema.parse(req.body);
   try {
     const result = await query(
