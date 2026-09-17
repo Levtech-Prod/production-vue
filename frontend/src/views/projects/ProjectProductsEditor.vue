@@ -109,7 +109,7 @@
       <thead class="table-head text-xs">
         <tr>
           <th class="px-4 py-2">{{ t('product') }}</th>
-          <th class="w-48 px-4 py-2">{{ t('revision') }}</th>
+          <th class="w-48 px-4 py-2">{{ t('configuration') }}</th>
           <th class="w-28 px-4 py-2">{{ t('quantity') }} <span class="text-red-500">*</span></th>
           <th class="w-10 px-4 py-2"></th>
         </tr>
