@@ -131,8 +131,10 @@ export interface ProjectBoardQuery {
 // ---- Parts table ------------------------------------------------------------
 //
 // `GET /api/projects/:id/parts` (plan §5.4). One shape for both a draft's
-// live-computed rows and a started project's frozen ones — `draft` on the
-// payload is the only thing that tells them apart.
+// live-computed rows and a started project's frozen ones — `status` on the
+// payload is the only thing that tells them apart. The purchase quantity is
+// editable in both (§12): on a draft it is stored against the part until Start
+// freezes it, on a started project it is `project_parts.missing_qty`.
 
 export interface ProjectPartInfo {
   id: number;
@@ -186,7 +188,11 @@ export interface ProjectPartRow {
 }
 
 export interface ProjectPartsPayload {
-  draft: boolean;
+  /** Which form the rows came from — `draft` is computed live, anything else
+   *  is the frozen BOM — and whether the purchase quantity can be edited:
+   *  draft and started yes, a stopped or completed project's rows are a closed
+   *  record. */
+  status: ProjectStatus;
   rows: ProjectPartRow[];
 }
 

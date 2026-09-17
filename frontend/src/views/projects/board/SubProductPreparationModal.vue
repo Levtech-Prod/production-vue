@@ -112,7 +112,7 @@
       <span class="mr-auto text-xs tabular-nums text-slate-400">
         {{ t('n_parts_prepared_of', { picked: completeCount, total: rows.length }) }}
       </span>
-      <button type="button" class="btn-secondary" @click="close">{{ t('close') }}</button>
+      <button type="button" class="btn-secondary" @click="close">{{ t('save') }}</button>
       <!-- No second confirmation behind this one, unlike the card's button:
            the list the person just filled IS the confirmation. -->
       <button

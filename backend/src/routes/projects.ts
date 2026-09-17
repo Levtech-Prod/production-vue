@@ -16,6 +16,7 @@ import {
   projectPartUpdateSchema,
   projectPartPicksSchema,
   projectSubProductRefSchema,
+  type ProjectPartUpdateInput,
   type ProjectProductInput,
   type ProjectStatus,
 } from '../schemas/projects.schema.js';
@@ -28,12 +29,16 @@ import {
   type KeyedValue,
 } from '../services/audit.js';
 import {
+  computeProjectBom,
   freezeProjectBom,
   loadProjectPartsPayload,
   loadFrozenProjectBom,
+  pruneDraftPartQuantities,
+  resolveDraftPartQuantity,
   toProjectPartRows,
   resolveProjectPartUpdate,
   reseedFromStock,
+  type ProjectPartRow,
 } from '../services/projectBom.js';
 import { buildProjectPartQtyEvents } from './projectPartAudit.js';
 import {
@@ -399,104 +404,224 @@ router.get('/:id/parts', requireAuth, async (req, res) => {
   res.json(await loadProjectPartsPayload(pool, projectId, project.status));
 });
 
-// PATCH /api/projects/:id/parts/:projectPartId — edit the sourcing columns by
-// hand (§5.2). Started projects only: a draft has no `project_parts` rows yet
-// (`GET /:id/parts` computes them live instead), and a stopped or completed
-// project's rows are a closed record, not something to keep adjusting.
-// PROJECT_PARTS_NOT_FROZEN covers both: this is a data-access guard on
-// `project_parts`, distinct from PROJECT_NOT_STARTED, which guards the
-// Start/Stop transitions themselves.
-router.patch('/:id/parts/:projectPartId', requireAuth, async (req, res) => {
+/**
+ * The started half of the write below: the frozen `project_parts` row, edited
+ * in place. Unchanged behaviour — it moved into a function when the draft half
+ * arrived, so the route is the branch and nothing else.
+ */
+async function writeFrozenPartQuantity(
+  client: PoolClient,
+  projectId: number,
+  partId: number,
+  patch: ProjectPartUpdateInput,
+  userId: number | undefined,
+): Promise<ProjectPartRow> {
+  const current = await client.query<{
+    id: number;
+    partName: string;
+    fromStockQty: number;
+    missingQty: number;
+    orderedQty: number;
+    receivedQty: number;
+    preparedQty: number;
+  }>(
+    `SELECT pp.id, p.name AS "partName", pp.from_stock_qty AS "fromStockQty",
+       pp.missing_qty AS "missingQty", pp.ordered_qty AS "orderedQty",
+       pp.received_qty AS "receivedQty", pp.prepared_qty AS "preparedQty"
+     FROM project_parts pp
+     JOIN parts p ON p.id = pp.part_id
+     WHERE pp.part_id = $1 AND pp.project_id = $2
+     FOR UPDATE OF pp`,
+    [partId, projectId],
+  );
+  const before = current.rows[0];
+  if (!before) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+
+  // Throws 409 MISSING_QTY_BELOW_ORDERED / FROM_STOCK_QTY_BELOW_PREPARED
+  // rather than silently clamping: a line can never be made to owe less
+  // than it has already bought, or claim less stock than has already been
+  // picked from it, and the API is what actually enforces that, not just
+  // the input's client-side clamp.
+  const resolved = resolveProjectPartUpdate(before, patch);
+
+  // Only a real change counts as "typing over a seeded value" (§3.3): a
+  // PATCH that resolves to the same numbers already stored — the same
+  // values re-sent, or one field edited while the other stays put — writes
+  // nothing and leaves `missing_qty_overridden` exactly as it was, so an
+  // inert save (e.g. a debounced field blurred without changing) can never
+  // silently exempt this row from every future recalculate.
+  const changed =
+    resolved.fromStockQty !== before.fromStockQty || resolved.missingQty !== before.missingQty;
+
+  if (changed) {
+    // Both columns in one UPDATE (§3.3 "WRITE ORDER MATTERS"): the CHECKs
+    // run per statement, so writing them one at a time could trip
+    // `chk_project_parts_ordered_within_missing` on a row that is legal
+    // once both writes have landed.
+    await client.query(
+      `UPDATE project_parts
+       SET from_stock_qty = $1, missing_qty = $2, missing_qty_overridden = TRUE,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [resolved.fromStockQty, resolved.missingQty, before.id],
+    );
+    await writeProjectPartQtyAudit(client, projectId, before.partName, before, resolved, userId);
+  }
+
+  // Just this row, not the whole BOM: it is the only one that moved, and
+  // reading the rest to throw it away is what made a single cell edit as
+  // expensive as loading the table.
+  const [updated] = toProjectPartRows(
+    await loadFrozenProjectBom(client, projectId, [before.id]),
+    'started',
+  );
+  if (!updated) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+  return updated;
+}
+
+/**
+ * The draft half (§12): the same number, stored in `project_draft_part_quantities`
+ * because a draft has no `project_parts` row to put it in. Sparse — the row
+ * exists only while the typed value differs from what the live seed computes,
+ * so writing the seeded value back is what undoes an override.
+ *
+ * No re-read after the write. The upsert/delete is a single statement and its
+ * value is the one this row now carries; the seed beside it is live either
+ * way, exactly as `GET /:id/parts` serves it. Re-running the compute would
+ * answer with the same two numbers for a second round trip per keystroke.
+ */
+async function writeDraftPartQuantity(
+  client: PoolClient,
+  projectId: number,
+  partId: number,
+  patch: ProjectPartUpdateInput,
+  userId: number | undefined,
+): Promise<ProjectPartRow> {
+  // `from_stock_qty` is a column of the frozen BOM, and a draft has none —
+  // which is exactly what PROJECT_PARTS_NOT_FROZEN says. A draft's claim on
+  // stock is recomputed from free stock on every read, so there is nothing
+  // here for a write to hold. The schema's refine guarantees at least one
+  // field, so "no missingQty" is the fromStockQty-only patch, refused for the
+  // same reason and with the same code.
+  if (patch.missingQty === undefined || patch.fromStockQty !== undefined) {
+    throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
+  }
+  const missingQty = patch.missingQty;
+
+  const [row] = await computeProjectBom(client, projectId, [partId]);
+  // Not a part of this draft's BOM — including one whose product was
+  // un-pinned since the table was loaded.
+  if (!row) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+
+  const resolved = resolveDraftPartQuantity(
+    {
+      requiredQty: row.requiredQty,
+      free: row.stock.free,
+      missingQty: row.missingQty,
+      overridden: row.missingQtyOverridden,
+    },
+    missingQty,
+  );
+
+  if (resolved.action === 'delete') {
+    await client.query(
+      `DELETE FROM project_draft_part_quantities WHERE project_id = $1 AND part_id = $2`,
+      [projectId, partId],
+    );
+  } else if (resolved.action === 'upsert') {
+    await client.query(
+      `INSERT INTO project_draft_part_quantities (project_id, part_id, missing_qty)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (project_id, part_id)
+       DO UPDATE SET missing_qty = EXCLUDED.missing_qty, updated_at = NOW()`,
+      [projectId, partId, missingQty],
+    );
+  }
+
+  if (resolved.audit) {
+    // §5.6: the same field, and the same dispute, as a started project's edit
+    // — a quantity decided before Start is no less a purchasing decision, and
+    // Start freezes it verbatim.
+    await writeProjectPartQtyAudit(
+      client,
+      projectId,
+      row.part.name,
+      { fromStockQty: row.fromStockQty, missingQty: row.missingQty },
+      { fromStockQty: row.fromStockQty, missingQty },
+      userId,
+    );
+  }
+
+  row.missingQty = resolved.missingQty;
+  row.missingQtyOverridden = resolved.overridden;
+  const [updated] = toProjectPartRows([row], 'draft');
+  return updated;
+}
+
+/** One audit event for a part's sourcing quantities moving, from either half
+ *  above (§5.6). */
+async function writeProjectPartQtyAudit(
+  client: PoolClient,
+  projectId: number,
+  partName: string,
+  before: { fromStockQty: number; missingQty: number },
+  after: { fromStockQty: number; missingQty: number },
+  userId: number | undefined,
+): Promise<void> {
+  const events = buildProjectPartQtyEvents([{ partName, before, after }]);
+  await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+}
+
+// PATCH /api/projects/:id/parts/:partId/quantity — set what to BUY of one
+// part (§5.2, §12). Keyed on `parts.id`, not `project_parts.id`: a draft has
+// no project_parts row, and the part is the only key both forms of the Parts
+// table share — which is also how the browser already keys its rows. The path
+// gained its `/quantity` suffix in the same change, so a stale tab sending the
+// old URL with a project_parts id gets a clean 404 instead of silently editing
+// whichever part happens to share that number.
+//
+// Draft and started both write; a stopped or completed project's rows are a
+// closed record, not something to keep adjusting.
+router.patch('/:id/parts/:partId/quantity', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
   // No dedicated "invalid id" code exists for a project part (§5.5); a
   // malformed param reads the same as one that doesn't exist.
-  const projectPartId = requireId(req.params.projectPartId, ErrorCodes.PROJECT_PART_NOT_FOUND);
+  const partId = requireId(req.params.partId, ErrorCodes.PROJECT_PART_NOT_FOUND);
   const data = projectPartUpdateSchema.parse(req.body);
   const userId = req.user?.id;
 
   const result = await withTransaction(async (client) => {
-    await lockProjectForPartsWrite(client, projectId);
-
-    const current = await client.query<{
-      partName: string;
-      fromStockQty: number;
-      missingQty: number;
-      orderedQty: number;
-      receivedQty: number;
-      preparedQty: number;
-    }>(
-      `SELECT p.name AS "partName", pp.from_stock_qty AS "fromStockQty",
-         pp.missing_qty AS "missingQty", pp.ordered_qty AS "orderedQty",
-         pp.received_qty AS "receivedQty", pp.prepared_qty AS "preparedQty"
-       FROM project_parts pp
-       JOIN parts p ON p.id = pp.part_id
-       WHERE pp.id = $1 AND pp.project_id = $2
-       FOR UPDATE`,
-      [projectPartId, projectId],
-    );
-    const before = current.rows[0];
-    if (!before) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
-
-    // Throws 409 MISSING_QTY_BELOW_ORDERED / FROM_STOCK_QTY_BELOW_PREPARED
-    // rather than silently clamping: a line can never be made to owe less
-    // than it has already bought, or claim less stock than has already been
-    // picked from it, and the API is what actually enforces that, not just
-    // the input's client-side clamp.
-    const resolved = resolveProjectPartUpdate(before, data);
-
-    // Only a real change counts as "typing over a seeded value" (§3.3): a
-    // PATCH that resolves to the same numbers already stored — the same
-    // values re-sent, or one field edited while the other stays put — writes
-    // nothing and leaves `missing_qty_overridden` exactly as it was, so an
-    // inert save (e.g. a debounced field blurred without changing) can never
-    // silently exempt this row from every future recalculate.
-    const changed =
-      resolved.fromStockQty !== before.fromStockQty || resolved.missingQty !== before.missingQty;
-
-    if (changed) {
-      // Both columns in one UPDATE (§3.3 "WRITE ORDER MATTERS"): the CHECKs
-      // run per statement, so writing them one at a time could trip
-      // `chk_project_parts_ordered_within_missing` on a row that is legal
-      // once both writes have landed.
-      await client.query(
-        `UPDATE project_parts
-         SET from_stock_qty = $1, missing_qty = $2, missing_qty_overridden = TRUE,
-             updated_at = NOW()
-         WHERE id = $3`,
-        [resolved.fromStockQty, resolved.missingQty, projectPartId],
-      );
-
-      // §5.6: the field a purchasing dispute will be about.
-      const events = buildProjectPartQtyEvents([
-        {
-          partName: before.partName,
-          before: { fromStockQty: before.fromStockQty, missingQty: before.missingQty },
-          after: { fromStockQty: resolved.fromStockQty, missingQty: resolved.missingQty },
-        },
-      ]);
-      await writeAudit(client, 'project', projectId, 'updated', changeSet({}, events), userId);
+    // Shared, as every write against NAMED rows is: it only needs the status
+    // to hold still, and holding it is what stops Start freezing the BOM
+    // underneath a draft edit. Two edits to the SAME draft part are serialised
+    // by the upsert itself, not by this lock.
+    const project = await lockProject(client, projectId, 'shared');
+    if (project.status !== 'draft' && project.status !== 'started') {
+      throw new ApiError(409, ErrorCodes.PROJECT_NOT_STARTED);
     }
 
-    // Just this row, not the whole BOM: it is the only one that moved, and
-    // reading the rest to throw it away is what made a single cell edit as
-    // expensive as loading the table.
-    const [updated] = toProjectPartRows(
-      await loadFrozenProjectBom(client, projectId, [projectPartId]),
-      'started',
-    );
-    if (!updated) throw new ApiError(404, ErrorCodes.PROJECT_PART_NOT_FOUND);
+    const row =
+      project.status === 'draft'
+        ? await writeDraftPartQuantity(client, projectId, partId, data, userId)
+        : await writeFrozenPartQuantity(client, projectId, partId, data, userId);
+
     // The card too: `missing_qty` against `ordered_qty` is what *Offers*
     // counts, so this write can move the project between columns. Answering
     // with both is what lets the browser patch the row and the card it
     // already has instead of reloading the table and the board behind it.
-    return { row: updated, card: await loadBoardCard(client, projectId) };
+    // A draft's card never moves (§3.1 keeps it out of the derived columns
+    // until Start), but it is answered with all the same, so the browser has
+    // one response shape to handle rather than two.
+    return { row, card: await loadBoardCard(client, projectId) };
   });
 
   res.json(result);
 });
 
 // POST /api/projects/:id/parts/recalculate — re-seed from today's free stock
-// (§5.2, §5.3). Same "started projects only" guard as the PATCH above.
+// (§5.2, §5.3). Started projects only — NOT the same guard as the quantity
+// PATCH above, which also accepts drafts (§12). A draft has nothing to
+// re-seed: its rows are recomputed from live stock on every read already.
 router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
   const userId = req.user?.id;
@@ -541,8 +666,10 @@ router.post('/:id/parts/recalculate', requireAuth, async (req, res) => {
 // quantity: the picks that filled the job box already did, line by line, and
 // `project_parts.prepared_qty` is their sum. Marking records that every line
 // is complete and un-marking takes that back, leaving the picks where they
-// are. They still carry the same "started projects only" guard as the Parts
-// table edits above, because what they record is only true of a live project.
+// are. They carry a "started projects only" guard, because what they record is
+// only true of a live project — the quantity PATCH above no longer does, since
+// a purchase decision can be made before Start (§12), but nothing can be
+// picked or prepared before there is a frozen BOM to pick from.
 
 /** One audit event per mark or un-mark (§5.6): which sub-product, under which
  *  product, and which way it moved. */
@@ -811,6 +938,11 @@ router.patch('/:id', requireAuth, async (req, res) => {
     const after = updated.rows[0];
     await client.query(`DELETE FROM project_products WHERE project_id = $1`, [projectId]);
     await insertProjectProducts(client, projectId, data.products);
+    // A part the new product set no longer needs has no row to carry its
+    // typed purchase quantity into, so keeping it would only mean silently
+    // re-applying a decision nobody restated if the product were added back
+    // (§12).
+    await pruneDraftPartQuantities(client, projectId);
 
     const fields = diffFields(
       { name: before.name, description: before.description, deadline: before.deadline },
@@ -850,8 +982,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
 });
 
 // DELETE /api/projects/:id — draft only: 409 PROJECT_NOT_EDITABLE otherwise.
-// Cascades (see migration 023) remove its products; nothing else can
-// reference a draft project since the BOM only freezes at Start.
+// Cascades remove its products (migration 023) and any purchase quantities
+// typed against it (migration 027). Those two are all a draft can have: the
+// BOM, and everything hanging off it, only freezes at Start.
 router.delete('/:id', requireAuth, async (req, res) => {
   const projectId = requireId(req.params.id, ErrorCodes.INVALID_PROJECT_ID);
 

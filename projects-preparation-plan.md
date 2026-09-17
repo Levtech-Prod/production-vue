@@ -621,7 +621,17 @@ GROUP BY part_id;
 -- the Preparation pick list (§7 step 19) writes the `removed` stock entry.
 -- Marking a sub-product prepared does not, so those parts are boxed up for
 -- the project and still counted in `available` — they have to stay reserved.
-SELECT part_id, SUM(from_stock_qty + received_qty) AS reserved
+--
+-- AMENDED AGAIN (§12): capped at `required_qty`. This was written as the bare
+-- sum when `missing_qty` exceeding the shortfall was an oddity; §12 makes it
+-- routine, because the buyer restocks the shelf by ordering MORE than the
+-- project needs. Those goods arrive as ordinary stock, and uncapped they
+-- would be counted as claimed by the project that bought them — so restocking
+-- the shelf would hide the restock from everyone else until that project
+-- ends. A project can never consume past `required_qty`, so that is the cap,
+-- and it cannot drop a prepared part out (`prepared_qty <= required_qty`
+-- always, since each pick is capped at what its line needs).
+SELECT part_id, SUM(LEAST(required_qty, from_stock_qty + received_qty)) AS reserved
 FROM project_parts pp
 JOIN projects pr ON pr.id = pp.project_id
 WHERE pp.part_id = ANY($1)
@@ -641,7 +651,9 @@ release.
 `from_stock_qty` is fixed at start; if someone then removes stock by hand, the
 sum of all claims can exceed what is on the shelf. Chasing that with
 recalculation would fight the user. Instead it is surfaced: the Parts table
-flags any row where `available < reserved + (from_stock_qty - prepared_qty)`,
+flags any row where `available < reserved + LEAST(required_qty, from_stock_qty
++ received_qty)` — the same capped expression on both sides, so the row's own
+claim and everyone else's are counted the same way —
 and the Preparation page (phase 3) refuses a pick that would drive stock
 negative. The stale claim is a real-world event — someone took the parts — and
 showing it is more useful than silently rewriting numbers.
@@ -1897,3 +1909,214 @@ retyped.
 The lesson worth keeping: every one of the three real defects was a *count of
 the wrong thing* or a *lock removed alongside the write it guarded*. Both are
 invisible in a diff that reads well line by line.
+
+---
+
+## 12. The purchase quantity, decided before Start (migration 027)
+
+§3.3 froze the buying decision at Start: `project_parts.missing_qty` is seeded
+to `required_qty - from_stock_qty` and only editable once the rows exist. Two
+things are wrong with that in the buyer's week.
+
+- **A reel is 100 and the project needs 63.** The person who knows that knows it
+  while the project is still a draft, and had nowhere to say it.
+- **Parts the shelf already covers still get bought**, to put back what the
+  project is about to take. The seed for such a part is zero, the input was
+  disabled, and a zero that cannot be typed over is a decision the app makes on
+  the buyer's behalf and is wrong about.
+
+Both are the same missing ability: say what to BUY, before Start. And one
+consequence follows from it — a part with plenty of stock and a purchase
+quantity must reach *Offers* and the offer grid like any other. It already
+does: membership counts `missing_qty > ordered_qty` (§4.1) and says nothing
+about stock, so a part that is fully in stock and has a quantity set qualifies
+on the same test as one that is short. **No offer or board query may ever filter
+on stock** — the quantity is the whole question.
+
+### 12.1 Where the number lives
+
+```
+draft:    project_draft_part_quantities.missing_qty   (sparse)
+Start:    ------- copied into ------->  project_parts.missing_qty
+                                        + missing_qty_overridden = TRUE
+started:  project_parts.missing_qty                   (the draft row is deleted)
+```
+
+The number exists in exactly **one** place at any moment. A draft has no
+`project_parts` row — its BOM is recomputed from the pinned revisions on every
+read — so the decision lives in the new table; Start moves it across and
+deletes the row in the same transaction. Nothing has to reconcile two copies,
+because there are never two. This is the point of the design, and the reason
+the alternative below was rejected.
+
+```sql
+CREATE TABLE IF NOT EXISTS project_draft_part_quantities (
+  id          SERIAL PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  part_id     INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+  missing_qty INTEGER NOT NULL CHECK (missing_qty >= 0),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, part_id)
+);
+```
+
+- **Keyed on `parts.id`, not `project_parts.id`.** `PATCH /api/projects/:id`
+  replaces the whole pinned product set — every `project_products` row deleted
+  and re-inserted — so anything keyed on that side is destroyed by an ordinary
+  draft edit. The part is the only stable key a draft has.
+- **`ON DELETE CASCADE` on `part_id`**, unlike `project_parts.part_id`, which
+  has no `ON DELETE` clause at all. A frozen project's claim *should* block
+  deleting the part; a draft's typed quantity is a note, not a claim, and must
+  not make a part undeletable.
+- **No second index.** The UNIQUE constraint's index is the one every read
+  uses; a separate `project_id` index would duplicate its prefix (the same
+  point migration 026 makes about `project_sub_product_preparations`).
+- **Zero is a real value, distinct from an absent row.** "Buy none of this even
+  though the shelf is short" is a decision; an absent row is "no decision,
+  follow the seed".
+
+### 12.2 Sparse, and what that buys
+
+A row exists **only while the typed quantity differs from what the live seed
+would compute**. `resolveDraftPartQuantity` (pure, unit-tested) decides, and it
+reads the seed through `seedFromFreeStock` rather than re-deriving it, so "what
+the default is" is answered in one place.
+
+Two things fall out of that rule, which is why it is the rule:
+
+- The table holds **decisions**, never a copy of a number that is already
+  derivable. A draft with no hand-set quantities has no rows at all.
+- **Typing the calculated quantity back is how an override is undone.** There
+  is no second gesture to design, no clear button, and no state where a row
+  says the same thing the seed says.
+
+**The action follows what should be STORED against what is, never against what
+the cell was displaying.** The two look equivalent and are not, and the first
+implementation of this got it wrong — see §12.7. Gating on "the typed value
+differs from the displayed one" breaks in exactly one state: once stock drifts
+so that a stored override happens to equal today's seed, typing that number
+changes nothing on screen, so the row is never deleted and the override can
+never be cleared again. `overridden !== current.overridden` is the term that
+catches it, and it is why this is a function with a decision table behind it
+rather than an `if` in a route handler.
+
+A typed quantity replaces the seed but **not `from_stock_qty`**. A part the
+shelf already covers is both taken from stock *and* bought — the shelf top-up
+§3.3 already anticipated ("`missing_qty` may deliberately exceed
+`required_qty - from_stock_qty`"). Overriding both would instead read as
+"don't use the stock", which is a different instruction nobody gave.
+
+### 12.3 One endpoint, both states
+
+`PATCH /api/projects/:id/parts/:partId/quantity` — **`parts.id`**, because a
+draft has no project part to name, and because the part is the key the
+browser's rows already use (`types/projects.ts` said so before this change).
+The `/quantity` suffix is new in the same change, so a browser tab left open
+across the deploy sends the old URL and gets a clean 404 rather than silently
+editing whichever part happens to share the number it sent.
+
+- **Draft** → upsert or delete the `project_draft_part_quantities` row per
+  §12.2. `fromStockQty` in the body is refused with `PROJECT_PARTS_NOT_FROZEN`,
+  which is literally true: it is a column of the frozen BOM.
+- **Started** → the existing `project_parts` write, its two floors and its
+  audit event, unchanged; only the lookup key moved.
+- **Stopped / completed** → `PROJECT_NOT_STARTED`, as before. The payload now
+  carries `status` instead of a `draft` flag so the table can grey the cell
+  rather than let it be typed into and refused a round trip later.
+
+Both halves write the same §5.6 audit event through one helper. A quantity
+decided before Start is no less a purchasing decision, and Start freezes it
+verbatim.
+
+The lock stays `FOR SHARE` on the project: a named-row write only needs the
+status to hold still, and holding it is what stops Start freezing the BOM
+underneath a draft edit. Two edits to the *same* draft part are serialised by
+the upsert, not by the lock.
+
+### 12.4 What Start does differently
+
+`freezeProjectBom` already recomputes the BOM inside its transaction rather
+than trusting the browser, so it sees the typed quantities for free.
+
+Two changes: `missing_qty_overridden` is now **inserted** rather than left to
+its `FALSE` default, because a quantity the buyer typed on the draft must
+arrive flagged — otherwise the first "Recalculate from stock" seeds straight
+over the decision the flag exists to protect. And the draft rows are deleted in
+the same transaction, since a project can never be frozen twice (`stopped` and
+`completed` are terminal) and a second copy of a number can only drift.
+
+`PATCH /api/projects/:id` also prunes the quantities of parts the new product
+set no longer contains, through the same join `computeProjectBom` reads
+membership from (`BOM_PART_SOURCE`, extracted so the two cannot drift).
+Otherwise removing a product would leave its parts' quantities behind, to be
+silently re-applied if it were ever added back.
+
+### 12.5 Rejected
+
+- **Freeze `project_parts` at create time instead.** It removes the new table
+  but replaces it with a much worse problem: a draft's BOM changes whenever its
+  product set does, so the rows would need re-deriving on every edit, and
+  `required_qty > 0` plus the three ordering CHECKs would have to hold against
+  half-edited product sets. It also breaks the invariant the whole projects
+  module rests on — that `project_parts` is *frozen*, and a claim on stock.
+- **An "extra to buy" column added on top of the computed shortfall.** Two
+  numbers where the started project has one, needing reconciliation at Start
+  and a second meaning for the same input box. §6.5's "there is one number,
+  shown twice" is the rule; this would have made it three.
+- **Keeping the draft rows after Start, as history.** `audit_logs` already
+  records every change to the quantity, with who and when. A kept row would be
+  a second, unmaintained copy that the first post-Start edit makes wrong.
+- **Letting a draft appear in *Offers*.** §3.1 keeps a draft out of every
+  derived column because it has claimed no stock and frozen no BOM; a quote
+  against a parts list that can still change is a quote against nothing. The
+  draft quantity's job is to be *ready* at Start, not to skip it.
+
+### 12.6 Still to check
+
+- `npm run test:projectBom` and `test:projectStock` need a dev database and
+  were not run here; the unit tier and both typecheckers were.
+- The Offer Processing page (phase 2, unbuilt) must select its rows on
+  `missing_qty > ordered_qty` alone. If it ever gains a "not in stock" filter,
+  this whole section is undone.
+
+### 12.7 What the adversarial review found
+
+Five defects, reviewed against the branch before it shipped. Two were real.
+
+**The undo this section advertises did not work in one state.** `§12.2`'s rule
+— type the calculated quantity back and the override clears — was implemented
+as `if (typed !== row.missingQty)`, which is *the displayed value changing*,
+not *what should be stored*. Reachable case: a part needs 40 with an empty
+shelf, so the seed is 40 and the buyer types 10; thirty pieces then arrive from
+elsewhere, free stock is 30, and the seed becomes 40 − 30 = 10 — the number
+already stored and already on screen. Typing 10 then does nothing, and since
+the started PATCH can only ever set `missing_qty_overridden`, the part sits out
+every recalculate for the life of the project while the tooltip goes on
+inviting the user to clear it. Now `resolveDraftPartQuantity`, with its whole
+decision table unit-tested including that coincidence.
+
+**A shelf top-up would have been reserved to the buyer.** §4.2's uncapped
+`from_stock_qty + received_qty` was safe while `missing_qty` rarely exceeded
+the shortfall. This section makes the opposite routine, so the 25 boards bought
+to restock the shelf would have been counted as claimed by the project that
+bought them, invisible to everyone else until it ended — the exact opposite of
+restocking. Fixed with the `LEAST(required_qty, ...)` cap in §4.2, on both
+sides of the shortfall test so the two stay comparable, plus a top-up fixture
+in `projectStock.test.ts`. Latent rather than live, because order receiving
+(phase 3, step 18) is what moves `received_qty` and is not built — which is
+why it was worth finding now rather than then.
+
+Three smaller ones: the decision above had no test because it lived inside an
+Express handler nothing imports (CLAUDE.md's first-tier rule, and §11.16's own
+lesson, both said so); the payload's new `status` field made the amber "not
+started" notice render over a *started* project for the length of its first
+fetch, since the empty payload a scope starts from has to carry some status
+(everything that branches on it is now gated on `!loading` too); and three
+comments still pointed at a "started projects only" guard that this section
+deliberately removed.
+
+The pattern worth keeping, and it is the same one §11.16 recorded: **both real
+defects were a test of the wrong quantity.** One compared the displayed value
+when the question was what to store; the other summed what a project bought
+when the question was what it will consume. Neither is visible in a diff that
+reads well line by line.
