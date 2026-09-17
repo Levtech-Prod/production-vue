@@ -199,6 +199,8 @@ export const ErrorCodes = {
 
   // project offers
   OFFER_COMPANY_ALREADY_ADDED: 'OFFER_COMPANY_ALREADY_ADDED',
+  // A column addressed by an id that is not one of this project's columns.
+  OFFER_COMPANY_NOT_FOUND: 'OFFER_COMPANY_NOT_FOUND',
   // Removing a company column whose quotes back an order already placed.
   OFFER_COMPANY_IN_USE: 'OFFER_COMPANY_IN_USE',
   // Ordering a part from a company that never quoted it.
