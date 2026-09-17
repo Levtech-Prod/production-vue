@@ -59,9 +59,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { DOCUMENT_TYPE_ICONS, resolveIcon } from '../utils/documentTypeIcons.ts';
+import { useClickOutside } from '../composables/useClickOutside.ts';
 
 withDefaults(
   defineProps<{
@@ -97,12 +98,7 @@ function select(icon: string) {
   search.value = '';
 }
 
-function onDocumentClick(event: MouseEvent) {
-  if (open.value && root.value && !root.value.contains(event.target as Node)) {
-    open.value = false;
-  }
-}
-
-onMounted(() => document.addEventListener('click', onDocumentClick));
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
+useClickOutside(root, () => {
+  open.value = false;
+});
 </script>

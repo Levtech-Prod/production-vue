@@ -6,7 +6,17 @@ import { priceInputSchema } from './money.schema.js';
  *  duplicated or replaced. */
 export const revisionPartInputSchema = z.object({
   partId: z.number(),
-  quantity: z.number().transform((v) => Math.round(v)),
+  // Whole parts only (migration 025): half a part cannot be fitted. This is
+  // the refusal an INTEGER column does not give — it would round 1.5 to 2 —
+  // and it is where the project BOM's integer arithmetic starts.
+  //
+  // Deliberately not `.positive()`: zero and negative BOM lines predate this
+  // rule and may exist in production (plan §11.5). The editor re-sends a
+  // revision's whole part set on every change, so refusing them here would
+  // make any revision containing one unsavable — punishing the user for old
+  // data. `project_parts.required_qty > 0` is where a bad quantity is caught,
+  // and the three inputs that create one all require >= 1.
+  quantity: z.number().int(),
   unit: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   // Where the part sits on this sub-product ("left side", "R12"). Belongs to

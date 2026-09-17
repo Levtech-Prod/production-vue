@@ -1,27 +1,3 @@
-<script setup lang="ts">
-import { useI18n } from 'vue-i18n';
-import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
-
-defineProps<{
-  visible: boolean;
-  title?: string;
-  message?: string;
-  confirmText?: string;
-  cancelText?: string;
-  loading?: boolean;
-  /** Colour of the confirm button. Defaults to the destructive red this
-   *  dialog was written for; 'primary' is for confirming a plain save. */
-  variant?: 'danger' | 'primary';
-}>();
-
-const emit = defineEmits<{
-  confirm: [];
-  cancel: [];
-}>();
-
-const { t } = useI18n();
-</script>
-
 <template>
   <!-- Teleported so ancestor stacking contexts can't trap it, and on the
        `confirm` layer so it sits in front of whatever it is confirming — e.g.
@@ -44,6 +20,7 @@ const { t } = useI18n();
 
           <div class="flex justify-end gap-3">
             <button
+              ref="cancelButtonRef"
               type="button"
               class="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               :disabled="loading"
@@ -60,8 +37,9 @@ const { t } = useI18n();
                   ? 'bg-blue-600 hover:bg-blue-700'
                   : 'bg-red-600 hover:bg-red-700'
               "
+              ref="confirmButtonRef"
               :disabled="loading"
-              @click="$emit('confirm')"
+              @click="onConfirm"
             >
               {{ loading ? t('in-progress') : confirmText || t('delete') }}
             </button>
@@ -71,6 +49,82 @@ const { t } = useI18n();
     </Transition>
   </Teleport>
 </template>
+
+<script setup lang="ts">
+import { nextTick, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { OVERLAY_LAYERS } from '../../utils/overlayLayers.ts';
+
+const props = defineProps<{
+  visible: boolean;
+  title?: string;
+  message?: string;
+  confirmText?: string;
+  cancelText?: string;
+  loading?: boolean;
+  /** Colour of the confirm button. Defaults to the destructive red this
+   *  dialog was written for; 'primary' is for confirming a plain save. */
+  variant?: 'danger' | 'primary';
+  /**
+   * Which button opens focused, and therefore what a stray Enter does.
+   *
+   * Deliberately NOT derived from `variant`: colour answers "how alarming is
+   * this?", focus answers "is it safe to fire on one keystroke?", and they are
+   * not the same question. Starting a project is blue and utterly
+   * irreversible. Defaults to `cancel` so a dialog has to ask for the risky
+   * behaviour rather than inherit it.
+   */
+  initialFocus?: 'cancel' | 'confirm';
+}>();
+
+const emit = defineEmits<{
+  confirm: [];
+  cancel: [];
+}>();
+
+const { t } = useI18n();
+
+// A confirmation is the only thing standing between a click and an
+// irreversible action, so it refuses to act on a click it cannot have been
+// read for: one already travelling up the DOM when the dialog mounted, or a
+// second click of a double-click landing where the button just appeared.
+const ARM_DELAY_MS = 300;
+
+const shownAt = ref(0);
+const cancelButtonRef = ref<HTMLButtonElement | null>(null);
+const confirmButtonRef = ref<HTMLButtonElement | null>(null);
+
+async function arm() {
+  shownAt.value = Date.now();
+  await nextTick();
+  // A stray Enter must not do anything irreversible, so Cancel is focused
+  // unless the call site has said its confirm is safe to fire blind.
+  const initial = props.initialFocus === 'confirm' ? confirmButtonRef : cancelButtonRef;
+  initial.value?.focus();
+}
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible) void arm();
+  },
+);
+
+// Every call site today renders this dialog permanently and toggles `visible`,
+// so the watcher above is what arms it. Arming on mount as well means a call
+// site that instead mounts it already open (a `v-if`, say) still gets the
+// delay and the focus — otherwise the guard would quietly not be there.
+onMounted(() => {
+  if (props.visible) void arm();
+});
+
+function onConfirm() {
+  if (Date.now() - shownAt.value < ARM_DELAY_MS) return;
+  emit('confirm');
+}
+</script>
+
+
 
 <style scoped>
 .fade-enter-active,

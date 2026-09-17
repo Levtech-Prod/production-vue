@@ -21,9 +21,10 @@ import type { NextFunction, Request, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import type { PoolClient } from 'pg';
-import { pool, query } from '../db.js';
+import { pool, query, withTransaction, violatedUniqueConstraint } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { ErrorCodes } from '../errorCodes.js';
+import { ApiError } from '../apiError.js';
+import { ErrorCodes, type ErrorCode } from '../errorCodes.js';
 import {
   documentRevisionFileUploadSchema,
   documentRevisionPayloadSchema,
@@ -45,7 +46,7 @@ import {
 } from '../services/documentRevisions.js';
 import { fileExtension, type DocumentScope } from '../services/documentFiles.js';
 import { ensureDocumentRevisionTmpDir, safeUnlink } from '../services/uploadPaths.js';
-import { logAudit, resolveActor, type AuditEvent } from '../services/audit.js';
+import { writeAudit, type AuditEvent } from '../services/audit.js';
 import { requireId } from './routeParams.js';
 
 const router = Router();
@@ -78,14 +79,15 @@ function uploadFiles(req: Request, res: Response, next: NextFunction) {
     if (!err) return next();
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_TOO_LARGE });
+        return next(new ApiError(413, ErrorCodes.DOCUMENT_REVISION_FILE_TOO_LARGE));
       }
       // LIMIT_FILE_COUNT for too many at once, LIMIT_UNEXPECTED_FILE for a part
       // under another field name.
-      return res.status(400).json({
-        code: ErrorCodes.DOCUMENT_REVISION_TOO_MANY_FILES,
-        max: MAX_UPLOAD_FILES,
-      });
+      return next(
+        new ApiError(400, ErrorCodes.DOCUMENT_REVISION_TOO_MANY_FILES, {
+          max: MAX_UPLOAD_FILES,
+        }),
+      );
     }
     return next(err);
   });
@@ -101,17 +103,23 @@ function discardUploads(req: Request): void {
 }
 
 /**
- * Validate the multipart text fields. Multer has already written the files to
- * disk by this point, so a rejected body takes them with it rather than
- * leaving them behind.
+ * Multer has already written the uploads by the time a handler runs, so every
+ * exit that is not a success has to take them with it — a rejected body, an
+ * unknown card, a disallowed extension, a failed insert. Wrapping the handler
+ * once means each of those can simply throw, instead of every guard
+ * remembering the cleanup that used to sit in front of it.
  */
-function parseUploadBody(req: Request) {
-  try {
-    return documentRevisionFileUploadSchema.parse(req.body ?? {});
-  } catch (err) {
-    discardUploads(req);
-    throw err;
-  }
+function withUploadCleanup(
+  handler: (req: Request, res: Response) => Promise<void>,
+): (req: Request, res: Response) => Promise<void> {
+  return async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (err) {
+      discardUploads(req);
+      throw err;
+    }
+  };
 }
 
 /** The first uploaded file the card does not accept, or null. An empty list on
@@ -232,17 +240,12 @@ async function loadRevision(scope: DocumentScope, revisionId: number) {
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-function violatedConstraint(err: unknown): string | null {
-  const e = err as { code?: string; constraint?: string } | null;
-  return e?.code === '23505' ? (e.constraint ?? null) : null;
-}
-
 /** Turn a unique-index violation into the code the UI can act on, or null when
  *  it is not one. The production indexes are covered as well as the name ones:
  *  the row lock below should make them unreachable, but a 500 is the wrong
  *  answer if it ever is not. */
-function duplicateCode(err: unknown): string | null {
-  switch (violatedConstraint(err)) {
+function duplicateCode(err: unknown): ErrorCode | null {
+  switch (violatedUniqueConstraint(err)) {
     case 'ux_document_revisions_pdt_name':
     case 'ux_document_revisions_spdt_name':
       return ErrorCodes.DOCUMENT_REVISION_NAME_ALREADY_EXISTS;
@@ -324,8 +327,7 @@ async function logRevisionEvents(
 ): Promise<void> {
   const product = ownerProduct(owner);
   if (events.length === 0 || product === null) return;
-  const actor = await resolveActor(client, userId);
-  await logAudit(client, 'product', product.id, 'updated', { events }, actor);
+  await writeAudit(client, 'product', product.id, 'updated', { events }, userId);
 }
 
 /** The human-readable summary of a version, for change-log from/to cells. */
@@ -333,23 +335,16 @@ function revisionDetails(status: string, releaseNotes: string | null): string {
   return releaseNotes ? `${status} — ${releaseNotes}` : status;
 }
 
-/**
- * Resolve the card a request names, rejecting anything that is not a versioned
- * one. Returns null after responding, so callers `if (!owner) return;`.
- */
+/** Resolve the card a request names, rejecting anything that is not a
+ *  versioned one. */
 async function requireRevisionCard(
-  res: Response,
   scope: DocumentScope,
   documentTypeId: number,
-): Promise<RevisionOwner | null> {
+): Promise<RevisionOwner> {
   const owner = await findRevisionOwnerByType(pool, scope, documentTypeId);
-  if (!owner) {
-    res.status(404).json({ code: ErrorCodes.DOCUMENT_TYPE_NOT_FOUND });
-    return null;
-  }
+  if (!owner) throw new ApiError(404, ErrorCodes.DOCUMENT_TYPE_NOT_FOUND);
   if (!owner.revisionMode) {
-    res.status(400).json({ code: ErrorCodes.DOCUMENT_TYPE_NOT_REVISION_MODE });
-    return null;
+    throw new ApiError(400, ErrorCodes.DOCUMENT_TYPE_NOT_REVISION_MODE);
   }
   return owner;
 }
@@ -359,66 +354,54 @@ async function requireRevisionCard(
 /** Both families' list/create routes, over one scope. */
 function registerCardRoutes(scope: DocumentScope, itemBase: string) {
   router.get(`/${itemBase}/:id/revisions`, requireAuth, async (req, res) => {
-    const documentTypeId = requireId(res, req.params.id, ErrorCodes.INVALID_DOCUMENT_TYPE_ID);
-    if (documentTypeId === null) return;
-
-    const owner = await requireRevisionCard(res, scope, documentTypeId);
-    if (!owner) return;
+    const documentTypeId = requireId(req.params.id, ErrorCodes.INVALID_DOCUMENT_TYPE_ID);
+    await requireRevisionCard(scope, documentTypeId);
 
     res.json({ revisions: await listRevisions(scope, documentTypeId) });
   });
 
   router.post(`/${itemBase}/:id/revisions`, requireAuth, async (req, res) => {
-    const documentTypeId = requireId(res, req.params.id, ErrorCodes.INVALID_DOCUMENT_TYPE_ID);
-    if (documentTypeId === null) return;
-
+    const documentTypeId = requireId(req.params.id, ErrorCodes.INVALID_DOCUMENT_TYPE_ID);
     const data: DocumentRevisionPayload = documentRevisionPayloadSchema.parse(req.body ?? {});
-    const owner = await requireRevisionCard(res, scope, documentTypeId);
-    if (!owner) return;
+    const owner = await requireRevisionCard(scope, documentTypeId);
 
     let newRevisionId: number;
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
-      await lockCard(client, scope, documentTypeId);
+      newRevisionId = await withTransaction(async (client) => {
+        await lockCard(client, scope, documentTypeId);
 
-      const events: AuditEvent[] = [];
-      if (data.status === 'production') {
-        events.push(...(await demoteCurrentProduction(client, owner, null)));
-      }
+        const events: AuditEvent[] = [];
+        if (data.status === 'production') {
+          events.push(...(await demoteCurrentProduction(client, owner, null)));
+        }
 
-      const inserted = await client.query<{ id: number }>(
-        `INSERT INTO document_revisions
-           (${revisionColumnFor(scope)}, name, status, release_notes, created_by)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id`,
-        [documentTypeId, data.name, data.status, data.releaseNotes, req.user?.id ?? null],
-      );
-      newRevisionId = inserted.rows[0].id;
+        const inserted = await client.query<{ id: number }>(
+          `INSERT INTO document_revisions
+             (${revisionColumnFor(scope)}, name, status, release_notes, created_by)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
+          [documentTypeId, data.name, data.status, data.releaseNotes, req.user?.id ?? null],
+        );
 
-      events.push({
-        type: 'document_revision',
-        tag: 'added',
-        label: data.name,
-        scope: revisionScope(owner),
-        to: revisionDetails(data.status, data.releaseNotes),
+        events.push({
+          type: 'document_revision',
+          tag: 'added',
+          label: data.name,
+          scope: revisionScope(owner),
+          to: revisionDetails(data.status, data.releaseNotes),
       });
       await logRevisionEvents(client, owner, req.user?.id, events);
-
-      await client.query('COMMIT');
+      return inserted.rows[0].id;
+      });
     } catch (err) {
-      await client.query('ROLLBACK');
       const code = duplicateCode(err);
-      if (code) return res.status(409).json({ code });
+      if (code) throw new ApiError(409, code);
       throw err;
-    } finally {
-      client.release();
     }
 
     // Reloaded only after the client is back in the pool: `loadRevision` checks
     // one out itself, and holding two per request deadlocks the pool under
-    // concurrency. Outside the `catch` for a second reason — a read failing here
-    // must not issue a ROLLBACK against an already-committed transaction.
+    // concurrency.
     res.status(201).json(await loadRevision(scope, newRevisionId));
   });
 }
@@ -428,98 +411,79 @@ registerCardRoutes('subProduct', 'sub-product-document-types');
 
 // PUT /api/document-revisions/:id
 router.put('/document-revisions/:id', requireAuth, async (req, res) => {
-  const revisionId = requireId(res, req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
-  if (revisionId === null) return;
-
+  const revisionId = requireId(req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
   const data: DocumentRevisionPayload = documentRevisionPayloadSchema.parse(req.body ?? {});
   const owner = await findRevisionOwner(pool, revisionId);
-  if (!owner) return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
+  if (!owner) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_NOT_FOUND);
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await lockCard(client, owner.scope, owner.documentTypeId);
+    await withTransaction(async (client) => {
+      await lockCard(client, owner.scope, owner.documentTypeId);
 
-    const before = await client.query<{
-      name: string;
-      status: string;
-      release_notes: string | null;
-    }>(`SELECT name, status, release_notes FROM document_revisions WHERE id = $1 FOR UPDATE`, [
-      revisionId,
-    ]);
-    const previous = before.rows[0];
-    if (!previous) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
-    }
+      const before = await client.query<{
+        name: string;
+        status: string;
+        release_notes: string | null;
+      }>(`SELECT name, status, release_notes FROM document_revisions WHERE id = $1 FOR UPDATE`, [
+        revisionId,
+      ]);
+      const previous = before.rows[0];
+      if (!previous) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_NOT_FOUND);
 
-    const events: AuditEvent[] = [];
-    if (data.status === 'production' && previous.status !== 'production') {
-      events.push(...(await demoteCurrentProduction(client, owner, revisionId)));
-    }
+      const events: AuditEvent[] = [];
+      if (data.status === 'production' && previous.status !== 'production') {
+        events.push(...(await demoteCurrentProduction(client, owner, revisionId)));
+      }
 
-    await client.query(
-      `UPDATE document_revisions
-          SET name = $2, status = $3, release_notes = $4, updated_at = NOW()
-        WHERE id = $1`,
-      [revisionId, data.name, data.status, data.releaseNotes],
-    );
+      await client.query(
+        `UPDATE document_revisions
+            SET name = $2, status = $3, release_notes = $4, updated_at = NOW()
+          WHERE id = $1`,
+        [revisionId, data.name, data.status, data.releaseNotes],
+      );
 
-    const changed =
-      previous.name !== data.name ||
-      previous.status !== data.status ||
-      (previous.release_notes ?? null) !== data.releaseNotes;
-    if (changed) {
-      events.push({
-        type: 'document_revision',
-        tag: 'changed',
-        label: data.name,
-        scope: revisionScope(owner),
-        from: revisionDetails(previous.status, previous.release_notes),
-        to: revisionDetails(data.status, data.releaseNotes),
-      });
-    }
-    await logRevisionEvents(client, owner, req.user?.id, events);
-
-    await client.query('COMMIT');
+      const changed =
+        previous.name !== data.name ||
+        previous.status !== data.status ||
+        (previous.release_notes ?? null) !== data.releaseNotes;
+      if (changed) {
+        events.push({
+          type: 'document_revision',
+          tag: 'changed',
+          label: data.name,
+          scope: revisionScope(owner),
+          from: revisionDetails(previous.status, previous.release_notes),
+          to: revisionDetails(data.status, data.releaseNotes),
+        });
+      }
+      await logRevisionEvents(client, owner, req.user?.id, events);
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
     const code = duplicateCode(err);
-    if (code) return res.status(409).json({ code });
+    if (code) throw new ApiError(409, code);
     throw err;
-  } finally {
-    client.release();
   }
 
-  // After `client.release()` — see the create handler above.
+  // After the client is back in the pool — see the create handler above.
   res.json(await loadRevision(owner.scope, revisionId));
 });
 
 // DELETE /api/document-revisions/:id
 router.delete('/document-revisions/:id', requireAuth, async (req, res) => {
-  const revisionId = requireId(res, req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
-  if (revisionId === null) return;
-
+  const revisionId = requireId(req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
   const owner = await findRevisionOwner(pool, revisionId);
-  if (!owner) return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
+  if (!owner) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_NOT_FOUND);
 
-  let storageKeys: string[];
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const storageKeys = await withTransaction(async (client) => {
     // Before the DELETE: the cascade takes the file rows with it, and their
     // keys are the only thing that locates the bytes on disk.
-    storageKeys = await listRevisionFileKeys(client, [revisionId]);
+    const keys = await listRevisionFileKeys(client, [revisionId]);
 
     const deleted = await client.query<{ id: number }>(
       `DELETE FROM document_revisions WHERE id = $1 RETURNING id`,
       [revisionId],
     );
-    if (deleted.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
-    }
+    if (deleted.rowCount === 0) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_NOT_FOUND);
 
     await logRevisionEvents(client, owner, req.user?.id, [
       {
@@ -529,13 +493,9 @@ router.delete('/document-revisions/:id', requireAuth, async (req, res) => {
         scope: revisionScope(owner),
       },
     ]);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+
+    return keys;
+  });
 
   removeRevisionFiles(owner, [revisionId], storageKeys);
   res.json({ id: revisionId, deleted: true });
@@ -544,17 +504,17 @@ router.delete('/document-revisions/:id', requireAuth, async (req, res) => {
 // ── Version files ──────────────────────────────────────────────────────────
 
 // POST /api/document-revisions/:id/files — multipart, several files at a time
-router.post('/document-revisions/:id/files', requireAuth, uploadFiles, async (req, res) => {
-  const revisionId = requireId(res, req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
-  if (revisionId === null) {
-    discardUploads(req);
-    return;
-  }
+router.post(
+  '/document-revisions/:id/files',
+  requireAuth,
+  uploadFiles,
+  withUploadCleanup(async (req, res) => {
+  const revisionId = requireId(req.params.id, ErrorCodes.INVALID_DOCUMENT_REVISION_ID);
 
   const files = uploadedFiles(req);
-  if (files.length === 0) return res.status(400).json({ code: ErrorCodes.NO_FILE_UPLOADED });
+  if (files.length === 0) throw new ApiError(400, ErrorCodes.NO_FILE_UPLOADED);
 
-  const { names } = parseUploadBody(req);
+  const { names } = documentRevisionFileUploadSchema.parse(req.body ?? {});
 
   // Both depend only on `revisionId`, so they go together. Which storage keys
   // already exist decides two things below: whether the change log calls an
@@ -570,111 +530,88 @@ router.post('/document-revisions/:id/files', requireAuth, uploadFiles, async (re
       [revisionId],
     ),
   ]);
-  if (!owner) {
-    discardUploads(req);
-    return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_NOT_FOUND });
-  }
+  if (!owner) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_NOT_FOUND);
   const existingKeys = new Set(existing.rows.map((row) => row.storage_key));
 
   if (extensionRejected(owner, files)) {
-    discardUploads(req);
-    return res.status(400).json({ code: ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED });
+    throw new ApiError(400, ErrorCodes.DOCUMENT_EXTENSION_NOT_ALLOWED);
   }
 
   // A sub-product's folder lives inside its parent product's tree, so a
   // parentless one has nowhere to put the file. Only possible on data predating
   // migration 014, which made the parent required.
-  if (!ownerProduct(owner)) {
-    discardUploads(req);
-    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-  }
+  if (!ownerProduct(owner)) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
 
   // Resolved once, not per file: it walks and creates several directory levels.
   const folder = ensureRevisionDir(owner, { id: revisionId, name: owner.revisionName });
 
-  // Placement runs outside the transaction below, so it needs its own cleanup:
-  // a throw part-way (an over-long name is the reachable case) would otherwise
-  // leave the already-moved files in the version folder with no row and no
-  // sweeper — `_tmp` is the only thing tmpSweeper reclaims.
+  // Placement and the transaction share one cleanup, because they share one
+  // hazard: once a file has left `_tmp` nothing else reclaims it, so anything
+  // that fails after the move — an over-long name mid-loop, a failure to get a
+  // client, a failed insert — has to take the moved files back off disk.
+  // Only genuinely new ones: an upload that overwrote an existing file has
+  // already destroyed the old bytes, and unlinking it would leave a surviving
+  // row pointing at nothing.
   const placed: { file: Express.Multer.File; storageKey: string; originalName: string }[] = [];
   try {
     files.forEach((file, index) => {
       placed.push({ file, ...placeRevisionFile(file, folder, names[index]) });
     });
+
+    await withTransaction(async (client) => {
+      const events: AuditEvent[] = [];
+
+      for (const item of placed) {
+        // Re-uploading a file of the same name overwrites it, so the row is
+        // updated in place rather than duplicated (see `placeRevisionFile`).
+        await client.query(
+          `INSERT INTO document_revision_files
+             (document_revision_id, storage_key, original_name, size_bytes, mime_type, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (storage_key) DO UPDATE
+             SET size_bytes  = EXCLUDED.size_bytes,
+                 mime_type   = EXCLUDED.mime_type,
+                 uploaded_by = EXCLUDED.uploaded_by,
+                 created_at  = NOW()`,
+          [
+            revisionId,
+            item.storageKey,
+            item.originalName,
+            item.file.size,
+            item.file.mimetype,
+            req.user?.id ?? null,
+          ],
+        );
+        events.push({
+          type: 'document_revision_file',
+          tag: existingKeys.has(item.storageKey) ? 'changed' : 'added',
+          label: item.originalName,
+          scope: [
+            ...revisionScope(owner),
+            { type: 'document_revision', label: owner.revisionName },
+          ],
+          to: owner.revisionName,
+        });
+      }
+
+      await logRevisionEvents(client, owner, req.user?.id, events);
+    });
   } catch (err) {
     for (const item of placed) {
       if (!existingKeys.has(item.storageKey)) unlinkRevisionFile(item.storageKey);
     }
-    discardUploads(req);
     throw err;
-  }
-
-  // `pool.connect()` is inside the try so that a failure to get a client is
-  // covered by the same cleanup as a failed transaction — by this point the
-  // bytes have already left `_tmp`, so nothing else would ever reclaim them.
-  let client: PoolClient | undefined;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const events: AuditEvent[] = [];
-
-    for (const item of placed) {
-      // Re-uploading a file of the same name overwrites it, so the row is
-      // updated in place rather than duplicated (see `placeRevisionFile`).
-      await client.query(
-        `INSERT INTO document_revision_files
-           (document_revision_id, storage_key, original_name, size_bytes, mime_type, uploaded_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (storage_key) DO UPDATE
-           SET size_bytes  = EXCLUDED.size_bytes,
-               mime_type   = EXCLUDED.mime_type,
-               uploaded_by = EXCLUDED.uploaded_by,
-               created_at  = NOW()`,
-        [
-          revisionId,
-          item.storageKey,
-          item.originalName,
-          item.file.size,
-          item.file.mimetype,
-          req.user?.id ?? null,
-        ],
-      );
-      events.push({
-        type: 'document_revision_file',
-        tag: existingKeys.has(item.storageKey) ? 'changed' : 'added',
-        label: item.originalName,
-        scope: [
-          ...revisionScope(owner),
-          { type: 'document_revision', label: owner.revisionName },
-        ],
-        to: owner.revisionName,
-      });
-    }
-
-    await logRevisionEvents(client, owner, req.user?.id, events);
-    await client.query('COMMIT');
-  } catch (err) {
-    await client?.query('ROLLBACK');
-    for (const item of placed) {
-      if (!existingKeys.has(item.storageKey)) unlinkRevisionFile(item.storageKey);
-    }
-    throw err;
-  } finally {
-    client?.release();
   }
 
   res.status(201).json(await loadRevision(owner.scope, revisionId));
-});
+  }),
+);
 
 // DELETE /api/document-revision-files/:fileId
 router.delete('/document-revision-files/:fileId', requireAuth, async (req, res) => {
-  const fileId = requireId(res, req.params.fileId, ErrorCodes.INVALID_DOCUMENT_REVISION_FILE_ID);
-  if (fileId === null) return;
+  const fileId = requireId(req.params.fileId, ErrorCodes.INVALID_DOCUMENT_REVISION_FILE_ID);
 
-  let storageKey: string;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const storageKey = await withTransaction(async (client) => {
     const deleted = await client.query<{
       storage_key: string;
       document_revision_id: number;
@@ -685,11 +622,7 @@ router.delete('/document-revision-files/:fileId', requireAuth, async (req, res) 
       [fileId],
     );
     const row = deleted.rows[0];
-    if (!row) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_NOT_FOUND });
-    }
-    storageKey = row.storage_key;
+    if (!row) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_FILE_NOT_FOUND);
 
     // Without this the change log shows version files appearing and never
     // disappearing, which misrepresents the current state rather than merely
@@ -709,13 +642,9 @@ router.delete('/document-revision-files/:fileId', requireAuth, async (req, res) 
         },
       ]);
     }
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+
+    return row.storage_key;
+  });
 
   unlinkRevisionFile(storageKey);
   res.json({ id: fileId, deleted: true });
@@ -724,8 +653,7 @@ router.delete('/document-revision-files/:fileId', requireAuth, async (req, res) 
 // GET /api/document-revision-files/:fileId/download — the ONLY way to read a
 // version file: server.ts refuses to serve any path with a `revisions` segment.
 router.get('/document-revision-files/:fileId/download', requireAuth, async (req, res) => {
-  const fileId = requireId(res, req.params.fileId, ErrorCodes.INVALID_DOCUMENT_REVISION_FILE_ID);
-  if (fileId === null) return;
+  const fileId = requireId(req.params.fileId, ErrorCodes.INVALID_DOCUMENT_REVISION_FILE_ID);
 
   const result = await query<{
     storage_key: string;
@@ -736,11 +664,11 @@ router.get('/document-revision-files/:fileId/download', requireAuth, async (req,
     [fileId],
   );
   const row = result.rows[0];
-  if (!row) return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_NOT_FOUND });
+  if (!row) throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_FILE_NOT_FOUND);
 
   const absolute = resolveRevisionFilePath(row.storage_key);
   if (!absolute || !fs.existsSync(absolute)) {
-    return res.status(404).json({ code: ErrorCodes.DOCUMENT_REVISION_FILE_MISSING });
+    throw new ApiError(404, ErrorCodes.DOCUMENT_REVISION_FILE_MISSING);
   }
   if (row.mime_type) res.type(row.mime_type);
   return res.download(absolute, row.original_name);

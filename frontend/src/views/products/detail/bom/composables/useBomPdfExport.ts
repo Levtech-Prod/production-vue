@@ -6,7 +6,7 @@ import { useFileSave } from '../../../../../composables/useFileSave.ts';
 export interface BomExportRow {
   name: string;
   code: string;
-  quantity: number | string;
+  quantity: number;
   unit?: string | null;
   mountPosition?: string | null;
   image?: string | null;

@@ -131,7 +131,7 @@ async function onCopyFromChange() {
       partId: p.id,
       name: p.name,
       code: p.code,
-      quantity: Number(p.quantity),
+      quantity: p.quantity,
       unit: p.unit ?? '',
       notes: p.notes ?? '',
       mountPosition: p.mountPosition ?? '',

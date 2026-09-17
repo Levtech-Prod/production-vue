@@ -324,6 +324,7 @@ import ProductModal from './ProductModal.vue';
 import RevisionChip from './RevisionChip.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useProductsStore } from '../../stores/productsStore.ts';
+import { useTableSort } from '../../composables/useTableSort.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { translateApiError } from '../../utils/apiError.ts';
 import type {
@@ -338,41 +339,6 @@ const store = useProductsStore();
 const notify = useNotificationStore();
 
 const products = computed(() => store.list);
-
-// ---- Sorting ----------------------------------------------------------------
-
-type SortKey = 'sku' | 'name' | 'type' | 'revisions';
-type SortDir = 'asc' | 'desc';
-
-const sortKey = ref<SortKey | null>(null);
-const sortDir = ref<SortDir>('asc');
-
-function toggleSort(key: SortKey) {
-  if (sortKey.value === key) {
-    sortDir.value =
-      sortDir.value === 'asc' ? 'desc' : ((sortKey.value = null), 'asc');
-  } else {
-    sortKey.value = key;
-    sortDir.value = 'asc';
-  }
-}
-
-// Lookup table so the comparator stays free of branching.
-const SORT_GETTER: Record<SortKey, (p: ProductSummary) => string | number> = {
-  sku: (p) => p.sku,
-  name: (p) => p.name,
-  type: (p) => p.type ?? '',
-  revisions: (p) => p.revisions.length,
-};
-
-function compareProducts(a: ProductSummary, b: ProductSummary): number {
-  const get = SORT_GETTER[sortKey.value!];
-  const aVal = get(a);
-  const bVal = get(b);
-  if (aVal < bVal) return sortDir.value === 'asc' ? -1 : 1;
-  if (aVal > bVal) return sortDir.value === 'asc' ? 1 : -1;
-  return 0;
-}
 
 // ---- Filters ----------------------------------------------------------------
 
@@ -393,16 +359,28 @@ const uniqueTypes = computed(() => {
   return [...new Set(types)].sort();
 });
 
-const filtered = computed(() => {
+const filteredUnsorted = computed(() => {
   const name = filterName.value.toLowerCase();
   const sku = filterSku.value.toLowerCase();
 
-  const list = productsByStatus.value
+  return productsByStatus.value
     .filter((p) => !name || p.name.toLowerCase().includes(name))
     .filter((p) => !sku || p.sku.toLowerCase().includes(sku))
     .filter((p) => !filterType.value || (p.type ?? '') === filterType.value);
+});
 
-  return sortKey.value ? list.sort(compareProducts) : list;
+// ---- Sorting ----------------------------------------------------------------
+
+const {
+  sortKey,
+  sortDir,
+  toggleSort,
+  sortedRows: filtered,
+} = useTableSort<ProductSummary>(() => filteredUnsorted.value, {
+  sku: (p) => p.sku,
+  name: (p) => p.name,
+  type: (p) => p.type,
+  revisions: (p) => p.revisions.length,
 });
 
 // Revision highlighted in the row: the product's default revision if set,

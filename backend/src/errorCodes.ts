@@ -17,20 +17,23 @@ export const ErrorCodes = {
   CATEGORY_NOT_FOUND: 'CATEGORY_NOT_FOUND',
   INVALID_PARAMETER_ID: 'INVALID_PARAMETER_ID',
   PARAMETER_NOT_FOUND: 'PARAMETER_NOT_FOUND',
-  PARAMETER_UPDATE_FAILED: 'PARAMETER_UPDATE_FAILED',
   CATEGORY_PARAMETERS_IN_USE: 'CATEGORY_PARAMETERS_IN_USE',
-  CATEGORY_UPDATE_FAILED: 'CATEGORY_UPDATE_FAILED',
   CATEGORY_HAS_PARTS: 'CATEGORY_HAS_PARTS',
-  CATEGORY_DELETE_FAILED: 'CATEGORY_DELETE_FAILED',
 
   // parts
   PART_CODE_ALREADY_EXISTS: 'PART_CODE_ALREADY_EXISTS',
   INVALID_PART_ID: 'INVALID_PART_ID',
   PART_NOT_FOUND: 'PART_NOT_FOUND',
-  PART_UPDATE_FAILED: 'PART_UPDATE_FAILED',
   // Category names its parts manually ('custom' mode) but no name was given.
   PART_NAME_REQUIRED: 'PART_NAME_REQUIRED',
-  PART_DELETE_FAILED: 'PART_DELETE_FAILED',
+  // Something still references the row, so the delete is blocked at the
+  // database (none of these FKs carries an ON DELETE). Each is checked before
+  // the DELETE runs, because a raw 23503 reaches the user as a bare 500 that
+  // names neither the obstacle nor a way past it.
+  PART_IN_USE_BY_PROJECT: 'PART_IN_USE_BY_PROJECT',
+  PART_IN_USE_BY_BOM: 'PART_IN_USE_BY_BOM',
+  SUB_PRODUCT_IN_USE_BY_PROJECT: 'SUB_PRODUCT_IN_USE_BY_PROJECT',
+  REVISION_IN_USE_BY_PROJECT: 'REVISION_IN_USE_BY_PROJECT',
 
   // products
   PRODUCT_SKU_ALREADY_EXISTS: 'PRODUCT_SKU_ALREADY_EXISTS',
@@ -142,6 +145,69 @@ export const ErrorCodes = {
   DOCUMENT_LINK_SOURCE_NOT_FOUND: 'DOCUMENT_LINK_SOURCE_NOT_FOUND',
   // That physical file is already on this card in this revision.
   DOCUMENT_ALREADY_LINKED: 'DOCUMENT_ALREADY_LINKED',
+
+  // projects
+  INVALID_PROJECT_ID: 'INVALID_PROJECT_ID',
+  PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
+  // Only a draft project may be edited or deleted.
+  PROJECT_NOT_EDITABLE: 'PROJECT_NOT_EDITABLE',
+  PROJECT_ALREADY_STARTED: 'PROJECT_ALREADY_STARTED',
+  PROJECT_NOT_STARTED: 'PROJECT_NOT_STARTED',
+  PROJECT_HAS_NO_PRODUCTS: 'PROJECT_HAS_NO_PRODUCTS',
+  PROJECT_HAS_NO_PARTS: 'PROJECT_HAS_NO_PARTS',
+  // A BOM line the project depends on has a quantity of zero or less.
+  // `sub_product_revision_parts.quantity` carries no positivity CHECK, so such
+  // rows are representable in data predating the API validation, and
+  // `project_parts.required_qty > 0` would otherwise refuse the freeze as an
+  // unattributable constraint violation.
+  PROJECT_BOM_QUANTITY_INVALID: 'PROJECT_BOM_QUANTITY_INVALID',
+  // The pinned revision does not belong to the product it was added under.
+  PRODUCT_REVISION_MISMATCH: 'PRODUCT_REVISION_MISMATCH',
+  // The same product revision was listed twice in one project's product set.
+  PRODUCT_REVISION_DUPLICATE: 'PRODUCT_REVISION_DUPLICATE',
+  PRODUCT_ARCHIVED: 'PRODUCT_ARCHIVED',
+  // The BOM freeze has not run, so there are no `project_parts` to act on.
+  PROJECT_PARTS_NOT_FROZEN: 'PROJECT_PARTS_NOT_FROZEN',
+  PROJECT_PART_NOT_FOUND: 'PROJECT_PART_NOT_FOUND',
+  // `missing_qty` may never be lowered below what is already on order.
+  MISSING_QTY_BELOW_ORDERED: 'MISSING_QTY_BELOW_ORDERED',
+  // `from_stock_qty` may never be lowered below what has already been
+  // prepared (picked) from it — chk_project_parts_prepared_within_pickable
+  // would otherwise refuse the write as an unattributable constraint
+  // violation once Preparation (phase 3) can put a part in this state.
+  FROM_STOCK_QTY_BELOW_PREPARED: 'FROM_STOCK_QTY_BELOW_PREPARED',
+
+  // project preparation (migration 026)
+  // The (product-in-the-project, sub-product revision) pair is not one this
+  // project froze — a malformed id reads the same as one that doesn't exist.
+  SUB_PRODUCT_NOT_IN_PROJECT: 'SUB_PRODUCT_NOT_IN_PROJECT',
+  SUB_PRODUCT_ALREADY_PREPARED: 'SUB_PRODUCT_ALREADY_PREPARED',
+  SUB_PRODUCT_NOT_PREPARED: 'SUB_PRODUCT_NOT_PREPARED',
+  // At least one of its parts is not yet in hand: what the project holds for
+  // that part (from stock + received, minus what other sub-products have
+  // already taken) is less than this sub-product needs.
+  SUB_PRODUCT_PARTS_UNAVAILABLE: 'SUB_PRODUCT_PARTS_UNAVAILABLE',
+  // Not every line of the sub-product's pick list is complete yet.
+  SUB_PRODUCT_PARTS_NOT_PICKED: 'SUB_PRODUCT_PARTS_NOT_PICKED',
+  // That pick-list line is not one of this project's.
+  PROJECT_PART_USAGE_NOT_FOUND: 'PROJECT_PART_USAGE_NOT_FOUND',
+  // More was picked for one line than that line needs. The per-line ceiling
+  // spans `project_part_usages` and `project_products`, so no CHECK can hold
+  // it — unlike the project-wide one, which chk_project_parts_prepared_within_
+  // pickable does.
+  PICKED_QTY_ABOVE_REQUIRED: 'PICKED_QTY_ABOVE_REQUIRED',
+
+  // project offers
+  OFFER_COMPANY_ALREADY_ADDED: 'OFFER_COMPANY_ALREADY_ADDED',
+  // Removing a company column whose quotes back an order already placed.
+  OFFER_COMPANY_IN_USE: 'OFFER_COMPANY_IN_USE',
+  // Ordering a part from a company that never quoted it.
+  OFFER_PRICE_MISSING: 'OFFER_PRICE_MISSING',
+
+  // orders
+  ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
+  // Ordering more than the part's outstanding `missing_qty - ordered_qty`.
+  ORDER_QUANTITY_EXCEEDS_MISSING: 'ORDER_QUANTITY_EXCEEDS_MISSING',
 
   // generic / global error handler
   VALIDATION_FAILED: 'VALIDATION_FAILED',

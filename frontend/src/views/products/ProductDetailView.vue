@@ -273,6 +273,7 @@
       :cancel-text="t('cancel')"
       :loading="modalSaving"
       variant="primary"
+      initial-focus="confirm"
       @confirm="saveCompositionChanges"
       @cancel="compositionConfirmVisible = false"
     />

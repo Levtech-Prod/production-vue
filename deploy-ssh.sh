@@ -4,8 +4,10 @@
 # Synology over SSH: no File Station uploads, no Container Manager clicking.
 #
 # It builds both images, ships the tar to the NAS, loads it into Docker,
-# recreates the containers via `docker compose up -d`, applies any migration
-# files you pass as arguments, and prints container status.
+# applies any migration files you pass as arguments, and only then recreates
+# the containers via `docker compose up -d` — schema first, so the new code
+# never runs against the old schema. A failed migration stops the deploy with
+# the previous containers still serving.
 #
 # Prereqs (one time):
 #   - SSH enabled on the NAS (Control Panel > Terminal & SNMP > Enable SSH).
@@ -103,17 +105,38 @@ if [[ ${#MIGRATIONS[@]} -gt 0 ]]; then
   done
 fi
 
-# --- Load + restart on the NAS --------------------------------------------
-echo "==> Loading images and recreating containers on the NAS (sudo may prompt)..."
-$SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} load -i ${TAR} && sudo ${DOCKER} compose -p ${PROJECT_NAME} up -d"
+# --- Load the images, then migrate, then start the new code ----------------
+# Order matters, and it is schema first. A migration that NARROWS a column
+# (025 turned the quantity columns into INTEGER) leaves the old code working
+# fine — its casts and conversions are no-ops on the new type — but the new
+# code cannot read the old schema: NUMERIC arrives in node as a string, and
+# quantities would concatenate instead of adding. Starting the new containers
+# first opens exactly that window. The database comes up on its own (a no-op
+# when it is already running), the migrations run against it, and only then do
+# backend and frontend get recreated.
+echo "==> Loading images on the NAS (sudo may prompt)..."
+$SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} load -i ${TAR} && sudo ${DOCKER} compose -p ${PROJECT_NAME} up -d db"
 
-# --- Apply migrations ------------------------------------------------------
+# --- Apply migrations, before the new code can see the old schema ----------
 if [[ ${#MIGRATIONS[@]} -gt 0 ]]; then
+  echo "==> Waiting for the database to accept connections..."
+  # \$i is escaped so the loop runs on the NAS, not in this shell. One SSH
+  # call, not thirty: sudo would prompt on every one of them.
+  $SSH_TTY "sudo ${DOCKER} exec ${DB_CONTAINER} sh -c 'i=0; while [ \$i -lt 30 ]; do pg_isready -U ${DB_USER} -d ${DB_NAME} >/dev/null 2>&1 && exit 0; i=\$((i+1)); sleep 1; done; exit 1'" \
+    || { echo "ERROR: database did not become ready; nothing was migrated and the old containers are still serving."; exit 1; }
   for m in "${MIGRATIONS[@]}"; do
     echo "==> Applying migration $m..."
-    $SSH_TTY "sudo ${DOCKER} exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}"
+    # A failed migration must stop the deploy: the running containers keep
+    # serving the old schema, which is the safe place to stand while it is
+    # investigated.
+    $SSH_TTY "sudo ${DOCKER} exec -i ${DB_CONTAINER} psql -v ON_ERROR_STOP=1 -U ${DB_USER} -d ${DB_NAME} -f /docker-entrypoint-initdb.d/source/migrations/${m}" \
+      || { echo "ERROR: migration $m failed — the new images are loaded but NOT started, and the old ones are still running. Fix the data or the migration, then re-run this script."; exit 1; }
   done
 fi
+
+# --- Now recreate the app containers ---------------------------------------
+echo "==> Recreating backend and frontend on the NAS..."
+$SSH_TTY "cd ${NAS_PATH} && sudo ${DOCKER} compose -p ${PROJECT_NAME} up -d"
 
 # --- Verify ----------------------------------------------------------------
 echo "==> Container status:"

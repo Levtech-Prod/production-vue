@@ -40,7 +40,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 ## Comments
 
 - **Primary rule: if the code is obvious, add no comment.** Default to zero comments. Before adding one, ask "would a reader understand this without it?" — if yes, don't add it. Only comment what the code truly can't say itself: a non-obvious *why*, a trap, a decision someone would otherwise undo.
-- Keep them short — one line where possible, two or three at most. Prefer a clearer name or a small helper over a comment explaining unclear code.
+- **As short as the point allows.** There is no line budget — and no licence to sprawl. Say the thing once and stop. Length is earned only by what genuinely needs it (a trap with a real failure mode, an approach worth naming as rejected); never by padding, restatement, or a second telling of what a plan or design document already says — cite the section instead. Prefer a clearer name or a small helper over a comment explaining unclear code.
 - Don't restate the code, narrate steps, label obvious blocks, or leave TODOs and commented-out code.
 - Worth a comment: why an approach was rejected, a subtle contract (`null` vs `undefined`, ordering, locking), a workaround with its reason, a non-obvious security or performance constraint.
 - Public helpers and exported types get a one-line JSDoc when the name alone isn't enough; skip it when it is.
@@ -53,13 +53,39 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 ## Backend (Express + PostgreSQL)
 
-- All DB queries must be parameterized (no string-concatenated SQL).
+- **Use the shared route helpers.** These exist because the same block was
+  written 40 times; reaching for the raw version is how that comes back.
+  - `withTransaction(fn)` (`src/db.ts`) instead of `pool.connect()` + BEGIN /
+    COMMIT / ROLLBACK / release. Return the response payload from the callback;
+    anything a rollback could not undo (unlinking a file, sending the response)
+    goes *after* the call.
+  - `throw new ApiError(status, ErrorCodes.X)` (`src/apiError.ts`) instead of
+    `return res.status(...).json({ code })`. Throwing is what rolls the
+    transaction back, so a refusal reads as a guard wherever it is discovered.
+    `server.ts` turns it into the response.
+  - `requireId(raw, code)` (`src/routes/routeParams.ts`) for id params — never
+    `Number(req.params.x)`, which accepts `1.5` and `-3`.
+  - `writeAudit(client, entity, id, action, changes, userId)` and
+    `changeSet(fields, events)` (`src/services/audit.ts`) instead of
+    `resolveActor` + `logAudit` and a hand-written "did anything change?" guard.
+  - `isUniqueViolation(err)` / `isForeignKeyViolation(err)` (`src/db.ts`)
+    instead of `catch (err: any)` and a bare `'23505'`.
+- **Tests come in two tiers, and new logic belongs in the first one wherever it
+  can.** `npm run test:unit` runs the suites that need no database or `.env` —
+  pure helpers, and anything testable against a fake client — so they run
+  anywhere, including CI. `npm run test:projectBom` / `test:projectStock` need
+  a dev database and are never pointed at production. All of them share
+  `src/testing/check.ts`; don't hand-roll another `check()`.
+- All DB queries must be parameterized (no string-concatenated SQL). The one
+  exception is a table or column *identifier* that cannot be a bind parameter;
+  it must come from a literal config in the same file, never from request data.
 - Schema/data changes go through `backend/database/migrations`, never manual edits to `schema.sql` alone.
 - Routes return a consistent error shape; no silent `catch` blocks — log or rethrow.
 - Secrets and config only via `.env`, never hardcoded. Update `.env.example` when adding a new var.
 
 ## Frontend (Vue)
 
+- Order the blocks in a `.vue` file `<template>` first, then `<script>` / `<script setup>`, then `<style>`. A component should open with what it renders, and reading two components side by side should not mean hunting for where each one starts. This holds when a file has two script blocks too — both go after the template.
 - Keep single-file components focused; split into sub-components when a file grows too large or mixes unrelated concerns.
 - Shared UI logic goes into composables, not duplicated across components.
 - Use Pinia stores for cross-component state, not prop-drilling or global mutables.
@@ -72,6 +98,7 @@ the same problem, and the cheapest bug to avoid is the one you copy.
 
 - If a better approach exists besides what was asked, propose it in addition to doing the requested task — don't silently substitute it.
 - If a request is ambiguous or missing details needed to do it correctly, ask before proceeding rather than guessing.
+- Never commit or stage changes automatically. Leave edits unstaged in the working tree — don't run `git add` or `git commit` — so the user can review and stage/commit them themselves (e.g. in GitKraken), even after a task that was explicitly requested and completed.
 
 ## Planning & implementation review
 

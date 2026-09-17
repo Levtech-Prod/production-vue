@@ -11,6 +11,9 @@
 // ===========================================================================
 import fs from 'fs';
 import path from 'path';
+import type { PoolClient } from 'pg';
+import { ApiError } from '../apiError.js';
+import { ErrorCodes } from '../errorCodes.js';
 import {
   ensureProductDir,
   ensureSubProductDir,
@@ -69,6 +72,53 @@ export function fileStagedImage(
   fs.renameSync(stagedAbs, path.join(productsDir, entityDir, fileName));
 
   return `${PUBLIC_PREFIX}/${entityDir}/${fileName}`;
+}
+
+/**
+ * File the entity's staged image and write the final path back to its row —
+ * the step every create and update of a product or sub-product performs
+ * identically, and whose three parts are easy to get subtly wrong apart
+ * (refusing a vanished upload, skipping the UPDATE when nothing moved,
+ * keeping the in-memory row in step with the column).
+ *
+ * Mutates `entity.image` so the caller's response and audit diff see the
+ * filed path rather than the `_tmp` one it arrived as.
+ *
+ * Returns the path that was newly filed, which the caller MUST keep: the move
+ * is not transactional, so a rollback has to `removeImageFile` it by hand.
+ * Null means nothing moved and there is nothing to undo.
+ *
+ * The one failure the caller cannot cover is the UPDATE below, which happens
+ * after the rename but before the path has been handed back — so that one is
+ * undone here.
+ */
+export async function fileEntityImage(
+  client: PoolClient,
+  table: 'products' | 'sub_products',
+  entity: FolderEntity & { id: number; image: string | null },
+  parentProduct: FolderEntity | null,
+): Promise<string | null> {
+  if (!entity.image) return null;
+
+  const placed = fileStagedImage(entity.image, entity, parentProduct);
+  // The staged file is gone: an abandoned form swept after 24h, or a resubmit
+  // of a stale payload. Refusing beats storing a path to nothing.
+  if (placed === null) throw new ApiError(400, ErrorCodes.STAGED_IMAGE_MISSING);
+  if (placed === entity.image) return null;
+
+  try {
+    // The table name cannot be a bind parameter and is a literal from the two
+    // call sites, never request data.
+    await client.query(`UPDATE ${table} SET image = $1 WHERE id = $2`, [placed, entity.id]);
+  } catch (err) {
+    // The file has moved but the caller has no handle on it yet, so its own
+    // rollback cleanup would miss it. Nothing else ever would either: the
+    // sweeper only reclaims `_tmp`, and this file has left it.
+    removeImageFile(placed);
+    throw err;
+  }
+  entity.image = placed;
+  return placed;
 }
 
 /**

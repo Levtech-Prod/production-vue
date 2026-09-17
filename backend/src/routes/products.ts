@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { query, pool } from '../db.js';
+import { query, withTransaction, isUniqueViolation, isForeignKeyViolation } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import {
   productPayloadSchema,
@@ -10,13 +11,15 @@ import {
   type ProductStatus,
 } from '../schemas/products.schema.js';
 import {
-  logAudit,
-  resolveActor,
+  writeAudit,
+  changeSet,
   diffFields,
+  imageChange,
   valuesEqual,
 } from '../services/audit.js';
 import { carryForwardOnNewRevision } from '../services/documentFiles.js';
-import { fileStagedImage, removeImageFile } from '../services/entityImages.js';
+import { fileEntityImage, removeImageFile } from '../services/entityImages.js';
+import { requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -29,17 +32,15 @@ async function logProductAudit(
   changes: Record<string, unknown>,
   userId: number | undefined,
 ): Promise<void> {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const actor = await resolveActor(client, userId);
-    await logAudit(client, 'product', productId, 'updated', changes, actor);
-    await client.query('COMMIT');
+    await withTransaction((client) =>
+      writeAudit(client, 'product', productId, 'updated', changes, userId),
+    );
   } catch (err) {
-    await client.query('ROLLBACK');
+    // Deliberately swallowed, and logged rather than dropped: the status
+    // change this describes has already been made, and failing the request
+    // now would tell the user it did not happen.
     console.error('Failed to write product audit log', err);
-  } finally {
-    client.release();
   }
 }
 
@@ -77,8 +78,8 @@ async function resolveSkuConflictOnReactivate(
         [status, `${baseSku}-${suffix}`, productId],
       );
       return result.rows[0];
-    } catch (err: any) {
-      if (err?.code !== '23505') throw err;
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
       // candidate also taken — try the next suffix
     }
   }
@@ -126,78 +127,51 @@ router.get('/', requireAuth, async (_req, res) => {
 router.post('/', requireAuth, async (req, res) => {
   const data = productPayloadSchema.parse(req.body);
   const userId = req.user?.id;
-  const client = await pool.connect();
   // Set once the image is on disk under the product's folder, so a later
   // rollback can take it back off again.
   let filedImage: string | null = null;
   try {
-    await client.query('BEGIN');
-    const productResult = await client.query(
-      `INSERT INTO products (name, sku, type, description, image)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, sku, type, description, image,
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [
-        data.name,
-        data.sku,
-        data.type,
-        data.description || null,
-        data.image || null,
-      ],
-    );
-    const product = productResult.rows[0];
+    const product = await withTransaction(async (client) => {
+      const productResult = await client.query(
+        `INSERT INTO products (name, sku, type, description, image)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, sku, type, description, image,
+           created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [
+          data.name,
+          data.sku,
+          data.type,
+          data.description || null,
+          data.image || null,
+        ],
+      );
+      const created = productResult.rows[0];
 
-    // The image was uploaded to `_tmp` before this row existed. Now that it has
-    // an id, move it into the product's own folder and store the final path.
-    // Image is optional — only a present value needs filing.
-    const placed: string | null = product.image
-      ? fileStagedImage(product.image, product, null)
-      : null;
-    if (placed === null && product.image) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
-    }
-    if (placed !== product.image) {
-      filedImage = placed;
-      await client.query(`UPDATE products SET image = $1 WHERE id = $2`, [
-        placed,
-        product.id,
-      ]);
-      product.image = placed;
-    }
+      // The image was uploaded to `_tmp` before this row existed; now that it
+      // has an id it can be filed under the product's own folder.
+      filedImage = await fileEntityImage(client, 'products', created, null);
 
-    const actor = await resolveActor(client, userId);
-    await logAudit(client, 'product', product.id, 'created', {
-      snapshot: { name: data.name, sku: data.sku, type: data.type },
-    }, actor);
+      await writeAudit(client, 'product', created.id, 'created', {
+        snapshot: { name: data.name, sku: data.sku, type: data.type },
+      }, userId);
 
-    await client.query('COMMIT');
+      return created;
+    });
+
     res.json({ ...product, revisions: [] });
-  } catch (err: any) {
-    await client.query('ROLLBACK');
+  } catch (err) {
     // The move is not transactional; undo it so a failed create leaves no file.
     removeImageFile(filedImage);
-    if (err?.code === '23505') {
-      return res
-        .status(409)
-        .json({ code: ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS });
-    }
+    if (isUniqueViolation(err)) throw new ApiError(409, ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS);
     // `type` must reference an existing product_types.name (see schema.sql).
-    if (err?.code === '23503') {
-      return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
-    }
+    if (isForeignKeyViolation(err)) throw new ApiError(422, ErrorCodes.INVALID_PRODUCT_TYPE);
     throw err;
-  } finally {
-    client.release();
   }
 });
 
 // GET /api/products/:productId — full detail (product + sub-products + revisions)
 router.get('/:productId', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
 
   const productResult = await query(
     `SELECT id, name, sku, type, image, description, status,
@@ -207,7 +181,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
     [productId],
   );
   if (productResult.rowCount === 0) {
-    return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
+    throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
   }
   const product = productResult.rows[0];
 
@@ -294,10 +268,7 @@ router.get('/:productId', requireAuth, async (req, res) => {
 
 // GET /api/products/:productId/revisions — just the revision list
 router.get('/:productId/revisions', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
   const result = await query(
     `SELECT id, revision_number AS "revisionNumber", label, status,
        change_notes AS "changeNotes", created_at AS "createdAt"
@@ -311,24 +282,15 @@ router.get('/:productId/revisions', requireAuth, async (req, res) => {
 
 // POST /api/products/:productId/revisions — new revision (optionally duplicate)
 router.post('/:productId/revisions', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
   const data = newRevisionSchema.parse(req.body);
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const newRevision = await withTransaction(async (client) => {
     const productExists = await client.query(
       `SELECT id FROM products WHERE id = $1`,
       [productId],
     );
-    if (productExists.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+    if (productExists.rowCount === 0) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
 
     const newRevResult = await client.query(
       `INSERT INTO product_revisions
@@ -343,7 +305,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
          change_notes AS "changeNotes", created_at AS "createdAt"`,
       [productId, data.label, data.changeNotes || null, req.user?.id ?? null],
     );
-    const newRevision = newRevResult.rows[0];
+    const revision = newRevResult.rows[0];
 
     // A product with no default revision has nothing for this one to be
     // "default" instead of — make it the default automatically. Keyed on the
@@ -353,7 +315,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
     await client.query(
       `UPDATE products SET default_revision_id = $1
        WHERE id = $2 AND default_revision_id IS NULL`,
-      [newRevision.id, productId],
+      [revision.id, productId],
     );
 
     // When duplicating, copy the sub-product-revision links from the source.
@@ -369,7 +331,7 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
          JOIN product_revisions source ON source.id = prsp.product_revision_id
          WHERE prsp.product_revision_id = $2
            AND source.product_id = $3`,
-        [newRevision.id, data.duplicateFromId, productId],
+        [revision.id, data.duplicateFromId, productId],
       );
     }
 
@@ -381,33 +343,25 @@ router.post('/:productId/revisions', requireAuth, async (req, res) => {
       client,
       'product',
       productId,
-      newRevision.id,
+      revision.id,
       data.duplicateFromId,
       data.documentsFromId,
     );
 
     // Product-level log: a new revision was created.
-    const actor = await resolveActor(client, req.user?.id);
-    await logAudit(client, 'product', productId, 'updated', {
-      events: [{ type: 'revision', tag: 'added', label: newRevision.label }],
-    }, actor);
+    await writeAudit(client, 'product', productId, 'updated', {
+      events: [{ type: 'revision', tag: 'added', label: revision.label }],
+    }, req.user?.id);
 
-    await client.query('COMMIT');
-    res.json(newRevision);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    return revision;
+  });
+
+  res.json(newRevision);
 });
 
 // PATCH /api/products/:productId/default-revision — set/clear default revision
 router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
   const data = setDefaultRevisionSchema.parse(req.body);
   const userId = req.user?.id;
 
@@ -417,14 +371,10 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
       `SELECT id FROM product_revisions WHERE id = $1 AND product_id = $2`,
       [data.revisionId, productId],
     );
-    if (check.rowCount === 0) {
-      return res.status(404).json({ code: ErrorCodes.REVISION_NOT_FOUND });
-    }
+    if (check.rowCount === 0) throw new ApiError(404, ErrorCodes.REVISION_NOT_FOUND);
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const out = await withTransaction(async (client) => {
     const result = await client.query(
       `UPDATE products SET default_revision_id = $1
        FROM (SELECT id, default_revision_id FROM products WHERE id = $2) old
@@ -433,10 +383,7 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
          old.default_revision_id AS "oldDefaultRevisionId"`,
       [data.revisionId, productId],
     );
-    if (result.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+    if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
 
     const row = result.rows[0];
     if (!valuesEqual(row.oldDefaultRevisionId, row.defaultRevisionId)) {
@@ -450,79 +397,64 @@ router.patch('/:productId/default-revision', requireAuth, async (req, res) => {
         ? labelById.get(row.oldDefaultRevisionId) ?? null : null;
       const to = row.defaultRevisionId != null
         ? labelById.get(row.defaultRevisionId) ?? null : null;
-      const actor = await resolveActor(client, userId);
-      await logAudit(client, 'product', productId, 'updated', {
+      await writeAudit(client, 'product', productId, 'updated', {
         events: [{
           type: 'default_revision',
           tag: from && to ? 'changed' : to ? 'added' : 'removed',
           from,
           to,
         }],
-      }, actor);
+      }, userId);
     }
 
-    await client.query('COMMIT');
-    const { oldDefaultRevisionId: _o, ...out } = row;
-    res.json(out);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    const { oldDefaultRevisionId: _o, ...rest } = row;
+    return rest;
+  });
+
+  res.json(out);
 });
 
 // PATCH /api/products/:productId/status — archive or re-activate a product
 router.patch('/:productId/status', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
   const data = setProductStatusSchema.parse(req.body);
   const userId = req.user?.id;
-  const client = await pool.connect();
-
   try {
-    await client.query('BEGIN');
-    // Capture the previous status so the audit records the transition.
-    const result = await client.query(
-      `UPDATE products SET status = $1, updated_at = NOW()
-       FROM (SELECT id, status FROM products WHERE id = $2) old
-       WHERE products.id = old.id
-       RETURNING products.id, products.sku, products.status,
-         products.updated_at AS "updatedAt", old.status AS "oldStatus"`,
-      [data.status, productId],
-    );
-    if (result.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+    const out = await withTransaction(async (client) => {
+      // Capture the previous status so the audit records the transition.
+      const result = await client.query(
+        `UPDATE products SET status = $1, updated_at = NOW()
+         FROM (SELECT id, status FROM products WHERE id = $2) old
+         WHERE products.id = old.id
+         RETURNING products.id, products.sku, products.status,
+           products.updated_at AS "updatedAt", old.status AS "oldStatus"`,
+        [data.status, productId],
+      );
+      if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
 
-    const row = result.rows[0];
-    if (!valuesEqual(row.oldStatus, row.status)) {
-      const actor = await resolveActor(client, userId);
-      await logAudit(client, 'product', productId, 'updated', {
-        fields: { status: { from: row.oldStatus, to: row.status } },
-      }, actor);
-    }
+      const row = result.rows[0];
+      await writeAudit(
+        client,
+        'product',
+        productId,
+        'updated',
+        changeSet(diffFields({ status: row.oldStatus }, { status: row.status }, ['status'])),
+        userId,
+      );
 
-    await client.query('COMMIT');
-    const { oldStatus: _prev, ...out } = row;
-    return res.json(out);
-  } catch (err: any) {
-    await client.query('ROLLBACK');
+      const { oldStatus: _prev, ...rest } = row;
+      return rest;
+    });
+
+    res.json(out);
+  } catch (err) {
     // Archiving never conflicts (archived rows sit outside the partial
     // unique index), so a 23505 here only happens on reactivation.
-    if (err?.code !== '23505' || data.status !== 'active') {
-      throw err;
-    }
-    const reactivated = await resolveSkuConflictOnReactivate(
-      productId,
-      data.status,
-    );
-    if (!reactivated) {
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+    if (!isUniqueViolation(err) || data.status !== 'active') throw err;
+
+    const reactivated = await resolveSkuConflictOnReactivate(productId, data.status);
+    if (!reactivated) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
+
     // The conflict path resolves outside the aborted transaction; record the
     // reactivation separately (best-effort).
     await logProductAudit(
@@ -530,122 +462,80 @@ router.patch('/:productId/status', requireAuth, async (req, res) => {
       { fields: { status: { from: 'archived', to: 'active' } } },
       userId,
     );
-    return res.json(reactivated);
-  } finally {
-    client.release();
+    res.json(reactivated);
   }
 });
 
 // PATCH /api/products/:productId — update product fields
 router.patch('/:productId', requireAuth, async (req, res) => {
-  const productId = Number(req.params.productId);
-  if (!productId || Number.isNaN(productId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PRODUCT_ID });
-  }
+  const productId = requireId(req.params.productId, ErrorCodes.INVALID_PRODUCT_ID);
   const data = productPayloadSchema.parse(req.body);
   const userId = req.user?.id;
-  const client = await pool.connect();
   let filedImage: string | null = null;
 
   try {
-    await client.query('BEGIN');
+    const productOut = await withTransaction(async (client) => {
+      // Capture old + new in one statement (see parts.ts) for the audit diff.
+      const result = await client.query(
+        `UPDATE products
+         SET name = $1, sku = $2, type = $3, description = $4, image = $5,
+             updated_at = NOW()
+         FROM (SELECT * FROM products WHERE id = $6) old
+         WHERE products.id = old.id
+         RETURNING products.id, products.name, products.sku, products.type,
+           products.description, products.image,
+           products.created_at AS "createdAt", products.updated_at AS "updatedAt",
+           old.name        AS "oldName",
+           old.sku         AS "oldSku",
+           old.type        AS "oldType",
+           old.description AS "oldDescription",
+           old.image       AS "oldImage"`,
+        [
+          data.name,
+          data.sku,
+          data.type,
+          data.description || null,
+          data.image || null,
+          productId,
+        ],
+      );
+      if (result.rowCount === 0) throw new ApiError(404, ErrorCodes.PRODUCT_NOT_FOUND);
 
-    // Capture old + new in one statement (see parts.ts) for the audit diff.
-    const result = await client.query(
-      `UPDATE products
-       SET name = $1, sku = $2, type = $3, description = $4, image = $5,
-           updated_at = NOW()
-       FROM (SELECT * FROM products WHERE id = $6) old
-       WHERE products.id = old.id
-       RETURNING products.id, products.name, products.sku, products.type,
-         products.description, products.image,
-         products.created_at AS "createdAt", products.updated_at AS "updatedAt",
-         old.name        AS "oldName",
-         old.sku         AS "oldSku",
-         old.type        AS "oldType",
-         old.description AS "oldDescription",
-         old.image       AS "oldImage"`,
-      [
-        data.name,
-        data.sku,
-        data.type,
-        data.description || null,
-        data.image || null,
-        productId,
-      ],
-    );
-    if (result.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ code: ErrorCodes.PRODUCT_NOT_FOUND });
-    }
+      const row = result.rows[0];
+      filedImage = await fileEntityImage(client, 'products', row, null);
 
-    const row = result.rows[0];
+      const fields = diffFields(
+        { name: row.oldName, sku: row.oldSku, type: row.oldType, description: row.oldDescription },
+        { name: row.name, sku: row.sku, type: row.type, description: row.description },
+        ['name', 'sku', 'type', 'description'],
+      ) as Record<string, { from: unknown; to: unknown }>;
 
-    // Image is optional — only a present value needs filing.
-    const placed: string | null = row.image
-      ? fileStagedImage(row.image, row, null)
-      : null;
-    if (placed === null && row.image) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ code: ErrorCodes.STAGED_IMAGE_MISSING });
-    }
-    if (placed !== row.image) {
-      filedImage = placed;
-      await client.query(`UPDATE products SET image = $1 WHERE id = $2`, [
-        placed,
-        productId,
-      ]);
-      row.image = placed;
-    }
+      const image = imageChange(row.oldImage, row.image);
+      if (image) fields.image = image;
 
-    const fields = diffFields(
-      { name: row.oldName, sku: row.oldSku, type: row.oldType, description: row.oldDescription },
-      { name: row.name, sku: row.sku, type: row.type, description: row.description },
-      ['name', 'sku', 'type', 'description'],
-    ) as Record<string, { from: unknown; to: unknown }>;
+      await writeAudit(client, 'product', productId, 'updated', changeSet(fields), userId);
 
-    if (!valuesEqual(row.oldImage, row.image)) {
-      fields.image = {
-        from: row.oldImage ? '(image)' : null,
-        to: row.image ? '(image)' : null,
-      };
-    }
-
-    if (Object.keys(fields).length > 0) {
-      const actor = await resolveActor(client, userId);
-      await logAudit(client, 'product', productId, 'updated', { fields }, actor);
-    }
-
-    await client.query('COMMIT');
+      const {
+        oldName: _on,
+        oldSku: _os,
+        oldType: _ot,
+        oldDescription: _od,
+        oldImage,
+        ...rest
+      } = row;
+      return { rest, replaced: image ? oldImage : null };
+    });
 
     // Post-commit, like `unlinkStoredFile`: an unlink cannot be rolled back, so
     // the replaced file only goes once the new one is durably recorded.
-    if (!valuesEqual(row.oldImage, row.image)) removeImageFile(row.oldImage);
-
-    const {
-      oldName: _on,
-      oldSku: _os,
-      oldType: _ot,
-      oldDescription: _od,
-      oldImage: _oi,
-      ...productOut
-    } = row;
-    res.json(productOut);
-  } catch (err: any) {
-    await client.query('ROLLBACK');
+    removeImageFile(productOut.replaced);
+    res.json(productOut.rest);
+  } catch (err) {
     removeImageFile(filedImage);
-    if (err?.code === '23505') {
-      return res
-        .status(409)
-        .json({ code: ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS });
-    }
+    if (isUniqueViolation(err)) throw new ApiError(409, ErrorCodes.PRODUCT_SKU_ALREADY_EXISTS);
     // `type` must reference an existing product_types.name (see schema.sql).
-    if (err?.code === '23503') {
-      return res.status(422).json({ code: ErrorCodes.INVALID_PRODUCT_TYPE });
-    }
+    if (isForeignKeyViolation(err)) throw new ApiError(422, ErrorCodes.INVALID_PRODUCT_TYPE);
     throw err;
-  } finally {
-    client.release();
   }
 });
 

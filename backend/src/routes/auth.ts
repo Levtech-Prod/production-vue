@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { query } from '../db.js';
+import { query, isUniqueViolation } from '../db.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { signupSchema, loginSchema } from '../schemas/auth.schema.js';
 
@@ -24,8 +25,8 @@ router.post('/signup', async (req, res) => {
     const user = result.rows[0];
     const token = signToken({ id: user.id, email: user.email, admin: user.admin });
     res.json({ user, token });
-  } catch (err: any) {
-    if (err.code === '23505') return res.status(409).json({ code: ErrorCodes.EMAIL_ALREADY_EXISTS });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new ApiError(409, ErrorCodes.EMAIL_ALREADY_EXISTS);
     throw err;
   }
 });
@@ -38,9 +39,9 @@ router.post('/login', async (req, res) => {
     [data.email]
   );
   const user = result.rows[0];
-  if (!user) return res.status(401).json({ code: ErrorCodes.INVALID_CREDENTIALS });
+  if (!user) throw new ApiError(401, ErrorCodes.INVALID_CREDENTIALS);
   const ok = await bcrypt.compare(data.password, user.passwordHash);
-  if (!ok) return res.status(401).json({ code: ErrorCodes.INVALID_CREDENTIALS });
+  if (!ok) throw new ApiError(401, ErrorCodes.INVALID_CREDENTIALS);
   const safeUser = { id: user.id, username: user.username, email: user.email, phone: user.phone, admin: user.admin, createdAt: user.createdAt };
   res.json({ user: safeUser, token: signToken({ id: user.id, email: user.email, admin: user.admin }) });
 });

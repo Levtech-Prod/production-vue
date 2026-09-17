@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { tmpDir, TMP_PUBLIC_PREFIX } from '../services/uploadPaths.js';
 
@@ -77,16 +78,9 @@ router.post('/upload/:target', upload.single('file'), (req, res) => {
   const target = req.params.target as UploadTarget;
 
   if (!allowedTargets.includes(target)) {
-    return res.status(400).json({
-      code: ErrorCodes.INVALID_UPLOAD_TARGET,
-    });
+    throw new ApiError(400, ErrorCodes.INVALID_UPLOAD_TARGET);
   }
-
-  if (!req.file) {
-    return res.status(400).json({
-      code: ErrorCodes.NO_FILE_UPLOADED,
-    });
-  }
+  if (!req.file) throw new ApiError(400, ErrorCodes.NO_FILE_UPLOADED);
 
   // `temp` maps to the `_tmp` folder, not a folder literally named "temp".
   const publicDir = target === 'temp' ? TMP_PUBLIC_PREFIX : `/uploads/${target}`;

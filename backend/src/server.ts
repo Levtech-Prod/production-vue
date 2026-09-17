@@ -19,6 +19,8 @@ import documentRevisionRoutes from './routes/documentRevisions.js';
 import companyRoutes from './routes/companies.js';
 import stockEntryRoutes from './routes/stockEntries.js';
 import auditLogRoutes from './routes/auditLogs.js';
+import projectRoutes from './routes/projects.js';
+import { ApiError } from './apiError.js';
 import { ErrorCodes } from './errorCodes.js';
 import { startTmpSweeper } from './services/tmpSweeper.js';
 
@@ -39,6 +41,7 @@ app.use('/api/sub-product-types', subProductTypeRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/stock-entries', stockEntryRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/projects', projectRoutes);
 
 // A revision-mode document type with no extension list accepts every file
 // extension, so its version files must never be reachable as static content —
@@ -101,6 +104,13 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    // A handler that already decided what to say: status and code travel with
+    // the error, which is what lets a route refuse from inside a transaction
+    // without unwinding it by hand (see `withTransaction`).
+    if (err instanceof ApiError) {
+      return res.status(err.status).json({ code: err.code, ...err.payload });
+    }
+
     // Validation errors: return structured, machine-readable issues so the
     // frontend can render localized, field-level messages.
     if (err instanceof ZodError) {

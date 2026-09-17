@@ -75,8 +75,8 @@ export function sideQty(side: ComparePartSide | null): string {
  *  to diff against (single mode, or the row is only present on one side). */
 export function qtyDelta(row: ComparePartRow, isSingle: boolean): string {
   if (isSingle || !row.inA || !row.inB) return '';
-  const d = Number(row.inB.quantity) - Number(row.inA.quantity);
-  if (Number.isNaN(d) || d === 0) return '';
+  const d = row.inB.quantity - row.inA.quantity;
+  if (d === 0) return '';
   return d > 0 ? `+${d}` : `${d}`;
 }
 

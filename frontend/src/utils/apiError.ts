@@ -5,6 +5,10 @@
 // backend/src/errorCodes.ts. This looks up `errors.<code>` in the i18n
 // messages and falls back to a caller-supplied, context-specific key (and
 // finally to `errors.UNKNOWN`) when the code is missing or unrecognized.
+//
+// Any extra fields the response carries beside `code` are handed to the
+// translation as named parameters, so an error can say which rows are at
+// fault rather than only that something was.
 
 export interface I18nLike {
   t: (key: string, named?: Record<string, unknown>) => string;
@@ -28,7 +32,12 @@ export function translateApiError(
   const details = err?.response?.data?.details;
   if (details) console.error('[api]', code, details);
 
-  if (codeKey && te(codeKey)) return t(codeKey);
-  if (te(fallbackKey)) return t(fallbackKey);
+  // The response body is passed as named parameters, so a code whose message
+  // needs to name something — which parts have a bad quantity, say — can
+  // interpolate it. A message with no placeholders ignores them.
+  const named = (err?.response?.data ?? {}) as Record<string, unknown>;
+
+  if (codeKey && te(codeKey)) return t(codeKey, named);
+  if (te(fallbackKey)) return t(fallbackKey, named);
   return t(UNKNOWN_ERROR_KEY);
 }

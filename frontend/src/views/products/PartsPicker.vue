@@ -64,7 +64,7 @@
             <input
               v-model.number="row.quantity"
               type="number"
-              min="0"
+              min="1"
               step="1"
               class="input !py-1"
               required
@@ -128,7 +128,10 @@ const { fieldErrors: rowErrors, validate, resetValidation } = useRequiredFieldVa
   model.value.map((row, i) => ({
     key: String(i),
     label: t('quantity'),
-    missing: !Number.isFinite(Number(row.quantity)) || `${row.quantity}`.trim() === '',
+    // >= 1, not merely present: a BOM line of zero parts is not a line, and
+    // catching it here is what turns it into a field message instead of a
+    // validation error from the API. Same test as ProjectProductsEditor.
+    missing: !(Number(row.quantity) >= 1),
   })),
 );
 

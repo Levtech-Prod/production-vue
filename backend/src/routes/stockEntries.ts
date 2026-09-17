@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { query, pool } from '../db.js';
+import { query, withTransaction, isForeignKeyViolation } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { ApiError } from '../apiError.js';
 import { ErrorCodes } from '../errorCodes.js';
 import { stockEntryPayloadSchema } from '../schemas/stockEntries.schema.js';
 import { convertToEur } from '../services/exchangeRates.js';
+import { requireId } from './routeParams.js';
 
 const router = Router();
 
@@ -50,10 +52,7 @@ async function fetchEntriesByIds(ids: number[]) {
 
 // GET /api/stock-entries?partId=:id — all movements for a part, newest first
 router.get('/', requireAuth, async (req, res) => {
-  const partId = Number(req.query.partId);
-  if (!partId || Number.isNaN(partId)) {
-    return res.status(400).json({ code: ErrorCodes.INVALID_PART_ID });
-  }
+  const partId = requireId(req.query.partId, ErrorCodes.INVALID_PART_ID);
 
   const result = await query(
     `${SELECT_ENTRY}
@@ -101,20 +100,17 @@ router.post('/', requireAuth, async (req, res) => {
       const entry = await fetchEntryById(result.rows[0].id);
       // A received entry doesn't alter existing rows, so nothing else changed.
       return res.status(201).json({ entry, affectedReceived: [] });
-    } catch (err: any) {
-      if (err?.code === '23503') {
-        // FK violation: part or company doesn't exist
-        return res.status(404).json({ code: ErrorCodes.STOCK_ENTRY_SAVE_FAILED });
+    } catch (err) {
+      // FK violation: part or company doesn't exist.
+      if (isForeignKeyViolation(err)) {
+        throw new ApiError(404, ErrorCodes.STOCK_ENTRY_SAVE_FAILED);
       }
       throw err;
     }
   }
 
   // type === 'removed' — FIFO deduction inside a transaction
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  const removal = await withTransaction(async (client) => {
     // Lock available received entries oldest-first to prevent races
     const entriesResult = await client.query<{ id: number; available: string }>(
       `SELECT id, (quantity - quantity_consumed) AS available
@@ -133,8 +129,7 @@ router.post('/', requireAuth, async (req, res) => {
     );
 
     if (totalAvailable < data.quantity) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ code: ErrorCodes.INSUFFICIENT_STOCK });
+      throw new ApiError(409, ErrorCodes.INSUFFICIENT_STOCK);
     }
 
     // Deduct from oldest batches first, tracking which received rows changed
@@ -161,21 +156,20 @@ router.post('/', requireAuth, async (req, res) => {
       [data.partId, data.quantity, data.note, userId ?? null],
     );
 
-    await client.query('COMMIT');
+    return { id: removalResult.rows[0].id, affectedIds };
+  });
 
-    // Return the removal plus the drawn-down received rows so the client can
-    // patch its cache (fresh quantityConsumed) without a follow-up refetch.
-    const [entry, affectedReceived] = await Promise.all([
-      fetchEntryById(removalResult.rows[0].id),
-      fetchEntriesByIds(affectedIds),
-    ]);
-    return res.status(201).json({ entry, affectedReceived });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  // Read back outside the transaction — these are plain reads of committed
+  // rows, and inside they used to sit after COMMIT under a catch that would
+  // have tried to roll back a transaction that had already ended.
+  //
+  // The removal plus the drawn-down received rows, so the client can patch its
+  // cache (fresh quantityConsumed) without a follow-up refetch.
+  const [entry, affectedReceived] = await Promise.all([
+    fetchEntryById(removal.id),
+    fetchEntriesByIds(removal.affectedIds),
+  ]);
+  res.status(201).json({ entry, affectedReceived });
 });
 
 export default router;

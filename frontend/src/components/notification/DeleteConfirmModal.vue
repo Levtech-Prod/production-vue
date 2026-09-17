@@ -2,9 +2,11 @@
   <ConfirmModal
     :visible="target != null"
     :title="t(titleKey)"
-    :message="`${t(messageKey)}${subject ? `: ${subject}` : ''}`"
-    :confirm-text="t('delete')"
+    :message="`${t(messageKey, messageParams ?? {})}${subject ? `: ${subject}` : ''}`"
+    :confirm-text="t(confirmTextKey ?? 'delete')"
     :cancel-text="t('cancel')"
+    :variant="variant"
+    :initial-focus="initialFocus"
     :loading="loading"
     @confirm="emit('confirm')"
     @cancel="emit('cancel')"
@@ -17,12 +19,15 @@ import { useI18n } from 'vue-i18n';
 import ConfirmModal from './ConfirmModal.vue';
 
 /**
- * The "are you sure you want to delete X" shape, which every delete
- * confirmation on the product detail page repeats: visible while a target is
- * held, the target's name appended to the body copy, and the same two buttons.
+ * The "are you sure you want to do X to Y" shape, which every confirmation on
+ * the product detail page repeats: visible while a target is held, the
+ * target's name appended to the body copy, and the same two buttons.
  *
  * Pairs with `useConfirmDelete`, whose `target` / `busy` / `confirm` / `cancel`
- * map straight onto these props and events.
+ * map straight onto these props and events. Both names say "delete" because
+ * that is what they were written for; `confirmTextKey` and `variant` are what
+ * widened this one to the project Start and Stop confirmations. Renaming the
+ * pair would touch working call sites for no behaviour change (plan §11.4).
  */
 // Generic so `label` is checked against the actual target type at each call
 // site rather than degrading to `any`.
@@ -33,8 +38,17 @@ const props = defineProps<{
   titleKey: string;
   /** i18n key for the body, e.g. 'confirmations.delete_firmware_msg'. */
   messageKey: string;
+  /** Interpolation values, for a body whose text names a number or a name the
+   *  caller has to supply. Omit for the usual message that takes none. */
+  messageParams?: Record<string, unknown>;
   /** How to name the target in the body. Omit for a nameless confirmation. */
   label?: (target: T) => string;
+  /** i18n key for the confirm button; defaults to 'delete'. */
+  confirmTextKey?: string;
+  /** Confirm button colour, defaulting to the destructive red. */
+  variant?: 'danger' | 'primary';
+  /** Which button opens focused; defaults to Cancel. See ConfirmModal. */
+  initialFocus?: 'cancel' | 'confirm';
   loading?: boolean;
 }>();
 
