@@ -3,9 +3,10 @@
 // the reference-price precedence, and the payload rules the bulk price write
 // leans on to stay a single statement (§3.5, §5.2).
 //
-// Both are here for the same reason `projectPartAudit.test.ts` is: they are
-// rules, not queries, and a rule that lives only inside an Express handler is
-// one nothing in this repo can check.
+// Both are here for the same reason `projectBom.unit.test.ts` is: they are
+// rules, not queries, so they need no database. Everything in this module
+// that DOES need one — the grid read, the bulk write, the cascade and the
+// refusals — is in `projectOffers.test.ts` beside it.
 //
 // Run: npm run test:unit
 // ===========================================================================

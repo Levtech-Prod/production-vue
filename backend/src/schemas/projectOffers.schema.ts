@@ -29,19 +29,28 @@ export const offerPriceCellSchema = z.object({
 export type OfferPriceCell = z.infer<typeof offerPriceCellSchema>;
 
 /**
+ * The most cells one request may carry. A sanity bound on one statement, not a
+ * business rule: §6.5's clipboard import writes one company's column at once.
+ *
+ * Exported because the cap is all-or-nothing — over it the whole batch is
+ * refused and NOTHING is written — so a client that flushes every dirty cell
+ * at once (several columns on a large project) has to chunk to this size
+ * rather than discover the limit by losing an afternoon of typing. The 422
+ * also carries zod's `maximum`, which `server.ts` forwards, so a client that
+ * did not chunk can still read the number back off the refusal.
+ */
+export const MAX_OFFER_PRICE_CELLS = 1000;
+
+/**
  * `PUT /api/projects/:id/offer/prices` — a whole edited column in one request
  * (§5.2). Wrapped in an object rather than sent as a bare array, matching
  * `projectPartPicksSchema`, the other bulk write in this module.
- *
- * The cap is a sanity bound on one paste, not a business rule: §6.5's
- * clipboard import writes one company's column at once, and a project with a
- * thousand distinct parts to quote is a different problem than this endpoint.
  */
 export const offerPricesPayloadSchema = z.object({
   prices: z
     .array(offerPriceCellSchema)
     .min(1)
-    .max(1000)
+    .max(MAX_OFFER_PRICE_CELLS)
     // The upsert writes the batch in one statement, and Postgres refuses an
     // ON CONFLICT that would touch the same row twice ("cannot affect row a
     // second time", 21000) — a 500 for what is plainly a bad request.

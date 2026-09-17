@@ -49,6 +49,17 @@ export interface BoardCardFilter {
   statuses?: ProjectStatus[];
   q?: string | null;
   projectIds?: number[];
+  /**
+   * Read each project's sub-product tallies (default true). The board needs
+   * them; the offer queue, which shows a name and a to-buy count, does not —
+   * and `loadBoardSubProducts` is a six-table grouped aggregate over every
+   * `project_part_usages` row of every project asked for, the largest table in
+   * the module. A caller that passes false gets `subProducts: []` and both
+   * preparation flags false, and must not read them: they say "not asked for",
+   * not "none". The buying counts are unaffected, which is the point — the
+   * membership rule stays in one query.
+   */
+  withSubProducts?: boolean;
 }
 
 type BoardCardRow = Omit<
@@ -115,10 +126,13 @@ export async function loadBoardCards(
   // project, not only the ones in a derived column — a stopped project's
   // preparation state is part of the record, and the membership flags below
   // are what keep its cards off the board.
-  const subProductsByProject = await loadBoardSubProducts(
-    db,
-    result.rows.map((row) => row.id),
-  );
+  const subProductsByProject =
+    filter.withSubProducts === false
+      ? new Map<number, ProjectBoardSubProduct[]>()
+      : await loadBoardSubProducts(
+          db,
+          result.rows.map((row) => row.id),
+        );
 
   // Column membership (§4.1): *Offers* and *Ordered* are ANY ("some parts
   // still need buying"). *Preparation* and *Prepared* are per sub-product
