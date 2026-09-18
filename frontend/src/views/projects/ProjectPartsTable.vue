@@ -48,18 +48,12 @@
               class="cursor-pointer select-none px-4 py-2 hover:bg-blue-200"
               @click="toggleSort(col.key)"
             >
-              <span class="inline-flex items-center gap-1">
-                {{ t(col.labelKey) }}
-                <ChevronUp
-                  v-if="sortKey === col.key && sortDir === 'asc'"
-                  class="h-3.5 w-3.5"
-                />
-                <ChevronDown
-                  v-else-if="sortKey === col.key && sortDir === 'desc'"
-                  class="h-3.5 w-3.5"
-                />
-                <ChevronsUpDown v-else class="h-3.5 w-3.5 text-blue-400" />
-              </span>
+              <SortLabel
+                :label="t(col.labelKey)"
+                :sort-key="col.key"
+                :active-key="sortKey"
+                :dir="sortDir"
+              />
             </th>
           </tr>
         </thead>
@@ -113,18 +107,18 @@
             <td class="px-4 py-2 tabular-nums">{{ row.reservedQty }}</td>
             <td class="px-4 py-2">
               <input
-                :ref="(el) => registerMissingInput(row, el)"
+                :ref="(el) => quantity.registerInput(row.part.id, el)"
                 type="number"
                 min="0"
                 step="1"
                 class="input-cell w-20 tabular-nums"
                 :class="row.missingQtyOverridden ? 'ring-1 ring-blue-300' : ''"
                 :title="row.missingQtyOverridden ? t('purchase_quantity_overridden_hint') : ''"
-                :value="displayedMissing(row)"
+                :value="quantity.displayed(quantityTarget(row))"
                 :disabled="!quantityEditable"
                 @keydown="blockNonIntegerKeys"
-                @input="onMissingInput(row, $event)"
-                @blur="flushMissing(row)"
+                @input="quantity.onInput(quantityTarget(row), $event)"
+                @blur="quantity.flush(quantityTarget(row))"
               />
             </td>
             <td class="px-4 py-2 tabular-nums text-slate-500">{{ row.orderedQty }}</td>
@@ -148,12 +142,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ChevronDown, ChevronUp, ChevronsUpDown, RefreshCw, Search, TriangleAlert } from 'lucide-vue-next';
+import { RefreshCw, Search, TriangleAlert } from 'lucide-vue-next';
+import SortLabel from '../../components/SortLabel.vue';
 import ConfirmModal from '../../components/notification/ConfirmModal.vue';
 import { useScopedCache } from '../../composables/useScopedCache.ts';
 import { useTableSort } from '../../composables/useTableSort.ts';
+import {
+  useProjectPartQuantity,
+  type QuantityTarget,
+} from '../../composables/useProjectPartQuantity.ts';
 import { projectsApi } from '../../api/projectsAPI.ts';
 import { useNotificationStore } from '../../stores/notificationStore.ts';
 import { useProjectsStore } from '../../stores/projectsStore.ts';
@@ -280,124 +279,38 @@ function productsBreakdown(row: ProjectPartRow): string {
 
 // ---- Purchase quantity edit (§6.4, §12) ------------------------------------
 //
-// A debounced PATCH per row, keyed by `part.id` — the one key both forms of
-// the table share, and the only one a draft has (its rows carry `id: null`
-// until Start freezes them). The value shown while a write is in flight (or
-// about to be) is the locally typed one; when the write lands, the row the
-// response carries replaces the stored one in place. It used to re-read the
-// whole table instead, per edited cell: the server already resolves and
-// returns the row, so the reload was the same numbers fetched a second time.
+// The edit itself lives in `useProjectPartQuantity`: the offer grid's quantity
+// column is the same number through the same endpoint (§6.5), and the rules
+// around it — an emptied box is not a zero, never below `ordered_qty`, put the
+// stored number back when a write is refused — must not be able to differ
+// between the two screens. What stays here is what is local to this table:
+// which row the composable is looking at, and where the answer goes.
 
-const MISSING_QTY_DEBOUNCE_MS = 500;
+const quantity = useProjectPartQuantity({
+  projectId: () => props.projectId,
+  onSaved: (projectId, result) => {
+    applyRow(projectId, result.row);
+    // `missing_qty` against `ordered_qty` is what the *Offers* column counts,
+    // so this edit can move the project between columns.
+    projects.upsertCard(result.card);
+  },
+  onError: (err) =>
+    notify.showToast(translateApiError(err, { t, te }, 'errors.save_project_part_failed'), 'error'),
+});
 
-const pendingMissingQty = reactive<Record<number, number>>({});
-const missingQtyTimers = new Map<number, ReturnType<typeof setTimeout>>();
-const missingInputs = new Map<number, HTMLInputElement>();
-
-function registerMissingInput(row: ProjectPartRow, el: unknown) {
-  if (el instanceof HTMLInputElement) missingInputs.set(row.part.id, el);
-  else missingInputs.delete(row.part.id);
+/** Rows are keyed on the part, which both forms of the table have — a draft's
+ *  carry `id: null` until Start freezes them. */
+function quantityTarget(row: ProjectPartRow): QuantityTarget {
+  return { partId: row.part.id, quantity: row.missingQty, orderedQty: row.orderedQty };
 }
 
-/** Put a stored quantity back in the box. `:value` alone cannot: when a write
- *  is refused, or clamped to `orderedQty`, or abandoned because the field was
- *  left empty, the bound number never changed, so Vue sees nothing to
- *  re-render and the field keeps whatever was typed into it. */
-function setMissingInput(partId: number, value: number) {
-  const input = missingInputs.get(partId);
-  if (input) input.value = String(value);
-}
-
-function displayedMissing(row: ProjectPartRow): number {
-  return row.part.id in pendingMissingQty ? pendingMissingQty[row.part.id] : row.missingQty;
-}
-
-function cancelPendingMissing(partId: number) {
-  const timer = missingQtyTimers.get(partId);
-  if (timer) clearTimeout(timer);
-  missingQtyTimers.delete(partId);
-  delete pendingMissingQty[partId];
-}
-
-function onMissingInput(row: ProjectPartRow, event: Event) {
-  const partId = row.part.id;
-  const raw = (event.target as HTMLInputElement).value.trim();
-
-  // An emptied box is a number on its way to being retyped, not an instruction
-  // to buy nothing. `Number('')` is 0, so emptiness has to be caught before the
-  // parse — otherwise backspacing over a quantity and pausing half a second
-  // saves a zero, and since any real change also sets `missing_qty_overridden`
-  // it would quietly exempt the row from every future recalculate as well.
-  // Any pending edit is dropped with it; `flushMissing` restores the field.
-  const parsed = raw === '' ? NaN : Math.trunc(Number(raw));
-  if (!Number.isFinite(parsed)) {
-    cancelPendingMissing(partId);
-    return;
-  }
-
-  pendingMissingQty[partId] = Math.max(0, parsed);
-  const existing = missingQtyTimers.get(partId);
-  if (existing) clearTimeout(existing);
-  missingQtyTimers.set(
-    partId,
-    setTimeout(() => void commitMissing(props.projectId, row), MISSING_QTY_DEBOUNCE_MS),
-  );
-}
-
-function flushMissing(row: ProjectPartRow) {
-  // Nothing pending: either nothing was typed, or what was typed was an empty
-  // field we refused to read as a zero. Either way the box has to go back to
-  // showing what is stored.
-  if (!(row.part.id in pendingMissingQty)) {
-    setMissingInput(row.part.id, row.missingQty);
-    return;
-  }
-  const timer = missingQtyTimers.get(row.part.id);
-  if (timer) clearTimeout(timer);
-  missingQtyTimers.delete(row.part.id);
-  void commitMissing(props.projectId, row);
-}
-
-/** Replace one row in the cached payload with the one a write answered with.
- *  Matched on the part, not `project_parts.id`, which is null on a draft. */
+/** Replace one row in the cached payload with the one a write answered with. */
 function applyRow(projectId: number, updated: ProjectPartRow) {
   patchScope(projectId, (current) => ({
     ...current,
     rows: current.rows.map((row) => (row.part.id === updated.part.id ? updated : row)),
   }));
 }
-
-async function commitMissing(projectId: number, row: ProjectPartRow) {
-  const partId = row.part.id;
-  const raw = pendingMissingQty[partId];
-  if (raw === undefined) return;
-  // Cleared BEFORE the request, not after it: a blur landing while the write
-  // is in flight would otherwise still find the value pending and send the
-  // same edit a second time, for one keystroke.
-  cancelPendingMissing(partId);
-
-  // A line can never be made to owe less than it has already bought (§3.3);
-  // the API enforces this too (MISSING_QTY_BELOW_ORDERED), this just avoids
-  // a round trip for the common case of typing a smaller, still-valid number.
-  // `orderedQty` is zero on a draft, so this is a no-op there.
-  const missingQty = Math.max(raw, row.orderedQty);
-  try {
-    const { data } = await projectsApi.updatePartQuantity(projectId, partId, { missingQty });
-    applyRow(projectId, data.row);
-    // `missing_qty` against `ordered_qty` is what the *Offers* column counts,
-    // so this edit can move the project between columns.
-    projects.upsertCard(data.card);
-    setMissingInput(partId, data.row.missingQty);
-  } catch (err) {
-    setMissingInput(partId, row.missingQty);
-    notify.showToast(translateApiError(err, { t, te }, 'errors.save_project_part_failed'), 'error');
-  }
-}
-
-onBeforeUnmount(() => {
-  for (const timer of missingQtyTimers.values()) clearTimeout(timer);
-  missingQtyTimers.clear();
-});
 
 // ---- Recalculate from stock (§6.4, §5.3) -----------------------------------
 //

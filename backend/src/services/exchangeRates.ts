@@ -99,6 +99,24 @@ export async function fetchAndCacheBnr(): Promise<ParsedBnr> {
   return parsed;
 }
 
+/** The most recent cached rate on or before `onDate`, or null when there is
+ *  none. Reads only what is already in `exchange_rates` — never BNR. */
+async function cachedRate(
+  currency: string,
+  onDate: string,
+): Promise<{ rate: number; rateDate: string } | null> {
+  const result = await query<{ rate: string; rate_date: string }>(
+    `SELECT rate, to_char(rate_date, 'YYYY-MM-DD') AS rate_date
+     FROM exchange_rates
+     WHERE currency = $1 AND rate_date <= $2
+     ORDER BY rate_date DESC
+     LIMIT 1`,
+    [currency, onDate],
+  );
+  const row = result.rows[0];
+  return row ? { rate: Number(row.rate), rateDate: row.rate_date } : null;
+}
+
 /**
  * RON per 1 unit of `currency` for `onDate`, using the most recent rate on or
  * before that date. Falls back to fetching BNR once if nothing is cached yet.
@@ -110,29 +128,39 @@ export async function getRate(
 ): Promise<{ rate: number; rateDate: string }> {
   if (currency === 'RON') return { rate: 1, rateDate: onDate };
 
-  const lookup = async () =>
-    query<{ rate: string; rate_date: string }>(
-      `SELECT rate, to_char(rate_date, 'YYYY-MM-DD') AS rate_date
-       FROM exchange_rates
-       WHERE currency = $1 AND rate_date <= $2
-       ORDER BY rate_date DESC
-       LIMIT 1`,
-      [currency, onDate],
-    );
-
-  let result = await lookup();
-  if (result.rows.length === 0) {
+  let cached = await cachedRate(currency, onDate);
+  if (!cached) {
     // Nothing cached on/before the date — pull the latest from BNR and retry.
     await fetchAndCacheBnr();
-    result = await lookup();
+    cached = await cachedRate(currency, onDate);
   }
-  if (result.rows.length === 0) {
-    throw new BnrRateUnavailableError(currency);
+  if (!cached) throw new BnrRateUnavailableError(currency);
+  return cached;
+}
+
+/**
+ * RON per 1 EUR today from the cache alone, or null when nothing is cached.
+ *
+ * For read paths that want to SHOW a price in RON. Deliberately NOT `getRate`:
+ * that one fetches BNR when the cache misses, which is right for a write — it
+ * must fail rather than store a price converted at a rate nobody knows — but
+ * wrong for a page. `fetch` here has no timeout, so on an empty
+ * `exchange_rates` table, or with no outbound network, every render of the
+ * offer grid would block on bnr.ro until the OS gives up. A page shows the
+ * currencies it can and offers RON when a rate is there.
+ */
+export async function currentRonPerEur(): Promise<number | null> {
+  try {
+    return (await cachedRate('EUR', bucharestToday()))?.rate ?? null;
+  } catch (err) {
+    // Swallowed, not silent. This decides whether a currency can be OFFERED,
+    // never what a price is, so nothing downstream is wrong if it gives up —
+    // whereas letting it reject takes the whole offer grid's response with it
+    // and the page renders as an empty table with nothing to explain it. That
+    // is a regression this function has already caused once.
+    console.warn('[exchangeRates] EUR rate unavailable for display', err);
+    return null;
   }
-  return {
-    rate: Number(result.rows[0].rate),
-    rateDate: result.rows[0].rate_date,
-  };
 }
 
 export interface ConversionResult {

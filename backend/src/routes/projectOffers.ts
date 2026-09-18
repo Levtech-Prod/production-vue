@@ -25,6 +25,7 @@ import {
 } from '../schemas/projectOffers.schema.js';
 import type { ProjectStatus } from '../schemas/projects.schema.js';
 import { loadBoardCards } from '../services/projectBoard.js';
+import { currentRonPerEur } from '../services/exchangeRates.js';
 import {
   addOfferCompany,
   convertOfferCells,
@@ -82,7 +83,12 @@ router.get('/:id/offer', requireAuth, async (req, res) => {
   // the quotes it collected are a record, and read-only is the page's call.
   if (status === 'draft') throw new ApiError(409, ErrorCodes.PROJECT_PARTS_NOT_FROZEN);
 
-  res.json(await loadOfferGrid(pool, projectId, status));
+  const grid = await loadOfferGrid(pool, projectId, status);
+  // Composed here rather than inside `loadOfferGrid`: the rate is not part of
+  // the sheet, it is what the page needs to render a column of canonical-EUR
+  // prices in RON when the buyer asks for RON. Null means that choice is
+  // unavailable right now, not that a price is missing.
+  res.json({ ...grid, ronPerEur: await currentRonPerEur() });
 });
 
 // POST /api/projects/:id/offer/companies — add a column (§5.2).

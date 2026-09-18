@@ -7,6 +7,9 @@ export type SortDir = 'asc' | 'desc';
  *  first" or "sorts last" on its own — see `sortedRows` below. */
 export type SortAccessor<T> = (row: T) => string | number | null | undefined;
 
+/** The sortable columns of one table, by key. */
+export type SortAccessors<T> = Record<string, SortAccessor<T>>;
+
 /**
  * Click-a-header table sort: asc -> desc -> unsorted, one column at a time.
  * Written for the Project Parts table and the offer grid (plan §6.4) — both
@@ -20,14 +23,20 @@ export type SortAccessor<T> = (row: T) => string | number | null | undefined;
  * rebuilt on top of this (plan §6.4, CLAUDE.md's duplication rule).
  *
  * `rows` is a getter so the caller can hand in a computed (e.g. already
- * filtered) without this composable owning that filtering.
+ * filtered) without this composable owning that filtering. `accessors` may be
+ * a getter too, for a table whose columns are data: the offer grid's are one
+ * per `project_offer_companies` row, added and removed while the page is open.
  */
-export function useTableSort<T>(rows: () => T[], accessors: Record<string, SortAccessor<T>>) {
+export function useTableSort<T>(
+  rows: () => T[],
+  accessors: SortAccessors<T> | (() => SortAccessors<T>),
+) {
+  const accessorsNow = typeof accessors === 'function' ? accessors : () => accessors;
   const sortKey = ref<string | null>(null);
   const sortDir = ref<SortDir>('asc');
 
   function toggleSort(key: string) {
-    if (!(key in accessors)) return;
+    if (!(key in accessorsNow())) return;
     if (sortKey.value !== key) {
       sortKey.value = key;
       sortDir.value = 'asc';
@@ -43,7 +52,11 @@ export function useTableSort<T>(rows: () => T[], accessors: Record<string, SortA
     const source = rows();
     if (key === null) return source;
 
-    const accessor = accessors[key];
+    // The column can be gone: an offer column is removed while the grid is
+    // sorted by it, and an accessor lookup that came back undefined used to
+    // throw on the first comparison.
+    const accessor = accessorsNow()[key];
+    if (!accessor) return source;
     const dir = sortDir.value === 'asc' ? 1 : -1;
 
     return [...source].sort((a, b) => {

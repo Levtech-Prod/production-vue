@@ -62,18 +62,30 @@ function loadThumbnail(src: string): Promise<string | null> {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = THUMB_PX;
-      canvas.height = THUMB_PX;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve(null);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, THUMB_PX, THUMB_PX);
-      const scale = Math.max(THUMB_PX / img.naturalWidth, THUMB_PX / img.naturalHeight);
-      const w = img.naturalWidth * scale;
-      const h = img.naturalHeight * scale;
-      ctx.drawImage(img, (THUMB_PX - w) / 2, (THUMB_PX - h) / 2, w, h);
-      resolve(canvas.toDataURL('image/png'));
+      // Everything here is inside the try because a throw in an event handler
+      // settles nothing: the promise would stay pending for good, and
+      // `loadThumbnails` awaits all of them, so one image would hang the whole
+      // export with no error to show for it. `toDataURL` is the live risk —
+      // it raises SecurityError on a canvas tainted by a cross-origin image,
+      // which `crossOrigin = 'anonymous'` usually prevents but a redirect to
+      // another origin can still produce.
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = THUMB_PX;
+        canvas.height = THUMB_PX;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(null);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, THUMB_PX, THUMB_PX);
+        const scale = Math.max(THUMB_PX / img.naturalWidth, THUMB_PX / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const h = img.naturalHeight * scale;
+        ctx.drawImage(img, (THUMB_PX - w) / 2, (THUMB_PX - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        // Same outcome as a failed load: one broken image, not a failed export.
+        resolve(null);
+      }
     };
     img.onerror = () => resolve(null);
     img.src = src;
