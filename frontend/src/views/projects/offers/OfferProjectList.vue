@@ -44,14 +44,18 @@
            and the same colour on both pages (`BoardCardShell`'s own note).
            `ProjectCard` itself does not fit: it renders a `ProjectBoardCard`'s
            products, sub-products and progress, none of which the offer queue
-           carries or a buyer picking a project to quote needs. -->
+           carries or a buyer picking a project to quote needs.
+
+           Not `dimmed`, though the board dims the cards of other projects: there
+           a selection is transient and dimming reads as focus, while here one
+           project is always selected, so it would grey the whole list in the
+           page's resting state. The selection ring says enough. -->
       <BoardCardShell
         v-for="project in projects"
         :key="project.id"
         :project-id="project.id"
         clickable
         :selected="project.id === selectedId"
-        :dimmed="selectedId !== null && project.id !== selectedId"
         @activate="emit('select', project.id)"
       >
         <div class="truncate text-sm font-semibold text-slate-800" :title="project.name">

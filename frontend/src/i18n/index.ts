@@ -864,6 +864,8 @@ const messages = {
       add_offer_company_failed: 'Failed to add the company to the offer sheet',
       remove_offer_company_failed: 'Failed to remove the company from the offer sheet',
       save_offer_prices_failed: 'Failed to save the quoted prices',
+      invalid_price: 'That is not a price — the cell was left as it was.',
+      load_offer_grid_failed: 'Could not load this project’s offer sheet.',
     },
 
     success: {
@@ -1821,6 +1823,8 @@ const messages = {
       add_offer_company_failed: 'A céget nem sikerült felvenni az ajánlati táblázatba',
       remove_offer_company_failed: 'A céget nem sikerült eltávolítani az ajánlati táblázatból',
       save_offer_prices_failed: 'Az ajánlati árakat nem sikerült menteni',
+      invalid_price: 'Ez nem ár — a cella változatlan maradt.',
+      load_offer_grid_failed: 'A projekt ajánlati táblázatát nem sikerült betölteni.',
     },
 
     success: {

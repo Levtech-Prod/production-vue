@@ -16,7 +16,24 @@
       </button>
     </div>
 
-    <p v-if="!loading && !editable" class="shrink-0 bg-slate-50 px-4 py-2 text-sm text-slate-600">
+    <!-- `useScopedCache` answers a failed fetch with the empty payload, which
+         renders as a grid with nothing to buy — indistinguishable from a
+         project that genuinely has nothing left. Without this the page's whole
+         report of a broken request is a blank table. -->
+    <p
+      v-if="loadError && !loading"
+      class="flex shrink-0 items-center gap-3 bg-red-50 px-4 py-2 text-sm text-red-600"
+    >
+      {{ loadError }}
+      <button type="button" class="font-semibold underline" @click="reload">
+        {{ t('retry') }}
+      </button>
+    </p>
+
+    <p
+      v-else-if="!loading && !editable"
+      class="shrink-0 bg-slate-50 px-4 py-2 text-sm text-slate-600"
+    >
       {{ t('offer_sheet_read_only') }}
     </p>
 
@@ -40,7 +57,7 @@
               :ref="(el) => registerHeaderCell('name', el)"
               :style="stickyStyle('name')"
               class="sticky top-0 z-30 cursor-pointer select-none bg-blue-100 px-3 py-2 hover:bg-blue-200"
-              @click="toggleSort('name')"
+              @click="sortColumn('name')"
             >
               <div :style="boundsStyle('name')">
                 <SortLabel :label="t('name')" sort-key="name" :active-key="sortKey" :dir="sortDir" />
@@ -50,7 +67,7 @@
               :ref="(el) => registerHeaderCell('code', el)"
               :style="stickyStyle('code')"
               class="sticky top-0 z-30 cursor-pointer select-none bg-blue-100 px-3 py-2 hover:bg-blue-200"
-              @click="toggleSort('code')"
+              @click="sortColumn('code')"
             >
               <div :style="boundsStyle('code')">
                 <SortLabel :label="t('code')" sort-key="code" :active-key="sortKey" :dir="sortDir" />
@@ -60,7 +77,7 @@
               :ref="(el) => registerHeaderCell('quantity', el)"
               :style="stickyStyle('quantity')"
               class="sticky top-0 z-30 cursor-pointer select-none bg-blue-100 px-3 py-2 hover:bg-blue-200"
-              @click="toggleSort('quantity')"
+              @click="sortColumn('quantity')"
             >
               <div :style="boundsStyle('quantity')">
                 <SortLabel
@@ -80,7 +97,7 @@
                 <span
                   class="flex-1 cursor-pointer select-none truncate"
                   :title="company.name"
-                  @click="toggleSort(companySortKey(company.id))"
+                  @click="sortColumn(companySortKey(company.id))"
                 >
                   <SortLabel
                     :label="company.name"
@@ -125,14 +142,14 @@
         </thead>
 
         <tbody>
-          <tr v-if="!loading && sortedRows.length === 0">
+          <tr v-if="!loading && displayRows.length === 0">
             <td :colspan="6 + companies.length" class="py-12 text-center text-sm text-slate-400">
               {{ t('no_offer_rows_msg') }}
             </td>
           </tr>
 
           <tr
-            v-for="(row, rowIndex) in sortedRows"
+            v-for="(row, rowIndex) in displayRows"
             :key="row.projectPartId"
             class="border-t border-slate-100"
             :class="rowBg(rowIndex)"
@@ -234,11 +251,13 @@
                   :ref="(el) => registerPriceInput(row, company, el)"
                   type="text"
                   inputmode="decimal"
+                  data-price-cell="true"
                   class="input-cell w-full min-w-0 text-right tabular-nums"
                   :value="cellText(row, company)"
                   :disabled="!editable"
+                  @focus="freezeOrder"
                   @input="onCellInput(row, company, $event)"
-                  @blur="commitCell(row, company)"
+                  @blur="onCellBlur(row, company, $event)"
                   @keydown="onCellKeydown($event, rowIndex, company)"
                 />
                 <span class="pr-1 text-[10px] text-slate-400">
@@ -251,7 +270,7 @@
           </tr>
         </tbody>
 
-        <tfoot v-if="companies.length > 0 && sortedRows.length > 0">
+        <tfoot v-if="companies.length > 0 && displayRows.length > 0">
           <tr class="border-t border-slate-300 text-xs font-medium text-slate-600">
             <td :style="stickyStyle('image')" class="sticky bottom-0 z-30 bg-slate-100 px-3 py-2" />
             <td :style="stickyStyle('name')" class="sticky bottom-0 z-30 bg-slate-100 px-3 py-2">
@@ -324,7 +343,7 @@ import { useConfirmDelete } from '../../../composables/useConfirmDelete.ts';
 import { projectOffersApi } from '../../../api/projectOffersAPI.ts';
 import { useNotificationStore } from '../../../stores/notificationStore.ts';
 import { translateApiError } from '../../../utils/apiError.ts';
-import { blockNonIntegerKeys } from '../../../utils/numberInput.ts';
+import { blockNonIntegerKeys, parseDecimalInput } from '../../../utils/numberInput.ts';
 import { formatPrice } from '../../../utils/formatters.ts';
 import type { EntryCurrency } from '../../../types/parts.ts';
 import type { ProjectBoardCard } from '../../../types/projects.ts';
@@ -363,13 +382,35 @@ const current = computed(() => props.projectId);
 // Behind `useScopedCache` (§6.5) for the same reason the Parts table is:
 // switching between projects while comparing quotes is the whole workflow, and
 // a slow response must never land on top of a newer selection.
+/** Why the sheet is empty, when the reason is a failed request rather than a
+ *  project with nothing left to buy. `useScopedCache` deliberately answers a
+ *  failure with the empty payload, so the distinction has to be kept here. */
+const loadError = ref<string | null>(null);
+
 const { data: grid, loading, load, refresh, patchScope } = useScopedCache<number, OfferGrid>({
   current,
   keyFor: (id) => String(id),
-  fetcher: async (id) => (await projectOffersApi.getGrid(id)).data,
+  fetcher: async (id) => {
+    try {
+      const { data } = await projectOffersApi.getGrid(id);
+      loadError.value = null;
+      return data;
+    } catch (err) {
+      loadError.value = translateApiError(err, { t, te }, 'errors.load_offer_grid_failed');
+      // Rethrown: the cache must treat this as a failure, drop the entry and
+      // show the empty payload. This only adds the reason.
+      throw err;
+    }
+  },
   empty: EMPTY_GRID,
   onData: (data) => adoptColumnCurrencies(data),
 });
+
+/** A failed fetch leaves no cache entry, so this genuinely re-reads. */
+function reload() {
+  loadError.value = null;
+  void load(props.projectId);
+}
 
 const rows = computed(() => grid.value.rows);
 const companies = computed(() => grid.value.companies);
@@ -381,12 +422,26 @@ const editable = computed(() => grid.value.status === 'started');
  *  disabled rather than showing prices at a rate nobody has. */
 const ronPerEur = computed(() => grid.value.ronPerEur);
 
+/**
+ * The row order held still while prices are being typed — see `displayRows`
+ * below, which is what reads it.
+ *
+ * Declared HERE, far from the logic that owns it, because the `immediate`
+ * watcher just below clears it on mount: an `immediate` watcher runs during
+ * `setup()`, so a `const` declared further down the file is still in its
+ * temporal dead zone and touching it throws `ReferenceError` before the
+ * component ever mounts. `vue-tsc` cannot see that — it does not know when a
+ * callback runs — so the guard is this comment and this position.
+ */
+const frozenOrder = ref<number[] | null>(null);
+
 watch(
   () => props.projectId,
   (id, previous) => {
     // Anything typed into the project being left is still only in the browser;
     // flushing it here is what makes switching projects mid-column safe.
     if (previous !== undefined) void flushPrices();
+    frozenOrder.value = null;
     void load(id);
   },
   { immediate: true },
@@ -446,7 +501,14 @@ const headerCells = new Map<StickyColumn, HTMLElement>();
 let headerObserver: ResizeObserver | null = null;
 
 function measureHeaderCells() {
-  for (const [column, el] of headerCells) stickyWidths[column] = el.offsetWidth;
+  // `getBoundingClientRect().width`, not `offsetWidth`: text-derived column
+  // widths are fractional, and offsetWidth rounds each one to an integer. The
+  // offsets are a RUNNING TOTAL, so those roundings accumulate — measured at
+  // ~0.64px by the fourth pinned column, which shows as slivers of the
+  // scrolling company columns between the frozen ones.
+  for (const [column, el] of headerCells) {
+    stickyWidths[column] = el.getBoundingClientRect().width;
+  }
 }
 
 function registerHeaderCell(column: StickyColumn, el: unknown) {
@@ -506,6 +568,60 @@ const { sortKey, sortDir, toggleSort, sortedRows } = useTableSort<OfferRow>(
     return accessors;
   },
 );
+
+/**
+ * The rows as rendered: the sort, except while prices are being typed into it.
+ *
+ * Sorting by a company column and entering prices into that same column is the
+ * ordinary way to use this page, and those two fight: each flush rewrites the
+ * value the sort reads, so the row just filled in jumps to its new place and
+ * every row below it shifts. Vue keys rows by part, so the cursor stays on the
+ * right one — but the list moves under the eyes of someone reading down it,
+ * which is the condition a price gets typed against the wrong part in. The
+ * sticky identity columns exist to prevent exactly that.
+ *
+ * So the order is frozen while a price cell has focus and settles when focus
+ * leaves the grid. Only the ORDER is frozen, never the rows: they are looked
+ * up fresh every render, so prices, best-price highlighting and the footer all
+ * keep updating in place. Rows that leave the grid drop out, and rows the
+ * frozen order has never seen (none today, but a refresh could bring some) go
+ * at the end rather than being hidden.
+ */
+const displayRows = computed(() => {
+  const order = frozenOrder.value;
+  if (order === null) return sortedRows.value;
+
+  const byId = new Map(sortedRows.value.map((row) => [row.projectPartId, row]));
+  const held = order.flatMap((id) => {
+    const row = byId.get(id);
+    if (!row) return [];
+    byId.delete(id);
+    return [row];
+  });
+  return [...held, ...byId.values()];
+});
+
+function freezeOrder() {
+  frozenOrder.value ??= sortedRows.value.map((row) => row.projectPartId);
+}
+
+/** Leaving a cell writes it, and releases the frozen order once focus has left
+ *  the price columns altogether. `relatedTarget` is where focus is GOING: still
+ *  a price cell means the buyer is working down the column and the order has to
+ *  hold; anywhere else (or nowhere, on the last Enter) lets it re-sort. */
+function onCellBlur(row: OfferRow, company: OfferCompanyColumn, event: FocusEvent) {
+  commitCell(row, company);
+  const next = event.relatedTarget;
+  if (next instanceof HTMLElement && next.dataset.priceCell === 'true') return;
+  frozenOrder.value = null;
+}
+
+// Clicking a header is an explicit request to reorder, and it must win over a
+// freeze the click's own focus change may not have cleared.
+function sortColumn(key: string) {
+  frozenOrder.value = null;
+  toggleSort(key);
+}
 
 // ---- Purchase quantity (§6.5) ----------------------------------------------
 //
@@ -629,14 +745,15 @@ function onCellInput(row: OfferRow, company: OfferCompanyColumn, event: Event) {
   draft[cellKey(row.projectPartId, company.id)] = (event.target as HTMLInputElement).value;
 }
 
-/** A typed amount, or `null` to clear the cell. `undefined` is "not a number" —
- *  the edit is dropped and the stored value comes back. A comma is a decimal
- *  point: a price read off a Hungarian or Romanian invoice is written `1,23`. */
+/** A typed amount, or `null` to clear the cell. `undefined` is "not a price" —
+ *  either unreadable or negative, which `parseDecimalInput` allows and a price
+ *  does not. The separator conventions live in that helper, because story 13's
+ *  pasted column has to read a spreadsheet exactly the way this reads a
+ *  keystroke. */
 function parseAmount(raw: string): number | null | undefined {
-  const text = raw.trim().replace(',', '.');
-  if (text === '') return null;
-  const value = Number(text);
-  return Number.isFinite(value) && value >= 0 ? value : undefined;
+  const value = parseDecimalInput(raw);
+  if (value === null || value === undefined) return value;
+  return value >= 0 ? value : undefined;
 }
 
 function discardDraft(key: string) {
@@ -662,6 +779,11 @@ function commitCell(row: OfferRow, company: OfferCompanyColumn) {
   if (amount === undefined || unchanged) {
     discardDraft(key);
     setInputText(key, storedText(row, company));
+    // A cell that silently reverts is indistinguishable from one that saved,
+    // and reverting is exactly what a SUCCESSFUL no-op edit does — so the
+    // unreadable case has to say so or a buyer walks away believing a price
+    // they typed is stored.
+    if (amount === undefined) notify.showToast(t('errors.invalid_price'), 'error');
     return;
   }
 
@@ -746,7 +868,7 @@ onBeforeUnmount(() => {
 // across.
 
 function focusCell(rowIndex: number, offerCompanyId: number) {
-  const row = sortedRows.value[rowIndex];
+  const row = displayRows.value[rowIndex];
   if (!row) return;
   priceInputs.get(cellKey(row.projectPartId, offerCompanyId))?.focus();
 }
@@ -754,7 +876,7 @@ function focusCell(rowIndex: number, offerCompanyId: number) {
 function onCellKeydown(event: KeyboardEvent, rowIndex: number, company: OfferCompanyColumn) {
   const input = event.target as HTMLInputElement;
   if (event.key === 'Escape') {
-    const row = sortedRows.value[rowIndex];
+    const row = displayRows.value[rowIndex];
     if (!row) return;
     const key = cellKey(row.projectPartId, company.id);
     discardDraft(key);
@@ -769,7 +891,7 @@ function onCellKeydown(event: KeyboardEvent, rowIndex: number, company: OfferCom
   const next = rowIndex + step;
   // Off the end of the column: blur instead, so the last price of a column is
   // committed by the same Enter that would have moved on.
-  if (next < 0 || next >= sortedRows.value.length) input.blur();
+  if (next < 0 || next >= displayRows.value.length) input.blur();
   else focusCell(next, company.id);
 }
 
