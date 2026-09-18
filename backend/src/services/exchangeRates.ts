@@ -135,6 +135,26 @@ export async function getRate(
   };
 }
 
+/**
+ * RON per 1 EUR today, or null when nothing is cached and BNR cannot be
+ * reached.
+ *
+ * For read paths that want to SHOW a price in RON. Deliberately not
+ * `getRate`: a write must fail rather than store a price converted at a rate
+ * nobody knows, but a page must not fail to render because bnr.ro is down —
+ * the currency is simply not offered until a rate is available.
+ */
+export async function currentRonPerEur(): Promise<number | null> {
+  try {
+    return (await getRate('EUR', bucharestToday())).rate;
+  } catch (err) {
+    // Swallowed, not silent: the caller degrades to EUR-only and the reason
+    // has to be findable when someone asks why RON went missing.
+    console.warn('[exchangeRates] no EUR rate for display', err);
+    return null;
+  }
+}
+
 export interface ConversionResult {
   /** Canonical price in EUR, rounded to 4 decimals. */
   priceEur: number;

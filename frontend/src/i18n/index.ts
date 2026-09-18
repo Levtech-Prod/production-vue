@@ -613,6 +613,27 @@ const messages = {
     no_project_parts_msg: 'This project has no parts.',
     stock_shortfall_warning:
       'Stock has moved since this was claimed — there may not be enough left for this project.',
+    // Offer Processing page (projects-preparation-plan.md §6.5)
+    no_offer_projects_msg: 'No project has anything left to buy.',
+    select_offer_project_msg: 'Select a project to quote.',
+    to_buy_lines: '{n} to buy',
+    on_order_lines: '{n} on order',
+    add_offer_company: 'Add company',
+    remove_offer_company: 'Remove company',
+    already_a_column: 'already a column',
+    offer_sheet_read_only:
+      'This project is no longer running — its quotes are shown as a record and cannot be changed.',
+    no_offer_rows_msg: 'Nothing left to buy on this project.',
+    reference_price: 'Reference',
+    reference_source: {
+      paid: 'paid',
+      quoted: 'quoted',
+    },
+    collapse_offer_list: 'Collapse the project list',
+    expand_offer_list: 'Expand the project list',
+    less_ordered: '{n} already ordered',
+    offer_coverage: '{quoted} / {total} parts',
+    offer_footer_label: 'Quoted · basket',
     project_status: {
       draft: 'Draft',
       started: 'Started',
@@ -840,6 +861,9 @@ const messages = {
       load_project_parts_failed: 'Failed to load the parts list',
       save_project_part_failed: 'Failed to save the change',
       recalculate_project_parts_failed: 'Failed to recalculate from stock',
+      add_offer_company_failed: 'Failed to add the company to the offer sheet',
+      remove_offer_company_failed: 'Failed to remove the company from the offer sheet',
+      save_offer_prices_failed: 'Failed to save the quoted prices',
     },
 
     success: {
@@ -948,6 +972,8 @@ const messages = {
         'The sub-product goes back to Preparation and its parts return to what this project can pick',
       recalculate_project_parts_msg:
         '{eligible} row(s) will be recalculated from today’s stock. {overridden} row(s) with a manual edit will be skipped.',
+      remove_offer_company_msg:
+        'Every price quoted by this company on this project is deleted with the column. This cannot be undone',
     },
   },
   hu: {
@@ -1551,6 +1577,27 @@ const messages = {
     no_project_parts_msg: 'Ehhez a projekthez nem tartozik alkatrész.',
     stock_shortfall_warning:
       'A készlet megváltozott a lefoglalás óta — lehet, hogy nem marad elég ehhez a projekthez.',
+    // Ajánlatfeldolgozás oldal (projects-preparation-plan.md §6.5)
+    no_offer_projects_msg: 'Egyetlen projekten sincs már beszerzendő tétel.',
+    select_offer_project_msg: 'Válasszon projektet az ajánlatokhoz.',
+    to_buy_lines: '{n} beszerzendő',
+    on_order_lines: '{n} megrendelve',
+    add_offer_company: 'Cég hozzáadása',
+    remove_offer_company: 'Cég eltávolítása',
+    already_a_column: 'már szerepel',
+    offer_sheet_read_only:
+      'Ez a projekt már nem fut — az ajánlatai csak nyilvántartásként látszanak, nem módosíthatók.',
+    no_offer_rows_msg: 'Ezen a projekten nincs több beszerzendő tétel.',
+    reference_price: 'Referencia',
+    reference_source: {
+      paid: 'fizetett',
+      quoted: 'ajánlat',
+    },
+    collapse_offer_list: 'Projektlista összecsukása',
+    expand_offer_list: 'Projektlista kinyitása',
+    less_ordered: '{n} már megrendelve',
+    offer_coverage: '{quoted} / {total} alkatrész',
+    offer_footer_label: 'Ajánlott · kosár',
     project_status: {
       draft: 'Piszkozat',
       started: 'Elindítva',
@@ -1771,6 +1818,9 @@ const messages = {
       load_project_parts_failed: 'Az alkatrészlista betöltése nem sikerült',
       save_project_part_failed: 'A módosítás mentése nem sikerült',
       recalculate_project_parts_failed: 'Az újraszámítás nem sikerült',
+      add_offer_company_failed: 'A céget nem sikerült felvenni az ajánlati táblázatba',
+      remove_offer_company_failed: 'A céget nem sikerült eltávolítani az ajánlati táblázatból',
+      save_offer_prices_failed: 'Az ajánlati árakat nem sikerült menteni',
     },
 
     success: {
@@ -1878,6 +1928,8 @@ const messages = {
         'Az altermék visszakerül az Előkészítés oszlopba, alkatrészei pedig a projekt által kivételezhető készletbe',
       recalculate_project_parts_msg:
         '{eligible} sor kerül újraszámításra a mai készlet alapján. {overridden} kézzel módosított sor kihagyásra kerül.',
+      remove_offer_company_msg:
+        'Az oszloppal együtt a cég minden, ezen a projekten adott ára törlődik. Ez nem vonható vissza',
     },
   },
 };
